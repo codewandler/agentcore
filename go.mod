@@ -1,4 +1,4 @@
-module github.com/codewandler/core
+module github.com/codewandler/agentcore
 
 go 1.25
 
