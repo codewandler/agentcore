@@ -1,8 +1,8 @@
-# codewandler/core
+# codewandler/agentcore
 
 Portable tool definitions, markdown utilities, and instruction file loading for LLM agents.
 
-**core** provides a minimal, dependency-light foundation for agent tool systems—reusable across projects without requiring a full agent runtime.
+**agentcore** provides a minimal, dependency-light foundation for agent tool systems—reusable across projects without requiring a full agent runtime.
 
 ## Features
 
@@ -23,9 +23,9 @@ Portable tool definitions, markdown utilities, and instruction file loading for 
 
 ```go
 import (
-    "github.com/codewandler/core/tool"
-    "github.com/codewandler/core/tools/filesystem"
-    "github.com/codewandler/core/markdown"
+    "github.com/codewandler/agentcore/tool"
+    "github.com/codewandler/agentcore/tools/filesystem"
+    "github.com/codewandler/agentcore/markdown"
 )
 
 // Load instruction files

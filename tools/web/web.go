@@ -12,9 +12,9 @@ import (
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/tool"
 	"github.com/codewandler/flai/core/websearch"
-	"github.com/codewandler/core/internal/humanize"
+	"github.com/codewandler/agentcore/internal/humanize"
 )
 
 // ── Constants ─────────────────────────────────────────────────────────────────

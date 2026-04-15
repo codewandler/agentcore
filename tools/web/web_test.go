@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/tool"
 	"github.com/codewandler/flai/core/websearch"
 )
 

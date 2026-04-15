@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/codewandler/core/tools/notify"
+	"github.com/codewandler/agentcore/tools/notify"
 )
 
 func TestTools_ReturnsSingleTool(t *testing.T) {

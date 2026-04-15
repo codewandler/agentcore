@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/tool"
 )
 
 // ── BlocksResult.String() only renders Blocks ─────────────────────────────────

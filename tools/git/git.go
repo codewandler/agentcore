@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codewandler/core/tool"
-	idiff "github.com/codewandler/core/internal/diff"
+	"github.com/codewandler/agentcore/tool"
+	idiff "github.com/codewandler/agentcore/internal/diff"
 )
 
 const gitTimeout = 30 * time.Second

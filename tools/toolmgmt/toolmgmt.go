@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/tool"
 	rttool "github.com/codewandler/flai/runtime/tool"
 )
 

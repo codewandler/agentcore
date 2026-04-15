@@ -17,8 +17,8 @@ import (
 	conv "github.com/codewandler/flai/core/conversation"
 	"github.com/codewandler/flai/core/hook"
 	"github.com/codewandler/flai/core/mode"
-	"github.com/codewandler/core/skill"
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/skill"
+	"github.com/codewandler/agentcore/tool"
 )
 
 // Plugin is the base marker interface. All plugins must implement this.

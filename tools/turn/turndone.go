@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/codewandler/core/tool"
+	"github.com/codewandler/agentcore/tool"
 )
 
 // TurnDoneParams are the parameters for the turn_done tool.

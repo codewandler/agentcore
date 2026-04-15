@@ -15,8 +15,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	ignore "github.com/sabhiram/go-gitignore"
 
-	"github.com/codewandler/core/tool"
-	"github.com/codewandler/core/internal/humanize"
+	"github.com/codewandler/agentcore/tool"
+	"github.com/codewandler/agentcore/internal/humanize"
 )
 
 // ── Constants ─────────────────────────────────────────────────────────────────
