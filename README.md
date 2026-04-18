@@ -7,7 +7,7 @@ Portable tool definitions, markdown utilities, and instruction file loading for 
 ## Features
 
 - **Tool System**: Define and execute LLM agent tools with schema validation
-- **Standard Tools**: Filesystem, shell, git, web, notifications
+- **Standard Tools**: Filesystem, shell, git, web, notifications, todo
 - **Markdown + Frontmatter**: Parse and load structured instruction files
 - **Instruction Loading**: AGENTS.md, CLAUDE.md pattern support
 - **Minimal Dependencies**: ~5 external packages
@@ -25,6 +25,7 @@ Portable tool definitions, markdown utilities, and instruction file loading for 
 import (
     "github.com/codewandler/agentcore/tool"
     "github.com/codewandler/agentcore/tools/filesystem"
+    "github.com/codewandler/agentcore/tools/todo"
     "github.com/codewandler/agentcore/markdown"
 )
 
@@ -33,9 +34,10 @@ files, _ := markdown.LoadInstructionFiles(".", markdown.DefaultPatterns)
 
 // Get standard tools
 fsTools := filesystem.Tools()
+todoTools := todo.Tools()
 
 // Use tools in your system
-for _, t := range fsTools {
+for _, t := range append(fsTools, todoTools...) {
     // Register and execute tools
 }
 ```
