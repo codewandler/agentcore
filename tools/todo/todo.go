@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/codewandler/agentcore/tool"
+	"github.com/codewandler/agentsdk/tool"
 )
 
 // Params are the parameters for the todo tool.

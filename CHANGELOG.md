@@ -1,8 +1,14 @@
 # Changelog
 
-All notable changes to codewandler/agentcore are documented in this file.
+All notable changes to codewandler/agentsdk are documented in this file.
 
-## [0.2.2] - "$date"
+## [0.3.0] - 2026-04-21
+
+### Changed
+- **Renamed module** from `github.com/codewandler/agentcore` to `github.com/codewandler/agentsdk`
+- Updated all internal import paths, README, and documentation
+
+## [0.2.2] - 2026-04-21
 
 ### Changed
 - Markdown buffer now emits standalone renderable blocks by trimming inter-block trailing blank lines while preserving stable streaming behavior
@@ -45,7 +51,7 @@ All notable changes to codewandler/agentcore are documented in this file.
 
 ### Initial Release
 
-This is the first public release of codewandler/agentcore, extracted from flai as a portable, independent tool system.
+This is the first public release of codewandler/agentsdk, extracted from flai as a portable, independent tool system.
 
 ### Added
 
@@ -77,7 +83,7 @@ This is the first public release of codewandler/agentcore, extracted from flai a
 -  - Tool activation/deactivation contract
 -  - Web search provider interface
 -  &  - Web search types
-- Enables agentcore tools to work with any runtime implementation
+- Enables agentsdk tools to work with any runtime implementation
 
 #### Internal Utilities
 - Humanize: Number and size formatting
@@ -100,8 +106,8 @@ This is the first public release of codewandler/agentcore, extracted from flai a
 ### Commit History
 
 -  - refactor: Remove all flai dependencies, create portable interfaces
--  - Fix: Update to correct module path github.com/codewandler/agentcore
--  - Fix: Update module name to github.com/codewandler/agentcore
+-  - Fix: Update to correct module path github.com/codewandler/agentsdk
+-  - Fix: Update module name to github.com/codewandler/agentsdk
 -  - Initial commit: Extract core tool system from flai
 
 ### Dependencies
@@ -119,20 +125,20 @@ This is the first public release of codewandler/agentcore, extracted from flai a
 
 - All 60+ tests passing
 - Build verified:  ✓
-- Tests verified: ?   	github.com/codewandler/agentcore/interfaces	[no test files]
-ok  	github.com/codewandler/agentcore/internal/diff	(cached)
-ok  	github.com/codewandler/agentcore/internal/humanize	(cached)
-ok  	github.com/codewandler/agentcore/markdown	(cached)
-ok  	github.com/codewandler/agentcore/skill	(cached)
-ok  	github.com/codewandler/agentcore/tool	(cached)
-ok  	github.com/codewandler/agentcore/tools/filesystem	(cached)
-ok  	github.com/codewandler/agentcore/tools/git	(cached)
-ok  	github.com/codewandler/agentcore/tools/notify	(cached)
-ok  	github.com/codewandler/agentcore/tools/shell	(cached)
-ok  	github.com/codewandler/agentcore/tools/todo	(cached)
-ok  	github.com/codewandler/agentcore/tools/toolmgmt	(cached)
-ok  	github.com/codewandler/agentcore/tools/turn	(cached)
-ok  	github.com/codewandler/agentcore/tools/web	(cached) ✓
+- Tests verified: ?   	github.com/codewandler/agentsdk/interfaces	[no test files]
+ok  	github.com/codewandler/agentsdk/internal/diff	(cached)
+ok  	github.com/codewandler/agentsdk/internal/humanize	(cached)
+ok  	github.com/codewandler/agentsdk/markdown	(cached)
+ok  	github.com/codewandler/agentsdk/skill	(cached)
+ok  	github.com/codewandler/agentsdk/tool	(cached)
+ok  	github.com/codewandler/agentsdk/tools/filesystem	(cached)
+ok  	github.com/codewandler/agentsdk/tools/git	(cached)
+ok  	github.com/codewandler/agentsdk/tools/notify	(cached)
+ok  	github.com/codewandler/agentsdk/tools/shell	(cached)
+ok  	github.com/codewandler/agentsdk/tools/todo	(cached)
+ok  	github.com/codewandler/agentsdk/tools/toolmgmt	(cached)
+ok  	github.com/codewandler/agentsdk/tools/turn	(cached)
+ok  	github.com/codewandler/agentsdk/tools/web	(cached) ✓
 
 ### Status
 
@@ -156,5 +162,5 @@ See  in flai repository for integration steps.
 - v0.3.0: Additional tool categories, plugin framework improvements
 - v1.0.0: Stable API, flai integration complete
 
-[0.2.0]: https://github.com/codewandler/agentcore/releases/tag/v0.2.0
-[0.1.0]: https://github.com/codewandler/agentcore/releases/tag/v0.1.0
+[0.2.0]: https://github.com/codewandler/agentsdk/releases/tag/v0.2.0
+[0.1.0]: https://github.com/codewandler/agentsdk/releases/tag/v0.1.0

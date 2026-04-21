@@ -1,6 +1,6 @@
 package interfaces
 
-import "github.com/codewandler/agentcore/tool"
+import "github.com/codewandler/agentsdk/tool"
 
 // ActivationState manages which tools are active/inactive.
 // Implemented by the agent runtime.

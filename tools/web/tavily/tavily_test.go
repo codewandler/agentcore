@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codewandler/agentcore/interfaces"
+	"github.com/codewandler/agentsdk/interfaces"
 	"github.com/stretchr/testify/require"
 )
 

@@ -1,4 +1,4 @@
-module github.com/codewandler/agentcore
+module github.com/codewandler/agentsdk
 
 go 1.25.7
 

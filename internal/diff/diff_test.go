@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/codewandler/agentcore/internal/diff"
+	"github.com/codewandler/agentsdk/internal/diff"
 )
 
 func TestUnified_NoChange(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/codewandler/agentcore/tool"
-	idiff "github.com/codewandler/agentcore/internal/diff"
-	"github.com/codewandler/agentcore/internal/humanize"
+	"github.com/codewandler/agentsdk/tool"
+	idiff "github.com/codewandler/agentsdk/internal/diff"
+	"github.com/codewandler/agentsdk/internal/humanize"
 )
 
 var (

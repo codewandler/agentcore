@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codewandler/agentcore/tool"
+	"github.com/codewandler/agentsdk/tool"
 )
 
 const notifySendBin = "notify-send"

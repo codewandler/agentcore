@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/codewandler/agentcore/tool"
+	"github.com/codewandler/agentsdk/tool"
 )
 
 // ── Unit tests: original-based merge engine ───────────────────────────────────

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codewandler/agentcore/tool"
-	"github.com/codewandler/agentcore/interfaces"
+	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/interfaces"
 )
 
 // KeyActivationState is the Extra() key under which tools_* look up the ActivationState.

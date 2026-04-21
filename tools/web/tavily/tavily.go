@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/codewandler/agentcore/interfaces"
+	"github.com/codewandler/agentsdk/interfaces"
 )
 
 const (

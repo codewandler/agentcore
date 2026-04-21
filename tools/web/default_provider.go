@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/codewandler/agentcore/interfaces"
-	"github.com/codewandler/agentcore/tools/web/tavily"
+	"github.com/codewandler/agentsdk/interfaces"
+	"github.com/codewandler/agentsdk/tools/web/tavily"
 )
 
 const envWebSearchProvider = "WEBSEARCH_PROVIDER"

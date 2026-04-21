@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/codewandler/agentcore/tool"
+	"github.com/codewandler/agentsdk/tool"
 	"github.com/stretchr/testify/require"
 )
 

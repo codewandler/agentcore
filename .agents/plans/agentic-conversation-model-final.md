@@ -454,6 +454,9 @@ Implementation guidance:
 
 ## 8.5 Event-log tree interface
 
+Note on naming: the public type remains `Conversation` because that is the user-facing concept, even though its internal durable representation is an event-log tree.
+
+
 ```go
 type Conversation interface {
     SessionID() SessionID
@@ -470,7 +473,7 @@ type Conversation interface {
 
     Path(to NodeID) []Event
     PathNodes(to NodeID) []Node
-    Messages() []Message
+    Messages() []Message // convenience only; not the canonical stored representation
 
     Snapshot() Snapshot
 }
@@ -685,6 +688,7 @@ Implementation guidance:
 - keep options short and obvious
 - `WithProjection` is acceptable because projection is a core concept
 - `Resume` should load persisted structural events and replay them into a fresh session
+- `WithStore(...)` should be interpreted as attaching a store for ongoing persistence, not as an implicit resume/load operation
 - do not make storage path policy part of this package
 
 ---
@@ -917,16 +921,28 @@ The package itself should not enforce a policy.
 A caller may choose a convention like:
 
 ```text
-<baseDir>/<sessionID>.jsonl
+<baseDir>/<unixTimestamp>-<sessionID>.jsonl
 ```
 
 or
 
 ```text
-<baseDir>/sessions/<sessionID>.jsonl
+<baseDir>/sessions/<unixTimestamp>-<sessionID>.jsonl
 ```
 
-That decision belongs to the opener/backend caller.
+Recommended convention for file-backed stores:
+
+- session filename should start with a Unix timestamp
+- session ID should follow the timestamp
+- example: `1713570123-s_abc123.jsonl`
+
+Why this is useful:
+
+- natural chronological ordering in directory listings
+- easier manual inspection
+- still preserves explicit session identity in the filename
+
+That naming convention should be implemented by the concrete opener/backend caller, not hardcoded as a universal policy across all possible store backends.
 
 ## Failure behavior
 
@@ -1942,3 +1958,282 @@ The work is done when:
 - user-facing API remains interaction-oriented
 - a runner can execute one turn and append results
 - docs/tests are sufficient for another engineer to safely extend the feature
+
+
+# 25. Reference flows
+
+These flows are intended as quick mental-model checks for implementers.
+
+---
+
+## 25.1 Flow A — new session, one user turn, one assistant result
+
+Goal:
+
+- create a new session
+- append a user event
+- run one turn
+- append assistant result
+
+Example:
+
+```go
+sess := conversation.New(
+    conversation.WithModel("sonnet"),
+    conversation.WithTools(filesystem.Tools()...),
+)
+
+userNode, err := sess.AddUser("fix the failing tests")
+if err != nil {
+    return err
+}
+_ = userNode
+
+res, err := sess.Run(ctx, runner)
+if err != nil {
+    return err
+}
+
+fmt.Println(res.Message)
+fmt.Println(res.NodeID)
+```
+
+Expected outcome:
+
+- synthetic root exists
+- user `MessageEvent` is appended below current head/root
+- runner inspects projected messages
+- runner appends an assistant `MessageEvent`
+- returned `Result.NodeID` points to the appended assistant node
+- head now points to the assistant node
+
+---
+
+## 25.2 Flow B — persist, restart, resume, continue
+
+Goal:
+
+- create a persisted session
+- append history
+- restart process
+- resume from storage
+- continue appending/running
+
+Example:
+
+```go
+opener := jsonlstore.NewOpener("/some/explicit/base/path")
+
+sess := conversation.New(
+    conversation.WithSessionID(conversation.NewSessionID()),
+    conversation.WithModel("sonnet"),
+    conversation.WithStore(opener),
+)
+
+_, _ = sess.AddUser("first request")
+_, _ = sess.Run(ctx, runner)
+
+resumed, err := conversation.Resume(sess.ID(), opener,
+    conversation.WithModel("sonnet"),
+)
+if err != nil {
+    return err
+}
+
+_, err = resumed.AddUser("follow-up request")
+if err != nil {
+    return err
+}
+
+_, err = resumed.Run(ctx, runner)
+if err != nil {
+    return err
+}
+```
+
+Expected outcome:
+
+- append operations emit structural storage events
+- storage contains enough information to rebuild the event-log tree
+- `Resume(...)` loads and replays the same session ID/history/head
+- resumed session behaves like a live session
+- no default path is assumed; caller supplies the store/opener path explicitly
+
+---
+
+## 25.3 Flow C — branch from earlier node and explore an alternate path
+
+Goal:
+
+- create one linear history
+- move back to an earlier node
+- append an alternative branch
+- run from that branch
+
+Example:
+
+```go
+sess := conversation.New(conversation.WithModel("sonnet"))
+
+n1, _ := sess.AddUser("solve this bug")
+_, _ = sess.Run(ctx, runner) // appends assistant node n2
+
+_ = sess.Conversation().SetHead(n1)
+_, _ = sess.Conversation().Fork(n1)
+_, _ = sess.AddUser("solve this bug, but try a different strategy")
+_, _ = sess.Run(ctx, runner)
+```
+
+Expected outcome:
+
+- original path remains intact
+- a new child node is appended under the earlier node
+- active projection now follows the alternate branch head
+- future persistence/replay preserves both branches
+
+---
+
+# 26. Example miniagent integration sketch
+
+This section is intentionally concrete and focuses mainly on session storing and resuming.
+
+## 26.1 Responsibilities split
+
+Recommended split of responsibilities:
+
+- `agentcore/conversation`
+  - session model
+  - event-log tree
+  - persistence interfaces
+  - replay/resume primitives
+- `agentcore/conversation/jsonlstore`
+  - file-backed store implementation
+- `miniagent`
+  - decides storage location policy
+  - decides when to create new vs resume existing session
+  - provides concrete runner/provider binding
+  - exposes CLI/UI flags or commands for session selection
+
+This is important: `miniagent` owns the storage location policy.
+
+---
+
+## 26.2 Suggested miniagent storage policy
+
+Example only:
+
+```text
+~/.miniagent/sessions/
+```
+
+Possible file naming convention:
+
+```text
+~/.miniagent/sessions/<unixTimestamp>-<sessionID>.jsonl
+```
+
+Example:
+
+```text
+~/.miniagent/sessions/1713570123-s_abc123.jsonl
+```
+
+This policy should live in `miniagent`, not in `agentcore`.
+
+---
+
+## 26.3 Suggested miniagent startup flow
+
+Pseudo-flow:
+
+1. resolve miniagent data dir
+2. create a JSONL opener rooted at `~/.miniagent/sessions/`
+3. if user passed `--session <id>`:
+   - call `conversation.Resume(id, opener, ...)`
+4. otherwise:
+   - call `conversation.New(...)`
+   - optionally generate and print the new session ID
+5. attach the runner used by miniagent
+6. for each user turn:
+   - `sess.AddUser(input)`
+   - `sess.Run(ctx, runner)`
+
+---
+
+## 26.4 Concrete miniagent sketch
+
+```go
+func openSession(sessionFlag string, model string, tools []tool.Tool, runner conversation.Runner) (*conversation.AgentSession, error) {
+    baseDir := filepath.Join(os.Getenv("HOME"), ".miniagent", "sessions")
+    opener := jsonlstore.NewOpener(baseDir)
+
+    if sessionFlag != "" {
+        return conversation.Resume(conversation.SessionID(sessionFlag), opener,
+            conversation.WithModel(model),
+            conversation.WithTools(tools...),
+            conversation.WithStore(opener),
+        )
+    }
+
+    sess := conversation.New(
+        conversation.WithModel(model),
+        conversation.WithTools(tools...),
+        conversation.WithStore(opener),
+    )
+    return sess, nil
+}
+
+func runTurn(ctx context.Context, sess *conversation.AgentSession, input string, runner conversation.Runner) error {
+    if _, err := sess.AddUser(input); err != nil {
+        return err
+    }
+
+    res, err := sess.Run(ctx, runner)
+    if err != nil {
+        return err
+    }
+
+    fmt.Println(renderMessage(res.Message))
+    return nil
+}
+```
+
+Notes for implementers:
+
+- `jsonlstore.NewOpener(baseDir)` is illustrative; exact constructor may differ
+- `WithStore(opener)` is useful so new appends persist after both `New(...)` and `Resume(...)`
+- `Resume(...)` should restore prior history and active head before new turns are processed
+
+---
+
+## 26.5 Resume UX recommendation for miniagent
+
+Recommended miniagent behavior:
+
+- print session ID on new session creation
+- allow `--session <id>` or equivalent command to resume
+- make resumed sessions feel identical to continuous sessions
+- do not require users to know storage file details
+
+Example CLI UX:
+
+```text
+miniagent --model sonnet
+New session: s_abc123
+
+miniagent --session s_abc123
+Resumed session: s_abc123
+```
+
+---
+
+## 26.6 What miniagent should not do
+
+To keep layering clean, miniagent should not:
+
+- reimplement replay logic
+- inspect JSONL files directly for core semantics
+- depend on internal request-building details from `agentcore/conversation`
+- hardcode assumptions that only message payload events can ever exist
+
+Miniagent should depend on the public session/resume/runner APIs, not internal storage details.

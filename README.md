@@ -1,8 +1,8 @@
-# codewandler/agentcore
+# codewandler/agentsdk
 
 Portable tool definitions, markdown utilities, and instruction file loading for LLM agents.
 
-**agentcore** provides a minimal, dependency-light foundation for agent tool systems—reusable across projects without requiring a full agent runtime.
+**agentsdk** provides a minimal, dependency-light foundation for agent tool systems—reusable across projects without requiring a full agent runtime.
 
 ## Features
 
@@ -23,10 +23,10 @@ Portable tool definitions, markdown utilities, and instruction file loading for 
 
 ```go
 import (
-    "github.com/codewandler/agentcore/tool"
-    "github.com/codewandler/agentcore/tools/filesystem"
-    "github.com/codewandler/agentcore/tools/todo"
-    "github.com/codewandler/agentcore/markdown"
+    "github.com/codewandler/agentsdk/tool"
+    "github.com/codewandler/agentsdk/tools/filesystem"
+    "github.com/codewandler/agentsdk/tools/todo"
+    "github.com/codewandler/agentsdk/markdown"
 )
 
 // Load instruction files
@@ -49,7 +49,7 @@ The `tools/web` package provides:
 - `web_fetch` — always available when you register the web tools
 - `web_search` — available when you pass a search provider
 
-Agentcore also includes a Tavily provider at `github.com/codewandler/agentcore/tools/web/tavily` and a small env-based selector:
+Agentcore also includes a Tavily provider at `github.com/codewandler/agentsdk/tools/web/tavily` and a small env-based selector:
 
 ```go
 provider := web.DefaultSearchProviderFromEnv()

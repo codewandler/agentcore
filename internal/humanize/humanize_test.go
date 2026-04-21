@@ -3,7 +3,7 @@ package humanize_test
 import (
 	"testing"
 
-	"github.com/codewandler/agentcore/internal/humanize"
+	"github.com/codewandler/agentsdk/internal/humanize"
 )
 
 func TestSize(t *testing.T) {
