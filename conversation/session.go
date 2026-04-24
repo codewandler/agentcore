@@ -32,6 +32,9 @@ type defaults struct {
 	tools           []unified.Tool
 	toolChoice      *unified.ToolChoice
 	user            string
+	cachePolicy     unified.CachePolicy
+	cacheKey        string
+	cacheTTL        string
 }
 
 type Option func(*Session)
@@ -42,6 +45,7 @@ func New(opts ...Option) *Session {
 		sessionID:      NewSessionID(),
 		branch:         MainBranch,
 		tree:           NewTree(),
+		defaults:       defaultSettings(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -63,9 +67,10 @@ func Resume(ctx context.Context, store EventStore, conversationID ConversationID
 		return nil, fmt.Errorf("conversation: no events found")
 	}
 	s := &Session{
-		branch: MainBranch,
-		tree:   NewTree(),
-		store:  store,
+		branch:   MainBranch,
+		tree:     NewTree(),
+		store:    store,
+		defaults: defaultSettings(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -204,6 +209,18 @@ func WithUser(user string) Option {
 	return func(s *Session) { s.defaults.user = user }
 }
 
+func WithCachePolicy(policy unified.CachePolicy) Option {
+	return func(s *Session) { s.defaults.cachePolicy = policy }
+}
+
+func WithCacheKey(key string) Option {
+	return func(s *Session) { s.defaults.cacheKey = key }
+}
+
+func WithCacheTTL(ttl string) Option {
+	return func(s *Session) { s.defaults.cacheTTL = ttl }
+}
+
 func (s *Session) ConversationID() ConversationID { return s.conversationID }
 func (s *Session) SessionID() SessionID           { return s.sessionID }
 func (s *Session) Branch() BranchID               { return s.branch }
@@ -286,6 +303,9 @@ func (s *Session) BuildRequest(req Request) (unified.Request, error) {
 		Messages:        messages,
 		Stream:          req.Stream,
 		User:            firstNonEmpty(req.User, s.defaults.user),
+		CachePolicy:     firstCachePolicy(req.CachePolicy, s.defaults.cachePolicy),
+		CacheKey:        firstNonEmpty(req.CacheKey, s.defaults.cacheKey),
+		CacheTTL:        firstNonEmpty(req.CacheTTL, s.defaults.cacheTTL),
 		Extensions:      req.Extensions,
 	}
 	if len(req.Stop) > 0 {
@@ -345,6 +365,17 @@ func (s *Session) appendPayloads(payloads ...Payload) ([]NodeID, error) {
 }
 
 func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func defaultSettings() defaults {
+	return defaults{cachePolicy: unified.CachePolicyOn}
+}
+
+func firstCachePolicy(a, b unified.CachePolicy) unified.CachePolicy {
 	if a != "" {
 		return a
 	}

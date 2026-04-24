@@ -68,6 +68,27 @@ func WithToolChoice(choice unified.ToolChoice) Option {
 	}
 }
 
+func WithCachePolicy(policy unified.CachePolicy) Option {
+	return func(a *Agent) {
+		a.request.CachePolicy = policy
+		a.sessionOptions = append(a.sessionOptions, conversation.WithCachePolicy(policy))
+	}
+}
+
+func WithCacheKey(key string) Option {
+	return func(a *Agent) {
+		a.request.CacheKey = key
+		a.sessionOptions = append(a.sessionOptions, conversation.WithCacheKey(key))
+	}
+}
+
+func WithCacheTTL(ttl string) Option {
+	return func(a *Agent) {
+		a.request.CacheTTL = ttl
+		a.sessionOptions = append(a.sessionOptions, conversation.WithCacheTTL(ttl))
+	}
+}
+
 func WithStream(stream bool) Option {
 	return func(a *Agent) { a.request.Stream = stream }
 }

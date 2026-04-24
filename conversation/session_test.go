@@ -19,12 +19,24 @@ func TestSessionReplayProjection(t *testing.T) {
 
 	require.Equal(t, "model-a", req.Model)
 	require.True(t, req.Stream)
+	require.Equal(t, unified.CachePolicyOn, req.CachePolicy)
 	require.Len(t, req.Instructions, 1)
 	require.Len(t, req.Messages, 3)
 	require.Equal(t, unified.RoleUser, req.Messages[0].Role)
 	require.Equal(t, unified.RoleAssistant, req.Messages[1].Role)
 	require.Empty(t, req.Messages[1].ID)
 	require.Equal(t, unified.RoleUser, req.Messages[2].Role)
+}
+
+func TestSessionCachePolicyCanBeOverridden(t *testing.T) {
+	s := New(WithCacheKey("session-key"), WithCacheTTL("1h"))
+
+	req, err := s.BuildRequest(NewRequest().CachePolicy(unified.CachePolicyOff).Build())
+	require.NoError(t, err)
+
+	require.Equal(t, unified.CachePolicyOff, req.CachePolicy)
+	require.Equal(t, "session-key", req.CacheKey)
+	require.Equal(t, "1h", req.CacheTTL)
 }
 
 func TestSessionForkUsesSelectedBranchPath(t *testing.T) {

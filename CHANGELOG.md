@@ -10,6 +10,16 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-04-25
+
+### Added
+
+- Added conversation and runtime cache policy defaults/options for `llmadapter/unified` cache controls.
+
+### Changed
+
+- Defaulted conversation-built requests to `cache_policy=on`.
+
 ## [0.11.3] - 2026-04-25
 
 ### Changed

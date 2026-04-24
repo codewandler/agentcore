@@ -51,6 +51,7 @@ func TestRunTurnAppliesDefaultsAndCommits(t *testing.T) {
 	require.Equal(t, "public", client.requests[0].Model)
 	require.Equal(t, 100, *client.requests[0].MaxOutputTokens)
 	require.Equal(t, 0.2, *client.requests[0].Temperature)
+	require.Equal(t, unified.CachePolicyOn, client.requests[0].CachePolicy)
 	require.Len(t, client.requests[0].Messages, 1)
 	requireEventType[runner.RouteEvent](t, result.Events)
 
@@ -149,6 +150,22 @@ func TestWithRequestDefaults(t *testing.T) {
 	require.Equal(t, "default", client.requests[0].Model)
 	require.Equal(t, 123, *client.requests[0].MaxOutputTokens)
 	require.True(t, client.requests[0].Stream)
+}
+
+func TestWithCacheDefaults(t *testing.T) {
+	client := &fakeClient{}
+	agent, err := New(client,
+		WithCachePolicy(unified.CachePolicyOff),
+		WithCacheKey("cache-key"),
+		WithCacheTTL("5m"),
+	)
+	require.NoError(t, err)
+
+	_, err = agent.RunTurn(context.Background(), "hi")
+	require.NoError(t, err)
+	require.Equal(t, unified.CachePolicyOff, client.requests[0].CachePolicy)
+	require.Equal(t, "cache-key", client.requests[0].CacheKey)
+	require.Equal(t, "5m", client.requests[0].CacheTTL)
 }
 
 func requireEventType[T runner.Event](t *testing.T, events []runner.Event) T {
