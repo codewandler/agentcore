@@ -10,6 +10,17 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-24
+
+### Added
+
+- Added `runtime.NewToolContext` and related options for reusable tool context construction with work directory, agent ID, session ID, and extra application state.
+- Added README guidance for using `runtime` as the preferred consumer-facing model/tool loop entry point.
+
+### Removed
+
+- Removed the deprecated `interfaces` compatibility package. Use `activation.State` and `websearch.Provider` directly.
+
 ## [0.7.0] - 2026-04-24
 
 ### Added

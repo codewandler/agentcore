@@ -84,6 +84,20 @@ func TestRunTurnCanOverrideToolsPerTurn(t *testing.T) {
 	require.Len(t, client.requests[1].Tools, 1)
 }
 
+func TestNewToolContextCarriesRuntimeFields(t *testing.T) {
+	ctx := NewToolContext(context.Background(),
+		WithToolWorkDir("/repo"),
+		WithToolAgentID("agent_1"),
+		WithToolSessionID("sess_1"),
+		WithToolExtra("k", "v"),
+	)
+	require.Equal(t, "/repo", ctx.WorkDir())
+	require.Equal(t, "agent_1", ctx.AgentID())
+	require.Equal(t, "sess_1", ctx.SessionID())
+	require.Equal(t, "v", ctx.Extra()["k"])
+	require.NoError(t, ctx.Err())
+}
+
 func requireEventType[T runner.Event](t *testing.T, events []runner.Event) T {
 	t.Helper()
 	for _, event := range events {

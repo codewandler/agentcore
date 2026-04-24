@@ -1,8 +1,11 @@
 # core packages
 
 tool/              - Tool interface, Result types, error handling
+conversation/      - Session, conversation tree, request defaults, projections
+runner/            - Model/tool loop over llmadapter unified clients
+runtime/           - Runtime facade for conversation + runner wiring
+usage/             - llmadapter unified usage aggregation and drift helpers
 markdown/          - Frontmatter parsing, instruction file loading
-instructions/      - AGENTS.md / CLAUDE.md loader
 plugin/            - Minimal plugin interfaces (ToolsPlugin only)
 skill/             - Skill metadata & discovery
 tools/
