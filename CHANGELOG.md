@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-04-24
+
+### Changed
+
+- Updated `github.com/codewandler/llmadapter` to `v0.46.0` so runtime consumers inherit modeldb-aware auto intent routing and Anthropic reasoning support.
+
 ## [0.9.0] - 2026-04-24
 
 ### Added
