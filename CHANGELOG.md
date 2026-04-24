@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-04-25
+
+### Changed
+
+- Updated `github.com/codewandler/llmadapter` to `v0.48.4` so consumers inherit the latest auto-routing, Claude provider identity, and provider capability fixes.
+
 ## [0.10.0] - 2026-04-24
 
 ### Changed
