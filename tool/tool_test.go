@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/codewandler/llmadapter/unified"
 	"github.com/invopop/jsonschema"
 	"github.com/stretchr/testify/require"
 )
@@ -62,6 +63,31 @@ func TestStringSliceParam_JSONSchema(t *testing.T) {
 	require.Equal(t, "array", schema.OneOf[1].Type)
 	require.NotNil(t, schema.OneOf[1].Items)
 	require.Equal(t, "string", schema.OneOf[1].Items.Type)
+}
+
+func TestUnifiedToolsFrom(t *testing.T) {
+	tl := New("lookup", "Look up a thing.", func(ctx Ctx, p struct {
+		Query string `json:"query" jsonschema:"description=Search query,required"`
+		Limit int    `json:"limit,omitempty" jsonschema:"description=Max results"`
+	}) (Result, error) {
+		return Text("ok"), nil
+	})
+
+	tools := UnifiedToolsFrom([]Tool{tl})
+
+	require.Len(t, tools, 1)
+	require.Equal(t, unified.ToolKindFunction, tools[0].Kind)
+	require.Equal(t, "lookup", tools[0].Name)
+	require.Equal(t, "Look up a thing.", tools[0].Description)
+	require.NotEmpty(t, tools[0].InputSchema)
+
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(tools[0].InputSchema, &schema))
+	require.Equal(t, "object", schema["type"])
+
+	props := schema["properties"].(map[string]any)
+	require.Equal(t, "string", props["query"].(map[string]any)["type"])
+	require.Equal(t, "integer", props["limit"].(map[string]any)["type"])
 }
 
 // Test that StringSliceParam is properly reflected by the jsonschema.Reflector

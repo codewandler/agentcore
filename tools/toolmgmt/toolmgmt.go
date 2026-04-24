@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/tool"
-	"github.com/codewandler/agentsdk/interfaces"
 )
 
 // KeyActivationState is the Extra() key under which tools_* look up the ActivationState.
@@ -29,12 +29,12 @@ type ToolDeactivateParams struct {
 
 // activation extracts the ActivationState from ctx.Extra(), returning a clear
 // error when it is missing (mis-configured injection).
-func activation(ctx tool.Ctx) (interfaces.ActivationState, error) {
+func activationState(ctx tool.Ctx) (activation.State, error) {
 	v, ok := ctx.Extra()[KeyActivationState]
 	if !ok {
 		return nil, fmt.Errorf("tools_* tools require flai.activation_state in Extra(); check agent wiring")
 	}
-	state, ok := v.(interfaces.ActivationState)
+	state, ok := v.(activation.State)
 	if !ok {
 		return nil, fmt.Errorf("flai.activation_state has unexpected type %T", v)
 	}
@@ -105,7 +105,7 @@ func toolsList() tool.Tool {
 	return tool.New("tools_list",
 		"List all available tools and their activation status. Shows which tools are currently active and which can be activated.",
 		func(ctx tool.Ctx, _ ToolListParams) (tool.Result, error) {
-			state, err := activation(ctx)
+			state, err := activationState(ctx)
 			if err != nil {
 				return tool.Error(err.Error()), nil
 			}
@@ -169,7 +169,7 @@ func toolsActivate() tool.Tool {
 			if len(p.Tools) == 0 {
 				return tool.Error("at least one tool pattern is required"), nil
 			}
-			state, err := activation(ctx)
+			state, err := activationState(ctx)
 			if err != nil {
 				return tool.Error(err.Error()), nil
 			}
@@ -241,7 +241,7 @@ func toolsDeactivate() tool.Tool {
 			if len(p.Tools) == 0 {
 				return tool.Error("at least one tool pattern is required"), nil
 			}
-			state, err := activation(ctx)
+			state, err := activationState(ctx)
 			if err != nil {
 				return tool.Error(err.Error()), nil
 			}

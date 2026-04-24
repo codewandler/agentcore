@@ -9,13 +9,11 @@ import (
 
 	"github.com/invopop/jsonschema"
 	jsv "github.com/santhosh-tekuri/jsonschema/v6"
-
-	llmtool "github.com/codewandler/llm/tool"
 )
 
 // TypedTool is a generic typed implementation of tool.Tool.
 // P is the JSON-decodable parameter struct. Schema is auto-generated via
-// llm/tool.DefinitionFor; the handler receives a fully decoded P on each call.
+// local JSON Schema reflection; the handler receives a fully decoded P on each call.
 type TypedTool[P any] struct {
 	name        string
 	description string
@@ -26,21 +24,15 @@ type TypedTool[P any] struct {
 }
 
 // New creates a typed Tool. The schema is derived from the zero value of P.
-// Uses llm/tool.DefinitionFor for schema generation and compiles it for validation.
+// It uses local JSON Schema reflection and compiles the schema for validation.
 func New[P any](name, description string, handler func(ctx Ctx, p P) (Result, error), opts ...TypedToolOption[P]) *TypedTool[P] {
-	// Use llm's DefinitionFor for clean schema generation
-	def := llmtool.DefinitionFor[P](name, description)
-
-	// Convert map[string]any to *jsonschema.Schema for LLM API
-	raw, _ := json.Marshal(def.Parameters)
-	var rawSchema jsonschema.Schema
-	_ = json.Unmarshal(raw, &rawSchema)
+	params, rawSchema := schemaFor[P]()
 
 	// Enhance the schema for LLM compatibility (add examples to numeric fields)
-	schema := addExamplesToSchema(&rawSchema)
+	schema := addExamplesToSchema(rawSchema)
 
-	// Compile map directly for validation (avoids Schema conversion issues)
-	validated := compileMapForValidation(def.Parameters)
+	// Compile map directly for validation (avoids Schema conversion issues).
+	validated := compileMapForValidation(params)
 
 	t := &TypedTool[P]{
 		name:        name,
@@ -53,6 +45,39 @@ func New[P any](name, description string, handler func(ctx Ctx, p P) (Result, er
 		opt(t)
 	}
 	return t
+}
+
+func schemaFor[P any]() (map[string]any, *jsonschema.Schema) {
+	r := jsonschema.Reflector{
+		DoNotReference:             true,
+		Anonymous:                  true,
+		AllowAdditionalProperties:  false,
+		RequiredFromJSONSchemaTags: true,
+	}
+	schema := r.Reflect(new(P))
+	schema.Version = ""
+
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil, schema
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return nil, schema
+	}
+	delete(params, "$schema")
+	delete(params, "$id")
+
+	cleanRaw, err := json.Marshal(params)
+	if err != nil {
+		return params, schema
+	}
+	var cleanSchema jsonschema.Schema
+	if err := json.Unmarshal(cleanRaw, &cleanSchema); err != nil {
+		return params, schema
+	}
+	return params, &cleanSchema
 }
 
 // addExamplesToSchema adds examples to integer/number fields to help LLMs send correct types.
@@ -139,7 +164,7 @@ func addExamplesToMap(m map[string]any) {
 	}
 }
 
-// compileMapForValidation compiles a map[string]any (from llm DefinitionFor)
+// compileMapForValidation compiles a map[string]any
 // into a santhosh-tekuri schema for runtime validation. Returns nil on failure.
 func compileMapForValidation(params map[string]any) *jsv.Schema {
 	if params == nil {

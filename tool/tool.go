@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/codewandler/llmadapter/unified"
 	"github.com/invopop/jsonschema"
 )
 
@@ -57,6 +58,31 @@ func SpecsFrom(tools []Tool) []ToolSpec {
 		}
 	}
 	return specs
+}
+
+// ToUnified converts an agentsdk tool to llmadapter's canonical function-tool shape.
+func ToUnified(t Tool) unified.Tool {
+	var inputSchema json.RawMessage
+	if schema := t.Schema(); schema != nil {
+		if raw, err := json.Marshal(schema); err == nil {
+			inputSchema = raw
+		}
+	}
+	return unified.Tool{
+		Kind:        unified.ToolKindFunction,
+		Name:        t.Name(),
+		Description: t.Description(),
+		InputSchema: inputSchema,
+	}
+}
+
+// UnifiedToolsFrom converts agentsdk tools to llmadapter canonical tools.
+func UnifiedToolsFrom(tools []Tool) []unified.Tool {
+	out := make([]unified.Tool, len(tools))
+	for i, t := range tools {
+		out[i] = ToUnified(t)
+	}
+	return out
 }
 
 // StringSliceParam is a Go type that accepts both a single string and an array
