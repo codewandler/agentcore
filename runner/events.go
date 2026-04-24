@@ -76,6 +76,12 @@ type RawEvent struct {
 	Raw  unified.RawEvent
 }
 
+type RouteEvent struct {
+	Step             int
+	Route            unified.RouteEvent
+	ProviderIdentity conversation.ProviderIdentity
+}
+
 type ErrorEvent struct {
 	Err error
 }

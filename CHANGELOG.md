@@ -10,6 +10,17 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-24
+
+### Added
+
+- Added runner route metadata events sourced from `llmadapter` mux route selection.
+- Added selected-route provider identity propagation into runner usage events, step completion events, and provider continuation metadata.
+
+### Changed
+
+- Updated `llmadapter` to `v0.37.0` so agentsdk consumers can rely on mux-selected provider/model identity without local route guessing.
+
 ## [0.5.1] - 2026-04-24
 
 ### Added

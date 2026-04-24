@@ -68,7 +68,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			return result, err
 		}
 
-		assistant, finishReason, usage, toolCalls, messageID, err := consumeEvents(ctx, events, emit, eventContext{
+		assistant, finishReason, usage, toolCalls, messageID, providerIdentity, err := consumeEvents(ctx, events, emit, eventContext{
 			step:             result.Steps,
 			model:            wireReq.Model,
 			providerIdentity: options.ProviderIdentity,
@@ -82,13 +82,13 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			Step:             result.Steps,
 			MaxSteps:         options.MaxSteps,
 			Model:            wireReq.Model,
-			ProviderIdentity: options.ProviderIdentity,
+			ProviderIdentity: providerIdentity,
 			Usage:            usage,
 			FinishReason:     finishReason,
 		})
 		if messageID != "" {
 			assistant.ID = messageID
-			fragment.AddContinuation(conversation.NewProviderContinuation(options.ProviderIdentity, messageID, unified.Extensions{}))
+			fragment.AddContinuation(conversation.NewProviderContinuation(providerIdentity, messageID, unified.Extensions{}))
 		}
 
 		if len(toolCalls) == 0 {
@@ -142,26 +142,27 @@ type eventContext struct {
 	providerIdentity conversation.ProviderIdentity
 }
 
-func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(Event), meta eventContext) (unified.Message, unified.FinishReason, unified.Usage, []unified.ToolCall, string, error) {
+func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(Event), meta eventContext) (unified.Message, unified.FinishReason, unified.Usage, []unified.ToolCall, string, conversation.ProviderIdentity, error) {
 	var text strings.Builder
 	var reasoning strings.Builder
 	var usage unified.Usage
 	var toolCalls []unified.ToolCall
 	toolBuilders := map[int]*toolCallBuilder{}
 	finishReason := unified.FinishReasonUnknown
+	providerIdentity := meta.providerIdentity
 	var messageID string
 	var sawCompleted bool
 
 	for {
 		select {
 		case <-ctx.Done():
-			return unified.Message{}, "", unified.Usage{}, nil, "", ctx.Err()
+			return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, ctx.Err()
 		case event, ok := <-events:
 			if !ok {
 				if !sawCompleted {
-					return unified.Message{}, "", unified.Usage{}, nil, "", fmt.Errorf("runner: stream ended without completed event")
+					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, fmt.Errorf("runner: stream ended without completed event")
 				}
-				return assistantMessage(messageID, text.String(), reasoning.String(), toolCalls), finishReason, usage, toolCalls, messageID, nil
+				return assistantMessage(messageID, text.String(), reasoning.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, nil
 			}
 			switch ev := event.(type) {
 			case unified.MessageStartEvent:
@@ -205,7 +206,7 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 				emit(ToolCallEvent{Step: meta.step, Call: call})
 			case unified.UsageEvent:
 				usage = mergeUsage(usage, ev.Usage())
-				emit(UsageEvent{Step: meta.step, Model: meta.model, ProviderIdentity: meta.providerIdentity, Usage: ev.Usage()})
+				emit(UsageEvent{Step: meta.step, Model: meta.model, ProviderIdentity: providerIdentity, Usage: ev.Usage()})
 			case unified.CompletedEvent:
 				sawCompleted = true
 				finishReason = ev.FinishReason
@@ -214,15 +215,27 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 				}
 			case unified.ErrorEvent:
 				if ev.Err != nil {
-					return unified.Message{}, "", unified.Usage{}, nil, "", ev.Err
+					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, ev.Err
 				}
-				return unified.Message{}, "", unified.Usage{}, nil, "", fmt.Errorf("runner: provider stream error")
+				return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, fmt.Errorf("runner: provider stream error")
 			case unified.WarningEvent:
 				emit(WarningEvent{Step: meta.step, Warning: ev})
 			case unified.RawEvent:
 				emit(RawEvent{Step: meta.step, Raw: ev})
+			case unified.RouteEvent:
+				providerIdentity = providerIdentityFromRouteEvent(ev)
+				emit(RouteEvent{Step: meta.step, Route: ev, ProviderIdentity: providerIdentity})
 			}
 		}
+	}
+}
+
+func providerIdentityFromRouteEvent(ev unified.RouteEvent) conversation.ProviderIdentity {
+	return conversation.ProviderIdentity{
+		ProviderName: ev.ProviderName,
+		APIKind:      ev.TargetAPI,
+		APIFamily:    ev.TargetFamily,
+		NativeModel:  ev.NativeModel,
 	}
 }
 

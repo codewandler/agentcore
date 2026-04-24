@@ -37,6 +37,7 @@ func (c *fakeClient) Request(_ context.Context, req unified.Request) (<-chan uni
 func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	client := &fakeClient{events: [][]unified.Event{
 		{
+			unified.RouteEvent{ProviderName: "openai", TargetAPI: "openai.responses", TargetFamily: "openai.responses", PublicModel: "public", NativeModel: "gpt-test"},
 			unified.TextDeltaEvent{Text: "hello"},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 		},
@@ -51,6 +52,8 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	requireEventType[StepDoneEvent](t, result.Events)
 	requireEventType[TextDeltaEvent](t, result.Events)
 	requireEventType[CompletedEvent](t, result.Events)
+	route := requireEventType[RouteEvent](t, result.Events)
+	require.Equal(t, "openai", route.ProviderIdentity.ProviderName)
 
 	messages, err := sess.Messages()
 	require.NoError(t, err)
@@ -58,10 +61,11 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	require.Equal(t, unified.RoleUser, messages[0].Role)
 	require.Equal(t, unified.RoleAssistant, messages[1].Role)
 
-	continuation, ok, err := conversation.ContinuationAtHead(sess.Tree(), sess.Branch(), conversation.ProviderIdentity{ProviderName: "test"})
+	continuation, ok, err := conversation.ContinuationAtHead(sess.Tree(), sess.Branch(), conversation.ProviderIdentity{ProviderName: "openai"})
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "resp_1", continuation.ResponseID)
+	require.Equal(t, "gpt-test", continuation.NativeModel)
 }
 
 func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
