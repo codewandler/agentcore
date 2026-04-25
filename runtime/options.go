@@ -93,18 +93,6 @@ func WithProjectionPolicy(policy conversation.ProjectionPolicy) Option {
 	return func(a *Agent) { a.sessionOptions = append(a.sessionOptions, conversation.WithProjectionPolicy(policy)) }
 }
 
-func WithMessageBudget(maxMessages int) Option {
-	return func(a *Agent) {
-		a.sessionOptions = append(a.sessionOptions, conversation.WithMessageBudget(maxMessages))
-	}
-}
-
-func WithTokenBudget(maxTokens int) Option {
-	return func(a *Agent) {
-		a.sessionOptions = append(a.sessionOptions, conversation.WithTokenBudget(maxTokens))
-	}
-}
-
 func WithStream(stream bool) Option {
 	return func(a *Agent) { a.request.Stream = stream }
 }

@@ -10,6 +10,17 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-25
+
+### Removed
+
+- Removed automatic message/token budget projection helpers because provider history must remain immutable for caching and continuation.
+- Removed `conversation.WithMessageBudget`, `conversation.WithTokenBudget`, `runtime.WithMessageBudget`, `runtime.WithTokenBudget`, and built-in budget projection constructors.
+
+### Changed
+
+- Kept `conversation.ProjectionPolicy` as an explicit advanced override hook and token estimation helpers for observability/application decisions that do not rewrite history.
+
 ## [0.14.0] - 2026-04-25
 
 ### Added
