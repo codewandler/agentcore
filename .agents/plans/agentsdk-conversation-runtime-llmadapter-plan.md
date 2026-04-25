@@ -233,23 +233,18 @@ pending user/tool messages only
 
 Only use when the branch head has a matching provider continuation.
 
-Native continuation and replay budgeting must be treated as different request
-economics:
+Budgeting must not change the canonical history sent to providers.
 
-- If the provider supports a valid branch-head native continuation such as
-  `previous_response_id`, do not apply projection trimming/compaction to the
-  committed history before choosing that continuation. Sending only the pending
-  user/tool messages plus the provider continuation is already the intended
-  projection.
-- Token/context budgeting is primarily for replay-only providers or fallback
-  paths where the full canonical history would otherwise be resent.
-- Trimming replay messages for a native-continuation route usually does not save
-  money in the way replay trimming does, because provider-side state/cache is
-  still the continuity mechanism. It can instead break provider cache behavior,
-  continuity semantics, or branch-head assumptions.
-- Prompt-cache usage returned by providers should be used for observability and
-  estimator calibration, not as the pre-request budgeting source. Usage arrives
-  after projection has already been chosen.
+- Do not trim, compact, summarize, or otherwise rewrite committed history during
+  request projection for cost control.
+- This is provider-agnostic. Changing history shape can break cache reuse,
+  continuation behavior, tool-call adjacency, and model-visible continuity.
+- For native continuation providers, send only pending user/tool messages plus
+  the provider continuation handle.
+- For replay providers, replay the canonical selected-branch history as-is.
+- Provider usage response data should be used for observability and cost
+  reporting. It can inform future warnings or product-level decisions, but it
+  must not drive automatic history rewriting in the SDK projection path.
 
 ### Provider Session ID
 
@@ -1221,20 +1216,19 @@ Reuse later:
 
 Adaptation:
 
-- apply decay during `agentsdk/conversation` projection, not during tree storage
-- preserve original event-log nodes even when projection emits a compacted/cleared view
-- make decay optional and disabled by default in v1
-- only apply budget/decay to replay projections and replay fallback paths; do
-  not compact committed history when a valid provider-native continuation is
-  being used
-- use provider usage response data to calibrate future token estimates per
-  provider/model/session, but keep a preflight estimator because request usage is
-  only known after the call completes
+- keep the committed event-log tree as the source of truth
+- do not automatically apply decay, trimming, or compaction during provider
+  request projection
+- use budgeting/usage data for observability, warnings, and product-level UX
+  decisions rather than automatic SDK history rewriting
+- if compaction is ever added, make it an explicit user/application action that
+  appends a semantic compaction event; do not silently rewrite projection output
 
 Do not copy initially:
 
 - flai's current flat history interface
 - mandatory token-budget policy
+- automatic decay/compaction projection
 
 ### F3: HEAD / MIDDLE / STATE projection concept
 
