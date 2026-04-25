@@ -20,7 +20,7 @@ match these entries as the project starts publishing releases.
 
 ### Changed
 
-- Updated `github.com/codewandler/llmadapter` to `v0.48.8`.
+- Updated `github.com/codewandler/llmadapter` to `v0.48.9`.
 - Updated `runner.RunTurn` to pass resolved provider identity into conversation request projection, enabling native continuation when compatible and replay otherwise.
 
 ## [0.11.5] - 2026-04-25
