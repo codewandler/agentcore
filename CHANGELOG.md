@@ -10,6 +10,13 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-04-25
+
+### Added
+
+- Added `usage.FromRunnerEvent`, `usage.RouteState`, and provider/model normalization helpers for runner usage accounting.
+- Added `usage.Tracker.AggregateTurn` for turn-scoped usage summaries.
+
 ## [0.16.0] - 2026-04-25
 
 ### Added
