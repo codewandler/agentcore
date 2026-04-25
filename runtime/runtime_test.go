@@ -168,6 +168,40 @@ func TestWithCacheDefaults(t *testing.T) {
 	require.Equal(t, "5m", client.requests[0].CacheTTL)
 }
 
+func TestSessionOptionsReturnsConversationDefaultsFromRuntimeOptions(t *testing.T) {
+	echo := tool.New("echo", "echo text", func(_ tool.Ctx, p struct{}) (tool.Result, error) {
+		return tool.Text("ok"), nil
+	})
+	reasoning := unified.ReasoningConfig{Effort: unified.ReasoningEffortHigh}
+	session := conversation.New(SessionOptions(
+		WithSessionOptions(conversation.WithSessionID("sess_1")),
+		WithModel("model"),
+		WithMaxOutputTokens(100),
+		WithTemperature(0.3),
+		WithSystem("system"),
+		WithTools([]tool.Tool{echo}),
+		WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
+		WithCachePolicy(unified.CachePolicyOn),
+		WithCacheKey("cache-key"),
+		WithReasoning(reasoning),
+	)...)
+
+	req, err := session.BuildRequest(conversation.NewRequest().User("hi").Build())
+	require.NoError(t, err)
+	require.Equal(t, conversation.SessionID("sess_1"), session.SessionID())
+	require.Equal(t, "model", req.Model)
+	require.Equal(t, 100, *req.MaxOutputTokens)
+	require.Equal(t, 0.3, *req.Temperature)
+	require.Len(t, req.Instructions, 1)
+	require.Equal(t, unified.InstructionSystem, req.Instructions[0].Kind)
+	require.Equal(t, unified.TextPart{Text: "system"}, req.Instructions[0].Content[0])
+	require.Len(t, req.Tools, 1)
+	require.Equal(t, unified.ToolChoiceAuto, req.ToolChoice.Mode)
+	require.Equal(t, unified.CachePolicyOn, req.CachePolicy)
+	require.Equal(t, "cache-key", req.CacheKey)
+	require.Equal(t, unified.ReasoningEffortHigh, req.Reasoning.Effort)
+}
+
 func requireEventType[T runner.Event](t *testing.T, events []runner.Event) T {
 	t.Helper()
 	for _, event := range events {

@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-04-25
+
+### Added
+
+- Added `runtime.SessionOptions` to derive conversation session defaults from the same runtime options used to construct a runtime agent.
+
 ## [0.17.0] - 2026-04-25
 
 ### Added

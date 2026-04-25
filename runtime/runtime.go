@@ -54,6 +54,19 @@ func Must(client unified.Client, opts ...Option) *Agent {
 	return agent
 }
 
+func SessionOptions(opts ...Option) []conversation.Option {
+	agent := &Agent{
+		maxSteps: 8,
+		request:  conversation.Request{Stream: true},
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(agent)
+		}
+	}
+	return append([]conversation.Option(nil), agent.sessionOptions...)
+}
+
 func (a *Agent) Session() *conversation.Session {
 	if a == nil {
 		return nil
