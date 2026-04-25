@@ -10,6 +10,15 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-04-25
+
+### Added
+
+- Added `conversation.ProjectionPolicy` with the default replay/native-continuation projection moved behind an explicit policy hook.
+- Added `conversation.WithProjectionPolicy`, `conversation.WithMessageBudget`, `runtime.WithProjectionPolicy`, and `runtime.WithMessageBudget`.
+- Added optional projection-time message budgeting, disabled by default.
+- Added `runnertest` helpers for fake unified clients, recorded requests, text streams, tool-call streams, reasoning streams, route events, error streams, and incomplete streams.
+
 ## [0.12.3] - 2026-04-25
 
 ### Fixed

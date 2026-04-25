@@ -89,6 +89,16 @@ func WithCacheTTL(ttl string) Option {
 	}
 }
 
+func WithProjectionPolicy(policy conversation.ProjectionPolicy) Option {
+	return func(a *Agent) { a.sessionOptions = append(a.sessionOptions, conversation.WithProjectionPolicy(policy)) }
+}
+
+func WithMessageBudget(maxMessages int) Option {
+	return func(a *Agent) {
+		a.sessionOptions = append(a.sessionOptions, conversation.WithMessageBudget(maxMessages))
+	}
+}
+
 func WithStream(stream bool) Option {
 	return func(a *Agent) { a.request.Stream = stream }
 }

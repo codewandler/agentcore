@@ -198,6 +198,42 @@ func TestSessionNativeContinuationUsesSelectedBranchHead(t *testing.T) {
 	require.Equal(t, "resp_root", previousResponseID)
 }
 
+func TestSessionProjectionPolicyOverride(t *testing.T) {
+	s := New(WithProjectionPolicy(ProjectionPolicyFunc(func(input ProjectionInput) (ProjectionResult, error) {
+		return ProjectionResult{
+			Messages: []unified.Message{{
+				Role:    unified.RoleUser,
+				Content: []unified.ContentPart{unified.TextPart{Text: "projected"}},
+			}},
+			Extensions: cloneExtensions(input.Extensions),
+		}, nil
+	})))
+
+	req, err := s.BuildRequest(NewRequest().User("ignored").Build())
+	require.NoError(t, err)
+
+	require.Len(t, req.Messages, 1)
+	requireText(t, req.Messages[0], "projected")
+}
+
+func TestSessionMessageBudgetProjectionKeepsRecentMessages(t *testing.T) {
+	s := New(WithMessageBudget(3))
+	_, err := s.AddUser("one")
+	require.NoError(t, err)
+	_, err = s.AddUser("two")
+	require.NoError(t, err)
+	_, err = s.AddUser("three")
+	require.NoError(t, err)
+
+	req, err := s.BuildRequest(NewRequest().User("four").Build())
+	require.NoError(t, err)
+
+	require.Len(t, req.Messages, 3)
+	requireText(t, req.Messages[0], "two")
+	requireText(t, req.Messages[1], "three")
+	requireText(t, req.Messages[2], "four")
+}
+
 func TestSessionForkUsesSelectedBranchPath(t *testing.T) {
 	s := New()
 	_, err := s.AddUser("root")

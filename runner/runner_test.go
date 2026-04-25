@@ -2,46 +2,25 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/codewandler/agentsdk/conversation"
+	"github.com/codewandler/agentsdk/runnertest"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeClient struct {
-	requests []unified.Request
-	events   [][]unified.Event
-}
-
-func (c *fakeClient) Request(_ context.Context, req unified.Request) (<-chan unified.Event, error) {
-	c.requests = append(c.requests, req)
-	if len(c.events) == 0 {
-		out := make(chan unified.Event)
-		close(out)
-		return out, nil
-	}
-	out := make(chan unified.Event, len(c.events[0]))
-	for _, event := range c.events[0] {
-		out <- event
-	}
-	close(out)
-	c.events = c.events[1:]
-	return out, nil
-}
-
 func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.RouteEvent{ProviderName: "openai", TargetAPI: "openai.responses", TargetFamily: "openai.responses", PublicModel: "public", NativeModel: "gpt-test"},
+	client := runnertest.NewClient(
+		[]unified.Event{
+			runnertest.Route("openai", "openai.responses", "openai.responses", "public", "gpt-test"),
 			unified.TextDeltaEvent{Text: "hello"},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 		},
-	}}
+	)
 	sess := conversation.New()
 
 	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build(),
@@ -70,12 +49,7 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 }
 
 func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.TextDeltaEvent{Text: "next"},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_2"},
-		},
-	}}
+	client := runnertest.NewClient(runnertest.TextStream("next", "resp_2"))
 	sess := conversation.New()
 	fragment := conversation.NewTurnFragment()
 	fragment.AddRequestMessages(unified.Message{
@@ -99,24 +73,16 @@ func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
 	)
 	require.NoError(t, err)
-	require.Len(t, client.requests, 1)
-	require.Len(t, client.requests[0].Messages, 1)
-	previousResponseID, ok, err := unified.GetExtension[string](client.requests[0].Extensions, unified.ExtOpenAIPreviousResponseID)
+	require.Len(t, client.Requests(), 1)
+	require.Len(t, client.RequestAt(0).Messages, 1)
+	previousResponseID, ok, err := unified.GetExtension[string](client.RequestAt(0).Extensions, unified.ExtOpenAIPreviousResponseID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "resp_1", previousResponseID)
 }
 
 func TestRunTurnPreservesReasoningSignatureForReplay(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.ContentBlockStartEvent{Index: 0, Kind: unified.ContentKindReasoning},
-			unified.ReasoningDeltaEvent{Index: 0, Text: "think", Signature: "sig"},
-			unified.ContentBlockDoneEvent{Index: 0, Kind: unified.ContentKindReasoning},
-			unified.TextDeltaEvent{Text: "hello"},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
-		},
-	}}
+	client := runnertest.NewClient(runnertest.ReasoningTextStream("think", "sig", "hello"))
 	sess := conversation.New()
 
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
@@ -133,16 +99,10 @@ func TestRunTurnPreservesReasoningSignatureForReplay(t *testing.T) {
 }
 
 func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.ToolCallDoneEvent{Index: 0, ID: "call_1", Name: "echo", Args: json.RawMessage(`{"text":"ok"}`)},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonToolCall, MessageID: "resp_tool"},
-		},
-		{
-			unified.TextDeltaEvent{Text: "done"},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_final"},
-		},
-	}}
+	client := runnertest.NewClient(
+		runnertest.ToolCallStream("resp_tool", runnertest.ToolCall("echo", "call_1", 0, `{"text":"ok"}`)),
+		runnertest.TextStream("done", "resp_final"),
+	)
 	echo := tool.New("echo", "echo text", func(_ tool.Ctx, p struct {
 		Text string `json:"text"`
 	}) (tool.Result, error) {
@@ -152,8 +112,8 @@ func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
 
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("use echo").Build(), WithTools([]tool.Tool{echo}))
 	require.NoError(t, err)
-	require.Len(t, client.requests, 2)
-	require.Len(t, client.requests[1].Messages, 3)
+	require.Len(t, client.Requests(), 2)
+	require.Len(t, client.RequestAt(1).Messages, 3)
 
 	messages, err := sess.Messages()
 	require.NoError(t, err)
@@ -163,15 +123,15 @@ func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
 }
 
 func TestRunTurnAccumulatesToolArgsDeltas(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
+	client := runnertest.NewClient(
+		[]unified.Event{
 			unified.ToolCallStartEvent{Index: 0, ID: "call_1", Name: "echo"},
 			unified.ToolCallArgsDeltaEvent{Index: 0, Delta: `{"text"`},
 			unified.ToolCallArgsDeltaEvent{Index: 0, Delta: `:"ok"}`},
 			unified.ToolCallDoneEvent{Index: 0},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonToolCall},
 		},
-	}}
+	)
 	echo := tool.New("echo", "echo text", func(_ tool.Ctx, p struct {
 		Text string `json:"text"`
 	}) (tool.Result, error) {
@@ -194,12 +154,7 @@ func TestRunTurnAccumulatesToolArgsDeltas(t *testing.T) {
 }
 
 func TestRunTurnToolTimeoutEmitsTimedOutResult(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.ToolCallDoneEvent{Index: 0, ID: "call_1", Name: "slow", Args: json.RawMessage(`{}`)},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonToolCall},
-		},
-	}}
+	client := runnertest.NewClient(runnertest.ToolCallStream("resp_tool", runnertest.ToolCall("slow", "call_1", 0, `{}`)))
 	slow := tool.New("slow", "slow tool", func(ctx tool.Ctx, _ struct{}) (tool.Result, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -216,13 +171,10 @@ func TestRunTurnToolTimeoutEmitsTimedOutResult(t *testing.T) {
 
 func TestRunTurnCancellationEmitsCanceledForRemainingToolCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.ToolCallDoneEvent{Index: 0, ID: "call_1", Name: "first", Args: json.RawMessage(`{}`)},
-			unified.ToolCallDoneEvent{Index: 1, ID: "call_2", Name: "second", Args: json.RawMessage(`{}`)},
-			unified.CompletedEvent{FinishReason: unified.FinishReasonToolCall},
-		},
-	}}
+	client := runnertest.NewClient(runnertest.ToolCallStream("resp_tool",
+		runnertest.ToolCall("first", "call_1", 0, `{}`),
+		runnertest.ToolCall("second", "call_2", 1, `{}`),
+	))
 	executor := ToolExecutorFunc(func(_ context.Context, call unified.ToolCall) unified.ToolResult {
 		if call.Name == "first" {
 			cancel()
@@ -243,14 +195,14 @@ func TestRunTurnCancellationEmitsCanceledForRemainingToolCalls(t *testing.T) {
 }
 
 func TestRunTurnPassesThroughWarningsAndRawEvents(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
+	client := runnertest.NewClient(
+		[]unified.Event{
 			unified.WarningEvent{Code: "dropped", Message: "field dropped"},
 			unified.RawEvent{APIKind: "test", Type: "raw"},
 			unified.TextDeltaEvent{Text: "ok"},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
 		},
-	}}
+	)
 	result, err := RunTurn(context.Background(), conversation.New(), client, conversation.NewRequest().User("hi").Build())
 	require.NoError(t, err)
 	requireEventType[WarningEvent](t, result.Events)
@@ -258,12 +210,7 @@ func TestRunTurnPassesThroughWarningsAndRawEvents(t *testing.T) {
 }
 
 func TestRunTurnProviderErrorDoesNotCommit(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{
-			unified.TextDeltaEvent{Text: "partial"},
-			unified.ErrorEvent{Err: errors.New("boom")},
-		},
-	}}
+	client := runnertest.NewClient(runnertest.ErrorStream(errors.New("boom")))
 	sess := conversation.New()
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
 	require.ErrorContains(t, err, "boom")
@@ -273,9 +220,7 @@ func TestRunTurnProviderErrorDoesNotCommit(t *testing.T) {
 }
 
 func TestRunTurnIncompleteStreamDoesNotCommit(t *testing.T) {
-	client := &fakeClient{events: [][]unified.Event{
-		{unified.TextDeltaEvent{Text: "partial"}},
-	}}
+	client := runnertest.NewClient(runnertest.IncompleteTextStream("partial"))
 	sess := conversation.New()
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
 	require.ErrorContains(t, err, "without completed")

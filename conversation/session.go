@@ -35,6 +35,7 @@ type defaults struct {
 	cachePolicy     unified.CachePolicy
 	cacheKey        string
 	cacheTTL        string
+	projection      ProjectionPolicy
 }
 
 type Option func(*Session)
@@ -221,6 +222,14 @@ func WithCacheTTL(ttl string) Option {
 	return func(s *Session) { s.defaults.cacheTTL = ttl }
 }
 
+func WithProjectionPolicy(policy ProjectionPolicy) Option {
+	return func(s *Session) { s.defaults.projection = policy }
+}
+
+func WithMessageBudget(maxMessages int) Option {
+	return WithProjectionPolicy(NewMessageBudgetProjectionPolicy(maxMessages))
+}
+
 func (s *Session) ConversationID() ConversationID { return s.conversationID }
 func (s *Session) SessionID() SessionID           { return s.sessionID }
 func (s *Session) Branch() BranchID               { return s.branch }
@@ -294,25 +303,17 @@ func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNative
 		return unified.Request{}, err
 	}
 	pendingMessages := append([]unified.Message(nil), req.Messages...)
-	extensions := cloneExtensions(req.Extensions)
-	if useNativeContinuation && SupportsPreviousResponseID(identity) && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
-		continuation, ok, err := ContinuationAtBranchHead(s.tree, s.branch, identity)
-		if err != nil {
-			return unified.Request{}, err
-		}
-		if ok {
-			extensions = mergeExtensions(continuation.Extensions, req.Extensions)
-			if !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
-				if err := extensions.Set(unified.ExtOpenAIPreviousResponseID, continuation.ResponseID); err != nil {
-					return unified.Request{}, err
-				}
-			}
-			messages = pendingMessages
-		} else {
-			messages = append(messages, pendingMessages...)
-		}
-	} else {
-		messages = append(messages, pendingMessages...)
+	projection, err := s.projection().Project(ProjectionInput{
+		Tree:                    s.tree,
+		Branch:                  s.branch,
+		ProviderIdentity:        identity,
+		Messages:                messages,
+		PendingMessages:         pendingMessages,
+		Extensions:              req.Extensions,
+		AllowNativeContinuation: useNativeContinuation,
+	})
+	if err != nil {
+		return unified.Request{}, err
 	}
 	out := unified.Request{
 		Model:           firstNonEmpty(req.Model, s.defaults.model),
@@ -328,13 +329,13 @@ func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNative
 		Instructions:    append(append([]unified.Instruction(nil), s.defaults.instructions...), req.Instructions...),
 		Tools:           append([]unified.Tool(nil), s.defaults.tools...),
 		ToolChoice:      s.defaults.toolChoice,
-		Messages:        messages,
+		Messages:        projection.Messages,
 		Stream:          req.Stream,
 		User:            firstNonEmpty(req.User, s.defaults.user),
 		CachePolicy:     firstCachePolicy(req.CachePolicy, s.defaults.cachePolicy),
 		CacheKey:        firstNonEmpty(req.CacheKey, s.defaults.cacheKey),
 		CacheTTL:        firstNonEmpty(req.CacheTTL, s.defaults.cacheTTL),
-		Extensions:      extensions,
+		Extensions:      projection.Extensions,
 	}
 	if len(req.Stop) > 0 {
 		out.Stop = append([]string(nil), req.Stop...)
@@ -346,6 +347,13 @@ func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNative
 		out.ToolChoice = req.ToolChoice
 	}
 	return out, nil
+}
+
+func (s *Session) projection() ProjectionPolicy {
+	if s.defaults.projection != nil {
+		return s.defaults.projection
+	}
+	return DefaultProjectionPolicy()
 }
 
 func (s *Session) CommitFragment(fragment *TurnFragment) ([]NodeID, error) {
@@ -397,22 +405,6 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
-}
-
-func cloneExtensions(in unified.Extensions) unified.Extensions {
-	var out unified.Extensions
-	for _, key := range in.Keys() {
-		_ = out.SetRaw(key, in.Raw(key))
-	}
-	return out
-}
-
-func mergeExtensions(base unified.Extensions, overlay unified.Extensions) unified.Extensions {
-	out := cloneExtensions(base)
-	for _, key := range overlay.Keys() {
-		_ = out.SetRaw(key, overlay.Raw(key))
-	}
-	return out
 }
 
 func defaultSettings() defaults {
