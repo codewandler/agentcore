@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-04-25
+
+### Fixed
+
+- Limited native `previous_response_id` projection to OpenAI Responses-compatible routes so Codex Responses and other unsupported Responses-family providers fall back to replay.
+
 ## [0.12.0] - 2026-04-25
 
 ### Added

@@ -103,12 +103,24 @@ func ContinuationAtBranchHead(tree *Tree, branch BranchID, identity ProviderIden
 }
 
 func SupportsPreviousResponseID(identity ProviderIdentity) bool {
-	return isResponsesKind(identity.APIKind) || isResponsesKind(identity.APIFamily)
+	return isOpenAIResponsesKind(identity.APIKind, identity.ProviderName) || isOpenAIResponsesKind(identity.APIFamily, identity.ProviderName)
 }
 
 func isResponsesKind(kind string) bool {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	return kind == "responses" || strings.HasSuffix(kind, ".responses") || strings.Contains(kind, "responses")
+}
+
+func isOpenAIResponsesKind(kind string, providerName string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	providerName = strings.ToLower(strings.TrimSpace(providerName))
+	if kind == "openai.responses" {
+		return true
+	}
+	if kind == "responses" && strings.Contains(providerName, "openai") {
+		return true
+	}
+	return false
 }
 
 func apiKindMatches(a, b string) bool {

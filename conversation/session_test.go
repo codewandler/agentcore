@@ -84,6 +84,25 @@ func TestSessionNativeContinuationFallsBackToReplayOnProviderMismatch(t *testing
 	require.False(t, req.Extensions.Has(unified.ExtOpenAIPreviousResponseID))
 }
 
+func TestSessionNativeContinuationFallsBackForUnsupportedResponsesFamily(t *testing.T) {
+	s := New()
+	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
+		ProviderIdentity{ProviderName: "codex_responses", APIKind: "codex.responses", NativeModel: "gpt-test"},
+		"resp_1",
+		unified.Extensions{},
+	))
+
+	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
+		ProviderName: "codex_responses",
+		APIKind:      "codex.responses",
+		NativeModel:  "gpt-test",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, req.Messages, 3)
+	require.False(t, req.Extensions.Has(unified.ExtOpenAIPreviousResponseID))
+}
+
 func TestSessionNativeContinuationMatchesResponsesAliases(t *testing.T) {
 	s := New()
 	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
