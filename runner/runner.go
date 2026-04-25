@@ -151,6 +151,7 @@ type eventContext struct {
 func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(Event), meta eventContext) (unified.Message, unified.FinishReason, unified.Usage, []unified.ToolCall, string, conversation.ProviderIdentity, error) {
 	var text strings.Builder
 	var reasoning strings.Builder
+	var reasoningSignature strings.Builder
 	var usage unified.Usage
 	var toolCalls []unified.ToolCall
 	toolBuilders := map[int]*toolCallBuilder{}
@@ -168,7 +169,7 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 				if !sawCompleted {
 					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, fmt.Errorf("runner: stream ended without completed event")
 				}
-				return assistantMessage(messageID, text.String(), reasoning.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, nil
+				return assistantMessage(messageID, text.String(), reasoning.String(), reasoningSignature.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, nil
 			}
 			switch ev := event.(type) {
 			case unified.MessageStartEvent:
@@ -180,6 +181,7 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 				emit(TextDeltaEvent{Step: meta.step, Text: ev.Text})
 			case unified.ReasoningDeltaEvent:
 				reasoning.WriteString(ev.Text)
+				reasoningSignature.WriteString(ev.Signature)
 				emit(ReasoningDeltaEvent{Step: meta.step, Text: ev.Text})
 			case unified.ToolCallStartEvent:
 				call := unified.ToolCall{ID: ev.ID, Name: ev.Name, Index: ev.Index}
@@ -245,10 +247,10 @@ func providerIdentityFromRouteEvent(ev unified.RouteEvent) conversation.Provider
 	}
 }
 
-func assistantMessage(id, text, reasoning string, toolCalls []unified.ToolCall) unified.Message {
+func assistantMessage(id, text, reasoning string, reasoningSignature string, toolCalls []unified.ToolCall) unified.Message {
 	var content []unified.ContentPart
-	if reasoning != "" {
-		content = append(content, unified.ReasoningPart{Text: reasoning})
+	if reasoning != "" || reasoningSignature != "" {
+		content = append(content, unified.ReasoningPart{Text: reasoning, Signature: reasoningSignature})
 	}
 	if text != "" {
 		content = append(content, unified.TextPart{Text: text})

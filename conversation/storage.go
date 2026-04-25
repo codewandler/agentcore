@@ -150,6 +150,7 @@ type wireToolResult struct {
 type wireContentPart struct {
 	Type         unified.ContentKind   `json:"type"`
 	Text         string                `json:"text,omitempty"`
+	Signature    string                `json:"signature,omitempty"`
 	CacheControl *unified.CacheControl `json:"cache_control,omitempty"`
 	Source       *unified.BlobSource   `json:"source,omitempty"`
 	Alt          string                `json:"alt,omitempty"`
@@ -284,7 +285,7 @@ func contentPartToWire(part unified.ContentPart) (wireContentPart, error) {
 	case unified.FilePart:
 		return wireContentPart{Type: unified.ContentKindFile, Source: &part.Source, Filename: part.Filename, MIMEType: part.MIMEType}, nil
 	case unified.ReasoningPart:
-		return wireContentPart{Type: unified.ContentKindReasoning, Text: part.Text}, nil
+		return wireContentPart{Type: unified.ContentKindReasoning, Text: part.Text, Signature: part.Signature}, nil
 	case unified.RefusalPart:
 		return wireContentPart{Type: unified.ContentKindRefusal, Text: part.Text}, nil
 	default:
@@ -307,7 +308,7 @@ func contentPartsFromWire(parts []wireContentPart) []unified.ContentPart {
 		case unified.ContentKindFile:
 			out = append(out, unified.FilePart{Source: derefBlobSource(part.Source), Filename: part.Filename, MIMEType: part.MIMEType})
 		case unified.ContentKindReasoning:
-			out = append(out, unified.ReasoningPart{Text: part.Text})
+			out = append(out, unified.ReasoningPart{Text: part.Text, Signature: part.Signature})
 		case unified.ContentKindRefusal:
 			out = append(out, unified.RefusalPart{Text: part.Text})
 		}

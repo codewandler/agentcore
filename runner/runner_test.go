@@ -107,6 +107,31 @@ func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 	require.Equal(t, "resp_1", previousResponseID)
 }
 
+func TestRunTurnPreservesReasoningSignatureForReplay(t *testing.T) {
+	client := &fakeClient{events: [][]unified.Event{
+		{
+			unified.ContentBlockStartEvent{Index: 0, Kind: unified.ContentKindReasoning},
+			unified.ReasoningDeltaEvent{Index: 0, Text: "think", Signature: "sig"},
+			unified.ContentBlockDoneEvent{Index: 0, Kind: unified.ContentKindReasoning},
+			unified.TextDeltaEvent{Text: "hello"},
+			unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+		},
+	}}
+	sess := conversation.New()
+
+	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
+	require.NoError(t, err)
+
+	messages, err := sess.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	require.Len(t, messages[1].Content, 2)
+	reasoning, ok := messages[1].Content[0].(unified.ReasoningPart)
+	require.True(t, ok)
+	require.Equal(t, "think", reasoning.Text)
+	require.Equal(t, "sig", reasoning.Signature)
+}
+
 func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
 	client := &fakeClient{events: [][]unified.Event{
 		{

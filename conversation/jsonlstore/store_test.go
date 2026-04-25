@@ -24,8 +24,11 @@ func TestStorePersistsAndResumesSession(t *testing.T) {
 	_, err := sess.AddUser("hello")
 	require.NoError(t, err)
 	_, err = sess.AppendMessage(unified.Message{
-		Role:    unified.RoleAssistant,
-		Content: []unified.ContentPart{unified.TextPart{Text: "hi"}},
+		Role: unified.RoleAssistant,
+		Content: []unified.ContentPart{
+			unified.ReasoningPart{Text: "thought", Signature: "sig"},
+			unified.TextPart{Text: "hi"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -40,7 +43,11 @@ func TestStorePersistsAndResumesSession(t *testing.T) {
 	require.Equal(t, unified.RoleUser, messages[0].Role)
 	requireText(t, messages[0], "hello")
 	require.Equal(t, unified.RoleAssistant, messages[1].Role)
-	requireText(t, messages[1], "hi")
+	require.Len(t, messages[1].Content, 2)
+	reasoning, ok := messages[1].Content[0].(unified.ReasoningPart)
+	require.True(t, ok)
+	require.Equal(t, "thought", reasoning.Text)
+	require.Equal(t, "sig", reasoning.Signature)
 }
 
 func requireText(t *testing.T, msg unified.Message, want string) {

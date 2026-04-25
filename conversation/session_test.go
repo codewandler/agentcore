@@ -28,6 +28,47 @@ func TestSessionReplayProjection(t *testing.T) {
 	require.Equal(t, unified.RoleUser, req.Messages[2].Role)
 }
 
+func TestSessionReplayProjectionStripsUnsignedReasoning(t *testing.T) {
+	s := New()
+	_, err := s.AppendMessage(unified.Message{
+		Role: unified.RoleAssistant,
+		Content: []unified.ContentPart{
+			unified.ReasoningPart{Text: "unsigned"},
+			unified.TextPart{Text: "visible"},
+		},
+	})
+	require.NoError(t, err)
+
+	req, err := s.BuildRequest(NewRequest().User("next").Build())
+	require.NoError(t, err)
+
+	require.Len(t, req.Messages, 2)
+	require.Len(t, req.Messages[0].Content, 1)
+	requireText(t, req.Messages[0], "visible")
+}
+
+func TestSessionReplayProjectionKeepsSignedReasoning(t *testing.T) {
+	s := New()
+	_, err := s.AppendMessage(unified.Message{
+		Role: unified.RoleAssistant,
+		Content: []unified.ContentPart{
+			unified.ReasoningPart{Text: "signed", Signature: "sig"},
+			unified.TextPart{Text: "visible"},
+		},
+	})
+	require.NoError(t, err)
+
+	req, err := s.BuildRequest(NewRequest().User("next").Build())
+	require.NoError(t, err)
+
+	require.Len(t, req.Messages, 2)
+	require.Len(t, req.Messages[0].Content, 2)
+	reasoning, ok := req.Messages[0].Content[0].(unified.ReasoningPart)
+	require.True(t, ok)
+	require.Equal(t, "signed", reasoning.Text)
+	require.Equal(t, "sig", reasoning.Signature)
+}
+
 func TestSessionCachePolicyCanBeOverridden(t *testing.T) {
 	s := New(WithCacheKey("session-key"), WithCacheTTL("1h"))
 

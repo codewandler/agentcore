@@ -10,6 +10,14 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-04-25
+
+### Fixed
+
+- Preserved Anthropic thinking signatures on committed assistant reasoning parts so tool-loop replay can include signed thinking blocks.
+- Dropped unsigned assistant reasoning parts from request projection to avoid replaying invalid Anthropic thinking blocks from older sessions.
+- Persisted reasoning signatures in JSONL conversation storage.
+
 ## [0.12.2] - 2026-04-25
 
 ### Changed
