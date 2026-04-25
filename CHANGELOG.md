@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-25
+
+### Added
+
+- Added runtime helpers for llmadapter auto mux defaults and route summary to provider identity conversion.
+
 ## [0.18.0] - 2026-04-25
 
 ### Added

@@ -23,8 +23,10 @@ require (
 	github.com/amitybell/piper-asset v0.0.0-20231030194325-d36a29e3b1fd // indirect
 	github.com/amitybell/piper-bin-linux v0.0.0-20250621082830-f5d5d85fa076 // indirect
 	github.com/amitybell/piper-bin-windows v0.0.0-20231118093113-cc2cef2f6b74 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
+	github.com/codewandler/modeldb v0.13.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/mailru/easyjson v0.9.2 // indirect
