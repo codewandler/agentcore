@@ -1176,10 +1176,14 @@ Status: completed for the core migration as of `miniagent v0.6.0`.
 - M6: migrated usage/cost conversion to `llmadapter/unified.Usage` via `agentsdk/usage`.
 - M7: removed `agentapis`, `llmproviders`, and legacy `llm` dependencies.
 - M8: removed miniagent-local context budget projection after deciding provider history must remain immutable.
+- M9: moved standard tool bundle + activation manager wiring behind `tools/standard.Toolset`.
+- M10: moved runner usage provider/model normalization into `agentsdk/usage`.
+- M11: moved shared runtime-to-conversation defaults into `runtime.SessionOptions`.
+- M12: moved llmadapter auto mux defaults and route identity conversion into `agentsdk/runtime`.
 
 Remaining consolidation:
 
-- Move standard tool bundle + activation manager wiring behind SDK helpers.
+- Keep README/examples aligned with the preferred runtime stack.
 - Keep terminal display, CLI/REPL, system prompt wording, workspace defaults, and product command UX in miniagent.
 
 ## Follow-ups From flai To Reuse

@@ -10,6 +10,17 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-04-25
+
+### Added
+
+- Added runtime examples for the preferred SDK stack and durable session option derivation.
+
+### Changed
+
+- Updated README guidance for `runtime.AutoMuxClient`, `standard.Toolset`, durable sessions, cache defaults, and immutable provider history.
+- Updated the migration plan to mark provider setup consolidation complete.
+
 ## [0.19.0] - 2026-04-25
 
 ### Added
