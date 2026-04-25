@@ -69,6 +69,44 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	require.Equal(t, "gpt-test", continuation.NativeModel)
 }
 
+func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
+	client := &fakeClient{events: [][]unified.Event{
+		{
+			unified.TextDeltaEvent{Text: "next"},
+			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_2"},
+		},
+	}}
+	sess := conversation.New()
+	fragment := conversation.NewTurnFragment()
+	fragment.AddRequestMessages(unified.Message{
+		Role:    unified.RoleUser,
+		Content: []unified.ContentPart{unified.TextPart{Text: "hello"}},
+	})
+	fragment.SetAssistantMessage(unified.Message{
+		Role:    unified.RoleAssistant,
+		Content: []unified.ContentPart{unified.TextPart{Text: "hi"}},
+	})
+	fragment.AddContinuation(conversation.NewProviderContinuation(
+		conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
+		"resp_1",
+		unified.Extensions{},
+	))
+	fragment.Complete(unified.FinishReasonStop)
+	_, err := sess.CommitFragment(fragment)
+	require.NoError(t, err)
+
+	_, err = RunTurn(context.Background(), sess, client, conversation.NewRequest().User("again").Build(),
+		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
+	)
+	require.NoError(t, err)
+	require.Len(t, client.requests, 1)
+	require.Len(t, client.requests[0].Messages, 1)
+	previousResponseID, ok, err := unified.GetExtension[string](client.requests[0].Extensions, unified.ExtOpenAIPreviousResponseID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "resp_1", previousResponseID)
+}
+
 func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
 	client := &fakeClient{events: [][]unified.Event{
 		{

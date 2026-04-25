@@ -1,6 +1,11 @@
 package conversation
 
-import "github.com/codewandler/llmadapter/unified"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/codewandler/llmadapter/unified"
+)
 
 type ProviderIdentity struct {
 	ProviderName string `json:"provider_name,omitempty"`
@@ -33,10 +38,10 @@ func (c ProviderContinuation) Matches(identity ProviderIdentity) bool {
 	if identity.ProviderName != "" && c.ProviderName != "" && identity.ProviderName != c.ProviderName {
 		return false
 	}
-	if identity.APIKind != "" && c.APIKind != "" && identity.APIKind != c.APIKind {
+	if identity.APIKind != "" && c.APIKind != "" && !apiKindMatches(identity.APIKind, c.APIKind) {
 		return false
 	}
-	if identity.APIFamily != "" && c.APIFamily != "" && identity.APIFamily != c.APIFamily {
+	if identity.APIFamily != "" && c.APIFamily != "" && !apiKindMatches(identity.APIFamily, c.APIFamily) {
 		return false
 	}
 	if identity.NativeModel != "" && c.NativeModel != "" && identity.NativeModel != c.NativeModel {
@@ -65,4 +70,49 @@ func ContinuationAtHead(tree *Tree, branch BranchID, identity ProviderIdentity) 
 		}
 	}
 	return ProviderContinuation{}, false, nil
+}
+
+func ContinuationAtBranchHead(tree *Tree, branch BranchID, identity ProviderIdentity) (ProviderContinuation, bool, error) {
+	if tree == nil {
+		return ProviderContinuation{}, false, fmt.Errorf("conversation: tree is nil")
+	}
+	head, ok := tree.Head(branch)
+	if !ok {
+		return ProviderContinuation{}, false, fmt.Errorf("conversation: branch %q not found", branch)
+	}
+	if head == "" {
+		return ProviderContinuation{}, false, nil
+	}
+	node, ok := tree.Node(head)
+	if !ok {
+		return ProviderContinuation{}, false, fmt.Errorf("conversation: node %q not found", head)
+	}
+	var continuations []ProviderContinuation
+	switch ev := node.Payload.(type) {
+	case AssistantTurnEvent:
+		continuations = ev.Continuations
+	case *AssistantTurnEvent:
+		continuations = ev.Continuations
+	}
+	for _, continuation := range continuations {
+		if continuation.ResponseID != "" && continuation.Matches(identity) {
+			return continuation, true, nil
+		}
+	}
+	return ProviderContinuation{}, false, nil
+}
+
+func SupportsPreviousResponseID(identity ProviderIdentity) bool {
+	return isResponsesKind(identity.APIKind) || isResponsesKind(identity.APIFamily)
+}
+
+func isResponsesKind(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return kind == "responses" || strings.HasSuffix(kind, ".responses") || strings.Contains(kind, "responses")
+}
+
+func apiKindMatches(a, b string) bool {
+	a = strings.ToLower(strings.TrimSpace(a))
+	b = strings.ToLower(strings.TrimSpace(b))
+	return a == b || (isResponsesKind(a) && isResponsesKind(b))
 }

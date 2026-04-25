@@ -10,6 +10,19 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-25
+
+### Added
+
+- Added provider-aware conversation projection with native OpenAI Responses `previous_response_id` continuation support.
+- Added branch-head continuation lookup so forked branches use the continuation handle attached to their selected head.
+- Added request projection tests for matching continuation handles, Responses API aliases, provider/model mismatch replay fallback, branch forks, and runner integration.
+
+### Changed
+
+- Updated `github.com/codewandler/llmadapter` to `v0.48.8`.
+- Updated `runner.RunTurn` to pass resolved provider identity into conversation request projection, enabling native continuation when compatible and replay otherwise.
+
 ## [0.11.5] - 2026-04-25
 
 ### Changed

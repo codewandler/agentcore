@@ -49,12 +49,13 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 
 	fragment := conversation.NewTurnFragment()
 	transcript := append([]unified.Message(nil), req.Messages...)
+	currentProviderIdentity := options.ProviderIdentity
 
 	for step := 0; step < options.MaxSteps; step++ {
 		result.Steps++
 		stepReq := req
 		stepReq.Messages = append([]unified.Message(nil), transcript...)
-		wireReq, err := session.BuildRequest(stepReq)
+		wireReq, err := session.BuildRequestForProvider(stepReq, currentProviderIdentity)
 		if err != nil {
 			fragment.Fail(err)
 			emit(ErrorEvent{Err: err})
@@ -71,13 +72,14 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 		assistant, finishReason, usage, toolCalls, messageID, providerIdentity, err := consumeEvents(ctx, events, emit, eventContext{
 			step:             result.Steps,
 			model:            wireReq.Model,
-			providerIdentity: options.ProviderIdentity,
+			providerIdentity: currentProviderIdentity,
 		})
 		if err != nil {
 			fragment.Fail(err)
 			emit(ErrorEvent{Err: err})
 			return result, err
 		}
+		currentProviderIdentity = providerIdentity
 		emit(StepDoneEvent{
 			Step:             result.Steps,
 			MaxSteps:         options.MaxSteps,

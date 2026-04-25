@@ -1,6 +1,6 @@
 # Agentsdk Conversation Runtime + llmadapter Continuation Plan
 
-Status date: 2026-04-24
+Status date: 2026-04-25
 
 ## Summary
 
@@ -1125,10 +1125,13 @@ First backend target:
 
 ### Phase 4: native continuation projection
 
-- Add provider continuation lookup at selected branch head.
-- Set `ExtOpenAIPreviousResponseID` when valid.
-- Fall back to replay when provider/API/model does not match.
-- Tests for branch fork using older response ID.
+Status: completed 2026-04-25.
+
+- Added provider continuation lookup at the selected branch head.
+- Added provider-aware request projection through `Session.BuildRequestForProvider`.
+- Set `ExtOpenAIPreviousResponseID` for matching Responses-family provider continuations.
+- Fall back to replay when provider/API/model does not match or no branch-head continuation exists.
+- Added tests for matching continuation projection, Responses API alias matching, provider/model mismatch replay, branch fork using an older response ID, and runner request projection.
 
 ### Phase 5: runner
 

@@ -281,11 +281,39 @@ func (s *Session) Messages() ([]unified.Message, error) {
 }
 
 func (s *Session) BuildRequest(req Request) (unified.Request, error) {
+	return s.buildRequest(req, ProviderIdentity{}, false)
+}
+
+func (s *Session) BuildRequestForProvider(req Request, identity ProviderIdentity) (unified.Request, error) {
+	return s.buildRequest(req, identity, true)
+}
+
+func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNativeContinuation bool) (unified.Request, error) {
 	messages, err := s.Messages()
 	if err != nil {
 		return unified.Request{}, err
 	}
-	messages = append(messages, req.Messages...)
+	pendingMessages := append([]unified.Message(nil), req.Messages...)
+	extensions := cloneExtensions(req.Extensions)
+	if useNativeContinuation && SupportsPreviousResponseID(identity) && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
+		continuation, ok, err := ContinuationAtBranchHead(s.tree, s.branch, identity)
+		if err != nil {
+			return unified.Request{}, err
+		}
+		if ok {
+			extensions = mergeExtensions(continuation.Extensions, req.Extensions)
+			if !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
+				if err := extensions.Set(unified.ExtOpenAIPreviousResponseID, continuation.ResponseID); err != nil {
+					return unified.Request{}, err
+				}
+			}
+			messages = pendingMessages
+		} else {
+			messages = append(messages, pendingMessages...)
+		}
+	} else {
+		messages = append(messages, pendingMessages...)
+	}
 	out := unified.Request{
 		Model:           firstNonEmpty(req.Model, s.defaults.model),
 		MaxOutputTokens: firstIntPtr(req.MaxOutputTokens, s.defaults.maxOutputTokens),
@@ -306,7 +334,7 @@ func (s *Session) BuildRequest(req Request) (unified.Request, error) {
 		CachePolicy:     firstCachePolicy(req.CachePolicy, s.defaults.cachePolicy),
 		CacheKey:        firstNonEmpty(req.CacheKey, s.defaults.cacheKey),
 		CacheTTL:        firstNonEmpty(req.CacheTTL, s.defaults.cacheTTL),
-		Extensions:      req.Extensions,
+		Extensions:      extensions,
 	}
 	if len(req.Stop) > 0 {
 		out.Stop = append([]string(nil), req.Stop...)
@@ -369,6 +397,22 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+func cloneExtensions(in unified.Extensions) unified.Extensions {
+	var out unified.Extensions
+	for _, key := range in.Keys() {
+		_ = out.SetRaw(key, in.Raw(key))
+	}
+	return out
+}
+
+func mergeExtensions(base unified.Extensions, overlay unified.Extensions) unified.Extensions {
+	out := cloneExtensions(base)
+	for _, key := range overlay.Keys() {
+		_ = out.SetRaw(key, overlay.Raw(key))
+	}
+	return out
 }
 
 func defaultSettings() defaults {
