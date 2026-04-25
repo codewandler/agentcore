@@ -3,6 +3,9 @@ package runtime
 import (
 	"context"
 	"time"
+
+	"github.com/codewandler/agentsdk/activation"
+	"github.com/codewandler/agentsdk/tools/toolmgmt"
 )
 
 type ToolContext struct {
@@ -47,6 +50,10 @@ func WithToolExtra(key string, value any) ToolContextOption {
 		}
 		c.extra[key] = value
 	}
+}
+
+func WithToolActivation(state activation.State) ToolContextOption {
+	return WithToolExtra(toolmgmt.KeyActivationState, state)
 }
 
 func WithToolExtras(values map[string]any) ToolContextOption {

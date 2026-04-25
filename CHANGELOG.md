@@ -10,6 +10,13 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-04-25
+
+### Added
+
+- Added `tools/standard.Toolset` helpers that bundle standard tools with an activation manager.
+- Added `runtime.WithToolActivation` for wiring tool-management state into runtime tool contexts without consumers importing `tools/toolmgmt`.
+
 ## [0.15.0] - 2026-04-25
 
 ### Removed

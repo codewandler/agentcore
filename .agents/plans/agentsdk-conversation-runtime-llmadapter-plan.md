@@ -6,6 +6,13 @@ Status date: 2026-04-25
 
 `agentsdk` should grow an optional conversation/session layer and a small runner layer, but it should not copy the full `flai` `core/` versus `runtime/` directory split yet.
 
+Current migration state:
+
+- `agentsdk v0.15.0` contains `conversation`, `runner`, `runtime`, `activation`, `usage`, `markdown`, `runnertest`, and standard tool bundles.
+- `miniagent v0.6.0` consumes the SDK runtime/session/usage path and no longer depends on `agentapis`, `llm`, or `llmproviders`.
+- Automatic projection-time history trimming/compaction has been removed. Canonical provider history is immutable for every provider; usage data is observability only.
+- The remaining migration work is consolidation: reduce miniagent-local wiring and move reusable tool/runtime helpers into agentsdk without adding product-level shell abstractions.
+
 The existing root packages are already the core:
 
 ```text
@@ -1148,6 +1155,8 @@ Status: completed 2026-04-25.
 
 ### Phase 5: runner
 
+Status: completed 2026-04-25.
+
 - Implement model/tool loop.
 - Tool execution with `tool.Ctx`.
 - Event stream for UI consumers.
@@ -1156,14 +1165,22 @@ Status: completed 2026-04-25.
 
 ### Phase 6: miniagent migration
 
-- M0: add local `llmadapter` module wiring.
-- M1: adopt `agentsdk/tool.UnifiedToolsFrom`.
-- M2: route current `Agent.RunTurn` through `agentsdk/runner`.
-- M3: replace `agentapis/conversation.Session` with `agentsdk/conversation.Session`.
-- M4: replace `llmproviders.Service` with explicit `llmadapter` client construction.
-- M5: migrate inference options to `llmadapter/unified`.
-- M6: migrate usage/cost conversion to `llmadapter/unified.Usage`.
-- M7: remove `agentapis`, `llmproviders`, and legacy `llm` dependencies.
+Status: completed for the core migration as of `miniagent v0.6.0`.
+
+- M0: local `llmadapter` module wiring was used during development and removed from release state.
+- M1: adopted `agentsdk/tool.UnifiedToolsFrom`.
+- M2: routed `Agent.RunTurn` through `agentsdk/runtime` and `agentsdk/runner`.
+- M3: replaced `agentapis/conversation.Session` with `agentsdk/conversation.Session`.
+- M4: replaced `llmproviders.Service` with `llmadapter` auto mux client construction.
+- M5: migrated inference options to `llmadapter/unified`.
+- M6: migrated usage/cost conversion to `llmadapter/unified.Usage` via `agentsdk/usage`.
+- M7: removed `agentapis`, `llmproviders`, and legacy `llm` dependencies.
+- M8: removed miniagent-local context budget projection after deciding provider history must remain immutable.
+
+Remaining consolidation:
+
+- Move standard tool bundle + activation manager wiring behind SDK helpers.
+- Keep terminal display, CLI/REPL, system prompt wording, workspace defaults, and product command UX in miniagent.
 
 ## Follow-ups From flai To Reuse
 

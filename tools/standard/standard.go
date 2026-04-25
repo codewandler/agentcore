@@ -2,6 +2,7 @@
 package standard
 
 import (
+	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/tools/filesystem"
 	"github.com/codewandler/agentsdk/tools/git"
@@ -23,6 +24,56 @@ type Options struct {
 	IncludeTodo           bool
 	IncludeToolManagement bool
 	IncludeTurnDone       bool
+}
+
+// Toolset groups a standard tool bundle with the activation manager that owns
+// its active/inactive state.
+type Toolset struct {
+	tools      []tool.Tool
+	activation *activation.Manager
+}
+
+// NewToolset returns a standard tool bundle with all tools initially active.
+func NewToolset(opts Options) *Toolset {
+	return NewToolsetFromTools(Tools(opts)...)
+}
+
+// NewToolsetFromTools returns an activation-backed toolset for an explicit list
+// of tools.
+func NewToolsetFromTools(tools ...tool.Tool) *Toolset {
+	return &Toolset{
+		tools:      append([]tool.Tool(nil), tools...),
+		activation: activation.New(tools...),
+	}
+}
+
+// DefaultToolset returns the default lightweight terminal-agent toolset.
+func DefaultToolset() *Toolset {
+	return NewToolset(DefaultOptions())
+}
+
+// Tools returns all tools in the bundle.
+func (s *Toolset) Tools() []tool.Tool {
+	if s == nil {
+		return nil
+	}
+	return append([]tool.Tool(nil), s.tools...)
+}
+
+// Activation returns the activation manager for the bundle.
+func (s *Toolset) Activation() *activation.Manager {
+	if s == nil {
+		return nil
+	}
+	return s.activation
+}
+
+// ActiveTools returns the currently active tools in bundle order.
+func (s *Toolset) ActiveTools() []tool.Tool {
+	if s == nil || s.activation == nil {
+		return nil
+	}
+	return s.activation.ActiveTools()
 }
 
 // Tools returns the common coding-agent tools plus optional extras.
@@ -49,10 +100,15 @@ func Tools(opts Options) []tool.Tool {
 	return out
 }
 
-// DefaultTools returns the default bundle used by lightweight terminal agents.
-func DefaultTools() []tool.Tool {
-	return Tools(Options{
+// DefaultOptions returns the default bundle options used by lightweight terminal agents.
+func DefaultOptions() Options {
+	return Options{
 		WebSearchProvider:     web.DefaultSearchProviderFromEnv(),
 		IncludeToolManagement: true,
-	})
+	}
+}
+
+// DefaultTools returns the default bundle used by lightweight terminal agents.
+func DefaultTools() []tool.Tool {
+	return Tools(DefaultOptions())
 }
