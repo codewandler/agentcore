@@ -43,6 +43,36 @@ Relevant compatibility layouts:
 loads `.agents/skills` as a skill compatibility source, but `.agents/agents`
 and `.agents/commands` are not ambient default layouts.
 
+## Agentsdk Native App Manifests
+
+Agentsdk supports `app.manifest.json` and `agentsdk.app.json` as native app
+manifests. These are agentsdk-specific composition files, not an external
+standard. They intentionally point at external resource formats rather than
+inventing new agent/command/skill file formats.
+
+Current manifest keys:
+
+```json
+{
+  "default_agent": "coder",
+  "discovery": {
+    "include_global_user_resources": false,
+    "include_external_ecosystems": false,
+    "allow_remote": false,
+    "trust_store_dir": ".agentsdk"
+  },
+  "sources": [
+    ".agents",
+    "file:///absolute/path/to/plugin",
+    "git+https://github.com/codewandler/agentplugins.git#main",
+    "git+ssh://git@github.com/codewandler/agentplugins.git#main"
+  ]
+}
+```
+
+`sources` entries load the same `.agents`, `.claude`, or plugin-root resource
+layouts from local directories or git materialized directories.
+
 ## Project Instructions
 
 - AGENTS.md: https://agents.md/

@@ -200,8 +200,8 @@ func (r *Repository) scan() error {
 			return err
 		}
 		for _, s := range skills {
-			if existing, ok := r.skills[s.Name]; ok {
-				return fmt.Errorf("skill: duplicate skill %q from %s and %s", s.Name, existing.SourceLabel, s.SourceLabel)
+			if _, ok := r.skills[s.Name]; ok {
+				continue
 			}
 			r.skills[s.Name] = s
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/agentdir"
 	"github.com/codewandler/agentsdk/command"
+	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/runnertest"
 	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/llmadapter/unified"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestAppRegistersBundleResources(t *testing.T) {
-	bundle := agentdir.Bundle{
+	bundle := resource.ContributionBundle{
 		AgentSpecs: []agent.Spec{{Name: "coder", System: "You code.", Commands: []string{"review"}}},
 		Commands: []command.Command{
 			command.New(command.Spec{Name: "review"}, func(context.Context, command.Params) (command.Result, error) {
@@ -27,7 +28,7 @@ func TestAppRegistersBundleResources(t *testing.T) {
 		},
 		SkillSources: []skill.Source{{ID: "test", Root: ".agents/skills"}},
 	}
-	app, err := New(WithBundle(bundle), WithOutput(&bytes.Buffer{}))
+	app, err := New(WithResourceBundle(bundle), WithOutput(&bytes.Buffer{}))
 	require.NoError(t, err)
 	require.Equal(t, []skill.Source{{ID: "test", Root: ".agents/skills"}}, app.SkillSources())
 	spec, ok := app.AgentSpec("coder")
@@ -38,13 +39,45 @@ func TestAppRegistersBundleResources(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestAppResourceBundleDuplicateAgentFirstWinsWithDiagnostic(t *testing.T) {
+	app, err := New(
+		WithResourceBundle(resource.ContributionBundle{AgentSpecs: []agent.Spec{{Name: "reviewer", System: "one"}}}),
+		WithResourceBundle(resource.ContributionBundle{AgentSpecs: []agent.Spec{{Name: "reviewer", System: "two"}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	spec, ok := app.AgentSpec("reviewer")
+	require.True(t, ok)
+	require.Equal(t, "one", spec.System)
+	require.Len(t, app.Diagnostics(), 1)
+}
+
+func TestPluginDuplicateCommandFirstWinsWithDiagnostic(t *testing.T) {
+	app, err := New(
+		WithCommand(command.New(command.Spec{Name: "review"}, func(context.Context, command.Params) (command.Result, error) {
+			return command.Text("first"), nil
+		})),
+		WithPlugin(testCommandsPlugin{name: "plugin", commands: []command.Command{
+			command.New(command.Spec{Name: "review"}, func(context.Context, command.Params) (command.Result, error) {
+				return command.Text("second"), nil
+			}),
+		}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	result, err := app.Commands().Execute(context.Background(), "/review")
+	require.NoError(t, err)
+	require.Equal(t, "first", result.Text)
+	require.Len(t, app.Diagnostics(), 1)
+}
+
 func TestAppOwnsMarkdownCommandDispatch(t *testing.T) {
 	fsys := fstest.MapFS{
 		".agents/commands/review.md": {Data: []byte("---\ndescription: Review\n---\nReview {{.Query}}")},
 	}
 	bundle, err := agentdir.LoadFS(fsys, ".")
 	require.NoError(t, err)
-	app, err := New(WithBundle(bundle), WithoutBuiltins())
+	app, err := New(WithResourceBundle(bundle), WithoutBuiltins())
 	require.NoError(t, err)
 
 	result, err := app.Commands().Execute(context.Background(), "/review security")
@@ -103,6 +136,28 @@ func TestAppSendAdvancesTurnUsageIDs(t *testing.T) {
 
 func TestAppProtectedBuiltinsCannotBeOverridden(t *testing.T) {
 	_, err := New(WithCommand(command.New(command.Spec{Name: "help"}, nil)))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already registered")
+}
+
+func TestAppResourceBundleCannotOverrideProtectedBuiltins(t *testing.T) {
+	_, err := New(
+		WithResourceBundle(resource.ContributionBundle{
+			Commands: []command.Command{command.New(command.Spec{Name: "help"}, nil)},
+		}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already registered")
+}
+
+func TestAppPluginCannotOverrideProtectedBuiltins(t *testing.T) {
+	_, err := New(
+		WithPlugin(testCommandsPlugin{name: "plugin", commands: []command.Command{
+			command.New(command.Spec{Name: "exit"}, nil),
+		}}),
+		WithOutput(&bytes.Buffer{}),
+	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "already registered")
 }
@@ -182,7 +237,7 @@ func TestAppDiscoversDefaultSkillSources(t *testing.T) {
 			Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
 			Skills:    []string{"project-skill", "home-skill"},
 		}),
-		WithDefaultSkillSourceDiscovery(SkillSourceDiscovery{WorkspaceDir: workspace, HomeDir: home}),
+		WithDefaultSkillSourceDiscovery(SkillSourceDiscovery{WorkspaceDir: workspace, HomeDir: home, IncludeGlobalUserResources: true}),
 		WithOutput(&bytes.Buffer{}),
 	)
 	require.NoError(t, err)
@@ -218,4 +273,15 @@ func writeAppFile(t *testing.T, path string, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+type testCommandsPlugin struct {
+	name     string
+	commands []command.Command
+}
+
+func (p testCommandsPlugin) Name() string { return p.name }
+
+func (p testCommandsPlugin) Commands() []command.Command {
+	return append([]command.Command(nil), p.commands...)
 }

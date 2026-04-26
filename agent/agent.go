@@ -40,6 +40,8 @@ type Spec struct {
 	Skills       []string
 	SkillSources []skill.Source
 	Commands     []string
+	ResourceID   string
+	ResourceFrom string
 }
 
 // Instance is a running session-backed agent built from a Spec and runtime
@@ -79,6 +81,8 @@ type Instance struct {
 	specSkills          []string
 	specSkillSources    []skill.Source
 	specCommands        []string
+	specResourceID      string
+	specResourceFrom    string
 	skillRepo           *skill.Repository
 	materializedSystem  string
 }
@@ -192,6 +196,8 @@ func (a *Instance) Spec() Spec {
 		Skills:       append([]string(nil), a.specSkills...),
 		SkillSources: append([]skill.Source(nil), a.specSkillSources...),
 		Commands:     append([]string(nil), a.specCommands...),
+		ResourceID:   a.specResourceID,
+		ResourceFrom: a.specResourceFrom,
 	}
 }
 

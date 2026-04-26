@@ -9,6 +9,10 @@ Portable tool definitions, conversation/runtime helpers, markdown utilities, and
 - **Tool system**: Define and execute LLM agent tools with schema validation.
 - **Standard tools**: Filesystem, shell, git, web, notifications, todo, and tool activation management.
 - **Runtime facade**: Run model/tool turns over `llmadapter/unified.Client`.
+- **Terminal app shell**: Build Cobra-based terminal agents and run filesystem
+  agent bundles with `agentsdk run`.
+- **Resource discovery**: Load `.agents` and `.claude` agents, commands, and
+  skills from local directories or declarative git sources.
 - **Conversation state**: Session IDs, conversation IDs, branches, replay projection, JSONL persistence, and provider continuation metadata.
 - **Usage tracking**: Aggregate `llmadapter/unified` token and cost records with runner usage helpers.
 - **Markdown + frontmatter**: Parse and load structured instruction files.
@@ -21,6 +25,7 @@ Portable tool definitions, conversation/runtime helpers, markdown utilities, and
 - Share a tool vocabulary across projects.
 - Persist and resume conversation sessions.
 - Load configuration from markdown instruction files.
+- Ship slim filesystem-described agents without writing a full Go app.
 
 ## Recommended Runtime Stack
 
@@ -101,6 +106,108 @@ session := conversation.New(append(
 ```
 
 Pass the session to the runtime with `runtime.WithSession(session)`. To resume, open the same store and call `conversation.Resume` with the same `runtime.SessionOptions(...)` defaults.
+
+## CLI Resource Bundles
+
+The built-in CLI can run an agent described by files on disk:
+
+```bash
+go run ./cmd/agentsdk run [path] [task]
+```
+
+`path` defaults to the current working directory. When no explicit agent is
+found, agentsdk uses a small built-in general-purpose terminal agent so
+`agentsdk run` still opens a usable REPL.
+
+Resource roots can be shaped like either project compatibility directories or
+plugin roots:
+
+```text
+.agents/
+  agents/
+  commands/
+  skills/
+
+.claude/
+  agents/
+  commands/
+  skills/
+
+plugin-root/
+  agents/
+  commands/
+  skills/
+```
+
+Agent files live in `agents/*.md` and use YAML frontmatter plus a Markdown
+system prompt body:
+
+```markdown
+---
+name: coder
+description: General coding agent
+tools: [bash, file_read]
+skills: [go]
+commands: [review]
+---
+You are a concise coding agent.
+```
+
+Command files live in `commands/*.md`; their frontmatter is parsed into slash
+command metadata and their body is used as a prompt template. Skills use the
+`SKILL.md` directory format under `skills/<name>/SKILL.md`.
+
+To inspect what agentsdk can load without running an agent:
+
+```bash
+go run ./cmd/agentsdk discover [path]
+go run ./cmd/agentsdk discover --local [path]
+```
+
+`discover` is broad by default: it includes the target path, global user
+resources, manifest-declared git sources, and disabled suggestions for known
+external files such as `AGENTS.md` or `Taskfile.yaml`. `--local` limits
+inspection to the target path and disables global and remote sources.
+
+Generic `agentsdk run` does not include global user resources by default. Pass
+`--include-global` to include `~/.agents` and `~/.claude`:
+
+```bash
+go run ./cmd/agentsdk run . --include-global
+```
+
+## App Manifests
+
+A directory can contain `app.manifest.json` or `agentsdk.app.json` to declare
+the app's default agent, discovery policy, and source list:
+
+```json
+{
+  "default_agent": "coder",
+  "discovery": {
+    "include_global_user_resources": false,
+    "include_external_ecosystems": false,
+    "allow_remote": false,
+    "trust_store_dir": ".agentsdk"
+  },
+  "sources": [
+    ".agents",
+    "file:///absolute/path/to/plugin",
+    "git+https://github.com/codewandler/agentplugins.git#main"
+  ]
+}
+```
+
+Source strings are URL-like:
+
+- Bare paths are resolved relative to the manifest directory.
+- `file://...` points at an explicit local directory.
+- `git+https://...` and `git+ssh://...` materialize a git repository/ref under
+  `<workspace>/.agentsdk/cache/git/...` and then load declarative resources
+  from it.
+
+Remote sources are declarative only; repository code is not executed just by
+loading it.
 
 ### Cache And History Rules
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/codewandler/agentsdk/agent"
+	"github.com/codewandler/agentsdk/agentdir"
 	"github.com/codewandler/agentsdk/runnertest"
 	"github.com/stretchr/testify/require"
 )
@@ -46,6 +47,41 @@ func TestRunStartsREPLWithoutTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "> ")
 	require.Contains(t, out.String(), "session")
+}
+
+func TestRunUsesBuiltInDefaultAgentWhenNoSpecsFound(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	var out bytes.Buffer
+
+	err := Run(t.Context(), Config{
+		Resources:    ResolvedResources(agentdir.Resolution{}),
+		Task:         "hello",
+		Workspace:    t.TempDir(),
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		Out:          &out,
+		Err:          &bytes.Buffer{},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, client.Requests(), 1)
+}
+
+func TestRunUsesBuiltInDefaultAgentEvenWhenEmptyManifestNamesDefault(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+
+	err := Run(t.Context(), Config{
+		Resources: ResolvedResources(agentdir.Resolution{
+			DefaultAgent: "missing",
+		}),
+		Task:         "hello",
+		Workspace:    t.TempDir(),
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		Out:          &bytes.Buffer{},
+		Err:          &bytes.Buffer{},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, client.Requests(), 1)
 }
 
 func TestRunAppliesSelectedAgentSpecOverride(t *testing.T) {
@@ -111,6 +147,26 @@ func TestCommandRunsWithEmbeddedResources(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, client.Requests(), 1)
+}
+
+func TestResourceArgCommandDefaultsToCurrentDirectory(t *testing.T) {
+	client := runnertest.NewClient()
+	var out bytes.Buffer
+	cmd := NewCommand(CommandConfig{
+		Name:         "testagent",
+		Use:          "testagent [path] [task]",
+		ResourceArg:  true,
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		In:           bytes.NewBufferString("/quit\n"),
+		Out:          &out,
+		Err:          &bytes.Buffer{},
+	})
+	cmd.SetArgs(nil)
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "> ")
 }
 
 func testBundle() fstest.MapFS {

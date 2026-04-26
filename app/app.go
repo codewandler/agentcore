@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"time"
 
 	"github.com/codewandler/agentsdk/agent"
-	"github.com/codewandler/agentsdk/agentdir"
 	"github.com/codewandler/agentsdk/command"
+	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/tools/standard"
@@ -26,6 +27,8 @@ type App struct {
 	agents       map[string]*agent.Instance
 	specs        map[string]agent.Spec
 	specCommands map[string][]string
+	protected    map[string]bool
+	diagnostics  []resource.Diagnostic
 	defaultAgent string
 	plugins      map[string]Plugin
 	skillSources []skill.Source
@@ -43,7 +46,7 @@ type config struct {
 	specs        []agent.Spec
 	defaultAgent string
 	plugins      []Plugin
-	bundles      []agentdir.Bundle
+	bundles      []resource.ContributionBundle
 	skillSources []skill.Source
 	discoveries  []SkillSourceDiscovery
 	agentOptions []agent.Option
@@ -74,6 +77,7 @@ func New(opts ...Option) (*App, error) {
 		agents:       map[string]*agent.Instance{},
 		specs:        map[string]agent.Spec{},
 		specCommands: map[string][]string{},
+		protected:    map[string]bool{},
 		defaultAgent: cfg.defaultAgent,
 		plugins:      map[string]Plugin{},
 		skillSources: discoveredSources,
@@ -99,7 +103,9 @@ func New(opts ...Option) (*App, error) {
 	if !cfg.noBuiltins {
 		// Built-ins are protected app-control commands. Resource commands that
 		// collide with them fail registration instead of overriding them.
-		if err := a.RegisterCommands(a.builtins()...); err != nil {
+		builtins := a.builtins()
+		a.protectCommands(builtins...)
+		if err := a.RegisterCommands(builtins...); err != nil {
 			return nil, err
 		}
 	}
@@ -114,7 +120,7 @@ func New(opts ...Option) (*App, error) {
 		}
 	}
 	for _, bundle := range cfg.bundles {
-		if err := a.RegisterBundle(bundle); err != nil {
+		if err := a.RegisterResourceBundle(bundle); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +153,7 @@ func WithAgentSpec(spec agent.Spec) Option {
 	return func(c *config) { c.specs = append(c.specs, spec) }
 }
 
-func WithBundle(bundle agentdir.Bundle) Option {
+func WithResourceBundle(bundle resource.ContributionBundle) Option {
 	return func(c *config) { c.bundles = append(c.bundles, bundle) }
 }
 
@@ -271,7 +277,8 @@ func (a *App) RegisterAgentSpec(spec agent.Spec) error {
 		a.specCommands = map[string][]string{}
 	}
 	if _, exists := a.specs[spec.Name]; exists {
-		return fmt.Errorf("app: agent spec %q already registered", spec.Name)
+		a.diagnostics = append(a.diagnostics, resource.Warning(resource.SourceRef{ID: spec.ResourceFrom}, fmt.Sprintf("agent %q ignored because the short name is already registered", spec.Name)))
+		return nil
 	}
 	a.specs[spec.Name] = spec
 	a.specCommands[spec.Name] = append([]string(nil), spec.Commands...)
@@ -414,8 +421,10 @@ func (a *App) RegisterPlugin(plugin Plugin) error {
 	}
 	a.plugins[plugin.Name()] = plugin
 	if cp, ok := plugin.(CommandsPlugin); ok {
-		if err := a.RegisterCommands(cp.Commands()...); err != nil {
-			return fmt.Errorf("app: register plugin %q commands: %w", plugin.Name(), err)
+		for _, cmd := range cp.Commands() {
+			if err := a.registerCommandFromSource(cmd, resource.SourceRef{ID: plugin.Name()}); err != nil {
+				return fmt.Errorf("app: register plugin %q commands: %w", plugin.Name(), err)
+			}
 		}
 	}
 	if ap, ok := plugin.(AgentSpecsPlugin); ok {
@@ -436,9 +445,11 @@ func (a *App) RegisterPlugin(plugin Plugin) error {
 	return nil
 }
 
-func (a *App) RegisterBundle(bundle agentdir.Bundle) error {
-	if err := a.RegisterCommands(bundle.Commands...); err != nil {
-		return err
+func (a *App) RegisterResourceBundle(bundle resource.ContributionBundle) error {
+	for _, cmd := range bundle.Commands {
+		if err := a.registerCommandFromSource(cmd, bundle.Source); err != nil {
+			return err
+		}
 	}
 	for _, spec := range bundle.AgentSpecs {
 		if err := a.RegisterAgentSpec(spec); err != nil {
@@ -446,7 +457,30 @@ func (a *App) RegisterBundle(bundle agentdir.Bundle) error {
 		}
 	}
 	a.skillSources = append(a.skillSources, bundle.SkillSources...)
+	a.diagnostics = append(a.diagnostics, bundle.Diagnostics...)
 	return nil
+}
+
+func (a *App) registerCommandFromSource(cmd command.Command, source resource.SourceRef) error {
+	if err := a.RegisterCommands(cmd); err != nil {
+		var dup command.ErrDuplicate
+		if errors.As(err, &dup) {
+			if a.isProtectedCommand(dup.Name) {
+				return err
+			}
+			a.diagnostics = append(a.diagnostics, resource.Warning(source, fmt.Sprintf("command %q ignored because the short name is already registered", dup.Name)))
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (a *App) Diagnostics() []resource.Diagnostic {
+	if a == nil {
+		return nil
+	}
+	return append([]resource.Diagnostic(nil), a.diagnostics...)
 }
 
 func (a *App) SkillSources() []skill.Source {
@@ -454,6 +488,33 @@ func (a *App) SkillSources() []skill.Source {
 		return nil
 	}
 	return append([]skill.Source(nil), a.skillSources...)
+}
+
+func (a *App) protectCommands(commands ...command.Command) {
+	if a.protected == nil {
+		a.protected = map[string]bool{}
+	}
+	for _, cmd := range commands {
+		if cmd == nil {
+			continue
+		}
+		spec := cmd.Spec()
+		if spec.Name != "" {
+			a.protected[spec.Name] = true
+		}
+		for _, alias := range spec.Aliases {
+			if alias != "" {
+				a.protected[alias] = true
+			}
+		}
+	}
+}
+
+func (a *App) isProtectedCommand(name string) bool {
+	if a == nil || a.protected == nil {
+		return false
+	}
+	return a.protected[strings.TrimPrefix(strings.TrimSpace(name), "/")]
 }
 
 func (a *App) ToolCatalog() *tool.Catalog {

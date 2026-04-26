@@ -11,6 +11,7 @@ import (
 
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
+	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,7 @@ type CommandConfig struct {
 	DefaultSessionsDir string
 	CacheKeyPrefix     string
 	Prompt             string
+	DiscoveryPolicy    resource.DiscoveryPolicy
 
 	DefaultInference      agent.InferenceOptions
 	DefaultMaxSteps       int
@@ -62,16 +64,17 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 		toolTimeout = 30 * time.Second
 	}
 	var (
-		agentName    = cfg.DefaultAgent
-		workspace    string
-		systemPrompt string
-		totalTimeout time.Duration
-		thinkingFlag = string(inference.Thinking)
-		effortFlag   = string(inference.Effort)
-		session      string
-		continueLast bool
-		sessionsDir  string
-		verbose      bool
+		agentName     = cfg.DefaultAgent
+		workspace     string
+		systemPrompt  string
+		totalTimeout  time.Duration
+		thinkingFlag  = string(inference.Thinking)
+		effortFlag    = string(inference.Effort)
+		session       string
+		continueLast  bool
+		sessionsDir   string
+		verbose       bool
+		includeGlobal bool
 	)
 	cmd := &cobra.Command{
 		Use:           cfg.Use,
@@ -84,11 +87,12 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 			resources := cfg.Resources
 			taskArgs := args
 			if cfg.ResourceArg {
-				if len(args) == 0 {
-					return fmt.Errorf("usage: %s", cmd.UseLine())
+				resourcePath := "."
+				if len(args) > 0 {
+					resourcePath = args[0]
+					taskArgs = args[1:]
 				}
-				resources = DirResources(args[0])
-				taskArgs = args[1:]
+				resources = DirResources(resourcePath)
 			}
 			if resources == nil {
 				return fmt.Errorf("cli: resources are required")
@@ -127,10 +131,12 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 				Prompt:             cfg.Prompt,
 				AgentOptions:       append([]agent.Option(nil), cfg.AgentOptions...),
 				AppOptions:         append([]app.Option(nil), cfg.AppOptions...),
+				DiscoveryPolicy:    cfg.DiscoveryPolicy,
 				In:                 firstReader(cfg.In, os.Stdin),
 				Out:                firstWriter(cfg.Out, cmd.OutOrStdout()),
 				Err:                firstWriter(cfg.Err, cmd.ErrOrStderr()),
 			}
+			runCfg.DiscoveryPolicy.IncludeGlobalUserResources = includeGlobal || runCfg.DiscoveryPolicy.IncludeGlobalUserResources
 			return Run(context.Background(), runCfg)
 		},
 	}
@@ -152,6 +158,7 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 	f.BoolVar(&continueLast, "continue", false, "Resume the most recently active session")
 	f.StringVar(&sessionsDir, "sessions-dir", "", "Session storage directory")
 	f.BoolVarP(&verbose, "verbose", "v", false, "Show resolved provider/model diagnostics")
+	f.BoolVar(&includeGlobal, "include-global", false, "Load ~/.agents and ~/.claude resources")
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeModels(cfg.ModelCompleter, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})

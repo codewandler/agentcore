@@ -13,6 +13,7 @@ import (
 
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
+	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/terminal/repl"
 	"github.com/codewandler/agentsdk/terminal/ui"
 )
@@ -40,8 +41,9 @@ type Config struct {
 	Verbose        bool
 	Prompt         string
 
-	AgentOptions []agent.Option
-	AppOptions   []app.Option
+	AgentOptions    []agent.Option
+	AppOptions      []app.Option
+	DiscoveryPolicy resource.DiscoveryPolicy
 
 	In  io.Reader
 	Out io.Writer
@@ -86,9 +88,18 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.Resources == nil {
 		return fmt.Errorf("cli: resources are required")
 	}
-	resolved, err := cfg.Resources.Resolve()
+	policy := cfg.DiscoveryPolicy
+	if policy.TrustStoreDir == "" {
+		policy.TrustStoreDir = filepath.Join(workspace, ".agentsdk")
+	}
+	resolved, err := cfg.Resources.Resolve(policy)
 	if err != nil {
 		return err
+	}
+	if len(resolved.Bundle.AgentSpecs) == 0 && strings.TrimSpace(cfg.AgentName) == "" {
+		spec := agent.DefaultSpec()
+		resolved.Bundle.AgentSpecs = append(resolved.Bundle.AgentSpecs, spec)
+		resolved.DefaultAgent = spec.Name
 	}
 	name, err := resolved.ResolveDefaultAgent(cfg.AgentName)
 	if err != nil {
@@ -110,9 +121,9 @@ func Run(ctx context.Context, cfg Config) error {
 
 	appOpts := []app.Option{
 		app.WithOutput(out),
-		app.WithBundle(resolved.Bundle),
+		app.WithResourceBundle(resolved.Bundle),
 		app.WithDefaultAgent(name),
-		app.WithDefaultSkillSourceDiscovery(app.SkillSourceDiscovery{WorkspaceDir: workspace}),
+		app.WithDefaultSkillSourceDiscovery(app.SkillSourceDiscovery{WorkspaceDir: workspace, IncludeGlobalUserResources: policy.IncludeGlobalUserResources}),
 		app.WithAgentWorkspace(workspace),
 		app.WithAgentOutput(out),
 		app.WithAgentTerminalUI(true),

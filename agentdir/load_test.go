@@ -2,11 +2,13 @@ package agentdir
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"testing/fstest"
 
 	"github.com/codewandler/agentsdk/agent"
+	"github.com/codewandler/agentsdk/resource"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,11 +48,26 @@ You are a coder.`),
 	require.Equal(t, "review", bundle.Commands[0].Spec().Name)
 	require.Len(t, bundle.SkillSources, 1)
 	require.Equal(t, ".agents/skills", bundle.SkillSources[0].Root)
+	require.Len(t, bundle.Skills, 1)
+	require.Equal(t, "coder", bundle.Skills[0].Name)
+	require.Equal(t, "Coder skill", bundle.Skills[0].Description)
+}
+
+func TestLoadFSAcceptsClaudeStringToolList(t *testing.T) {
+	fsys := fstest.MapFS{
+		".claude/agents/helper.md": {
+			Data: []byte("---\nname: helper\ntools: Bash, Grep, Read\n---\nhelper"),
+		},
+	}
+	bundle, err := LoadFS(fsys, ".")
+	require.NoError(t, err)
+	require.Len(t, bundle.AgentSpecs, 1)
+	require.Equal(t, []string{"Bash", "Grep", "Read"}, bundle.AgentSpecs[0].Tools)
 }
 
 func TestResolveDirPrefersManifest(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"default_agent":"main","plugins":[{"path":"plugin"}]}`)
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"default_agent":"main","sources":["plugin"]}`)
 	writeFile(t, filepath.Join(dir, ".claude", "agents", "ignored.md"), "---\nname: ignored\n---\nignored")
 	writeFile(t, filepath.Join(dir, "plugin", "agents", "main.md"), "---\nname: main\n---\nmain")
 
@@ -73,7 +90,42 @@ func TestResolveDirProbesClaudeAndAgentsBeforeRoot(t *testing.T) {
 	for _, spec := range resolved.Bundle.AgentSpecs {
 		names = append(names, spec.Name)
 	}
-	require.Equal(t, []string{"main", "reviewer"}, names)
+	require.Equal(t, []string{"reviewer", "main"}, names)
+}
+
+func TestResolveDefaultAgentUsesUniqueFirstWinNames(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "reviewer.md"), "---\nname: reviewer\n---\nagents")
+	writeFile(t, filepath.Join(dir, ".claude", "agents", "reviewer.md"), "---\nname: reviewer\n---\nclaude")
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"reviewer"}, resolved.AgentNames())
+	name, err := resolved.ResolveDefaultAgent("")
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", name)
+}
+
+func TestAgentResourceIDsIncludeSourcePathWhenNeeded(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"sources":[".agents","."]}`)
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "reviewer.md"), "---\nname: reviewer\n---\nagents")
+	writeFile(t, filepath.Join(dir, "agents", "reviewer.md"), "---\nname: reviewer\n---\nroot")
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	var ids []string
+	for _, spec := range resolved.Bundle.AgentSpecs {
+		ids = append(ids, spec.ResourceID)
+	}
+	require.Contains(t, ids, "agents:project:reviewer#.agents/agents/reviewer.md")
+	require.Contains(t, ids, "agents:project:reviewer#agents/reviewer.md")
+}
+
+func TestResolveDefaultAgentDeduplicatesNames(t *testing.T) {
+	name, err := ResolveDefaultAgent([]string{"reviewer", "reviewer"}, "", "")
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", name)
 }
 
 func TestResolveDirFallsBackToPluginRoot(t *testing.T) {
@@ -84,6 +136,156 @@ func TestResolveDirFallsBackToPluginRoot(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resolved.Bundle.AgentSpecs, 1)
 	require.Equal(t, "main", resolved.Bundle.AgentSpecs[0].Name)
+}
+
+func TestResolveDirFallsBackToPluginRootWhenAgentsDirHasNoResources(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".agents", "plans", "note.md"), "not a resource")
+	writeFile(t, filepath.Join(dir, "agents", "main.md"), "---\nname: main\n---\nmain")
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"main"}, resolved.AgentNames())
+	require.Equal(t, []string{dir}, resolved.Sources)
+}
+
+func TestResolveDirIncludesGlobalResourcesWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(home, ".agents", "agents", "helper.md"), "---\nname: helper\n---\nhelper")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{
+		HomeDir: home,
+		Policy:  resource.DiscoveryPolicy{IncludeGlobalUserResources: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"helper", "main"}, resolved.AgentNames())
+}
+
+func TestResolveDirLocalOnlyIgnoresGlobalResourcesWithoutManifest(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(home, ".agents", "agents", "helper.md"), "---\nname: helper\n---\nhelper")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{
+		HomeDir:   home,
+		LocalOnly: true,
+		Policy:    resource.DiscoveryPolicy{IncludeGlobalUserResources: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"main"}, resolved.AgentNames())
+}
+
+func TestResolveDirRootFallbackRunsBeforeGlobalResources(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(dir, "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(home, ".agents", "agents", "helper.md"), "---\nname: helper\n---\nhelper")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{
+		HomeDir: home,
+		Policy:  resource.DiscoveryPolicy{IncludeGlobalUserResources: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"helper", "main"}, resolved.AgentNames())
+	require.Equal(t, []string{dir, filepath.Join(home, ".agents")}, resolved.Sources)
+}
+
+func TestResolveDirRejectsLegacyPluginsManifestKey(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"plugins":[{"path":"plugin"}]}`)
+
+	_, err := ResolveDir(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"plugins"`)
+	require.Contains(t, err.Error(), `"sources"`)
+}
+
+func TestManifestDiscoveryCanDisableGlobalResources(t *testing.T) {
+	dir := t.TempDir()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"discovery":{"include_global_user_resources":false},"sources":[".agents"]}`)
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(home, ".agents", "agents", "helper.md"), "---\nname: helper\n---\nhelper")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{
+		HomeDir: home,
+		Policy:  resource.DiscoveryPolicy{IncludeGlobalUserResources: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"main"}, resolved.AgentNames())
+}
+
+func TestResolveLocalOnlySkipsManifestRemotePolicy(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"discovery":{"allow_remote":true},"sources":[".agents","git+https://example.invalid/repo.git"]}`)
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{LocalOnly: true})
+	require.NoError(t, err)
+	require.Equal(t, []string{"main"}, resolved.AgentNames())
+	require.Len(t, resolved.Bundle.Diagnostics, 1)
+	require.Contains(t, resolved.Bundle.Diagnostics[0].Message, "skipped")
+}
+
+func TestResolveLocalOnlyKeepsLocalExternalSuggestions(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"discovery":{"include_external_ecosystems":true},"sources":[".agents"]}`)
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(dir, "Makefile"), "test:\n\tgo test ./...\n")
+
+	resolved, err := ResolveDirWithOptions(dir, ResolveOptions{
+		LocalOnly: true,
+		Policy:    resource.DiscoveryPolicy{IncludeExternalEcosystems: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"main"}, resolved.AgentNames())
+	require.Len(t, resolved.Bundle.Tools, 1)
+	require.False(t, resolved.Bundle.Tools[0].Enabled)
+}
+
+func TestResolveDirManifestSourcesUseURLStrings(t *testing.T) {
+	dir := t.TempDir()
+	external := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"default_agent":"main","sources":[".agents","file://`+filepath.ToSlash(external)+`"]}`)
+	writeFile(t, filepath.Join(dir, ".agents", "agents", "main.md"), "---\nname: main\n---\nmain")
+	writeFile(t, filepath.Join(external, "agents", "helper.md"), "---\nname: helper\n---\nhelper")
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"helper", "main"}, resolved.AgentNames())
+}
+
+func TestResolveDirManifestGitSource(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, ".agents", "agents", "remote.md"), "---\nname: remote\n---\nremote")
+	runGitTest(t, repo, "init", "-b", "main")
+	runGitTest(t, repo, "config", "user.email", "test@example.com")
+	runGitTest(t, repo, "config", "user.name", "Test")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "init")
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"discovery":{"allow_remote":true,"trust_store_dir":".agentsdk"},"sources":["git+file://`+filepath.ToSlash(repo)+`#main"]}`)
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"remote"}, resolved.AgentNames())
+	require.DirExists(t, filepath.Join(dir, ".agentsdk", "cache", "git"))
+	matches, err := filepath.Glob(filepath.Join(dir, ".agentsdk", "cache", "git", "*", "*", "*", "refs", "main", "meta.json"))
+	require.NoError(t, err)
+	require.NotEmpty(t, matches)
+
+	writeFile(t, filepath.Join(repo, ".agents", "agents", "second.md"), "---\nname: second\n---\nsecond")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "second")
+	resolved, err = ResolveDir(dir)
+	require.NoError(t, err)
+	require.Equal(t, []string{"remote", "second"}, resolved.AgentNames())
 }
 
 func TestResolveFSLoadsEmbeddedPluginRoot(t *testing.T) {
@@ -114,6 +316,9 @@ coder`)},
 	require.Len(t, bundle.AgentSpecs, 1)
 	require.Len(t, bundle.AgentSpecs[0].SkillSources, 1)
 	require.Equal(t, ".agents/extra-skills", bundle.AgentSpecs[0].SkillSources[0].Root)
+	require.Len(t, bundle.Skills, 1)
+	require.Equal(t, "coder-extra", bundle.Skills[0].Name)
+	require.Equal(t, "Extra", bundle.Skills[0].Description)
 }
 
 func TestResolveDefaultAgent(t *testing.T) {
@@ -132,7 +337,7 @@ func TestResolveDefaultAgent(t *testing.T) {
 
 func TestResolutionHelpers(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"default_agent":"main","plugins":[{"path":"plugin"}]}`)
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{"default_agent":"main","sources":["plugin"]}`)
 	writeFile(t, filepath.Join(dir, "plugin", "agents", "main.md"), "---\nname: main\n---\nmain")
 
 	resolved, err := ResolveDir(dir)
@@ -158,4 +363,12 @@ func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+func runGitTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
 }

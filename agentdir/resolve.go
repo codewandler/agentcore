@@ -9,21 +9,34 @@ import (
 	"sort"
 
 	"github.com/codewandler/agentsdk/agent"
+	"github.com/codewandler/agentsdk/resource"
 )
 
 var manifestNames = []string{"app.manifest.json", "agentsdk.app.json"}
 
 type AppManifest struct {
-	DefaultAgent string           `json:"default_agent"`
-	Plugins      []ManifestPlugin `json:"plugins"`
+	DefaultAgent string            `json:"default_agent"`
+	Discovery    ManifestDiscovery `json:"discovery"`
+	Sources      []string          `json:"sources"`
+	Plugins      json.RawMessage   `json:"plugins,omitempty"`
 }
 
-type ManifestPlugin struct {
-	Path string `json:"path"`
+type ManifestDiscovery struct {
+	IncludeGlobalUserResources *bool  `json:"include_global_user_resources"`
+	IncludeExternalEcosystems  *bool  `json:"include_external_ecosystems"`
+	AllowRemote                *bool  `json:"allow_remote"`
+	TrustStoreDir              string `json:"trust_store_dir"`
+}
+
+type ResolveOptions struct {
+	Policy       resource.DiscoveryPolicy
+	HomeDir      string
+	WorkspaceDir string
+	LocalOnly    bool
 }
 
 type Resolution struct {
-	Bundle       Bundle
+	Bundle       resource.ContributionBundle
 	DefaultAgent string
 	Manifest     *AppManifest
 	Sources      []string
@@ -32,44 +45,87 @@ type Resolution struct {
 // ResolveDir resolves a path as an app manifest, embedded plugin roots, or a
 // plugin root in the deterministic order used by agentsdk run.
 func ResolveDir(dir string) (Resolution, error) {
+	return ResolveDirWithOptions(dir, ResolveOptions{})
+}
+
+func ResolveDirWithOptions(dir string, opts ResolveOptions) (Resolution, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return Resolution{}, err
+	}
+	if opts.WorkspaceDir == "" {
+		opts.WorkspaceDir = dir
+	}
+	if opts.Policy.TrustStoreDir == "" {
+		opts.Policy.TrustStoreDir = filepath.Join(opts.WorkspaceDir, ".agentsdk")
+	}
+	if opts.LocalOnly {
+		opts.Policy.IncludeGlobalUserResources = false
+		opts.Policy.AllowRemote = false
+	}
 	manifestPath, manifest, ok, err := readManifest(dir)
 	if err != nil {
 		return Resolution{}, err
 	}
 	if ok {
-		return resolveManifest(dir, manifestPath, manifest)
+		return resolveManifest(dir, manifestPath, manifest, opts)
 	}
 	var out Resolution
-	for _, name := range []string{".claude", ".agents"} {
+	for _, name := range []string{".agents", ".claude"} {
 		candidate := filepath.Join(dir, name)
 		if exists, err := osDirExists(candidate); err != nil {
 			return Resolution{}, err
 		} else if exists {
-			bundle, err := LoadDir(candidate)
+			bundle, err := LoadDirWithSource(candidate, sourceForCandidate(candidate, dir, resource.ScopeProject))
 			if err != nil {
 				return Resolution{}, fmt.Errorf("load %s: %w", candidate, err)
 			}
-			if err := out.Bundle.Append(bundle); err != nil {
-				return Resolution{}, err
-			}
-			out.Sources = append(out.Sources, candidate)
+			appendResolvedBundle(&out, candidate, bundle)
 		}
 	}
-	if len(out.Sources) > 0 {
-		return out, nil
+	if len(out.Sources) == 0 {
+		bundle, err := LoadDirWithSource(dir, sourceForCandidate(dir, dir, resource.ScopeProject))
+		if err != nil {
+			return Resolution{}, err
+		}
+		out.Bundle = bundle
+		out.Sources = append(out.Sources, dir)
 	}
-	bundle, err := LoadDir(dir)
-	if err != nil {
-		return Resolution{}, err
+	if opts.Policy.IncludeGlobalUserResources {
+		home := opts.HomeDir
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		for _, name := range []string{".agents", ".claude"} {
+			if home == "" {
+				continue
+			}
+			candidate := filepath.Join(home, name)
+			if exists, err := osDirExists(candidate); err != nil {
+				return Resolution{}, err
+			} else if exists {
+				bundle, err := LoadDirWithSource(candidate, sourceForCandidate(candidate, home, resource.ScopeUser))
+				if err != nil {
+					return Resolution{}, fmt.Errorf("load %s: %w", candidate, err)
+				}
+				appendResolvedBundle(&out, candidate, bundle)
+			}
+		}
 	}
-	out.Bundle = bundle
-	out.Sources = append(out.Sources, dir)
+	appendExternalCandidates(&out.Bundle, dir, opts.Policy)
 	return out, nil
 }
 
 // ResolveFS resolves an embedded or virtual filesystem root as a plugin root.
 func ResolveFS(fsys fs.FS, root string) (Resolution, error) {
-	bundle, err := LoadFS(fsys, root)
+	bundle, err := LoadFSWithSource(fsys, root, resource.SourceRef{
+		ID:        resource.QualifiedID(resource.SourceRef{Ecosystem: "agents", Scope: resource.ScopeEmbedded}, "source", "", root),
+		Ecosystem: "agents",
+		Scope:     resource.ScopeEmbedded,
+		Root:      root,
+		Path:      root,
+		Trust:     resource.TrustDeclarative,
+	})
 	if err != nil {
 		return Resolution{}, err
 	}
@@ -77,7 +133,7 @@ func ResolveFS(fsys fs.FS, root string) (Resolution, error) {
 }
 
 func ResolveDefaultAgent(specs []string, explicit string, manifestDefault string) (string, error) {
-	names := append([]string(nil), specs...)
+	names := uniqueStrings(specs)
 	sort.Strings(names)
 	has := func(name string) bool {
 		for _, candidate := range names {
@@ -118,6 +174,7 @@ func (r Resolution) AgentNames() []string {
 	for _, spec := range r.Bundle.AgentSpecs {
 		names = append(names, spec.Name)
 	}
+	names = uniqueStrings(names)
 	sort.Strings(names)
 	return names
 }
@@ -144,25 +201,72 @@ func (r *Resolution) UpdateAgentSpec(name string, update func(*agent.Spec)) erro
 	return fmt.Errorf("agentdir: agent spec %q not found; available agents: %v", name, r.AgentNames())
 }
 
-func resolveManifest(dir string, manifestPath string, manifest AppManifest) (Resolution, error) {
+func resolveManifest(dir string, manifestPath string, manifest AppManifest, opts ResolveOptions) (Resolution, error) {
 	out := Resolution{Manifest: &manifest, DefaultAgent: manifest.DefaultAgent, Sources: []string{manifestPath}}
-	for _, plugin := range manifest.Plugins {
-		if plugin.Path == "" {
-			return Resolution{}, fmt.Errorf("agentdir: manifest plugin path is required")
+	policy := opts.Policy
+	if manifest.Discovery.IncludeExternalEcosystems != nil {
+		policy.IncludeExternalEcosystems = *manifest.Discovery.IncludeExternalEcosystems
+	}
+	if manifest.Discovery.TrustStoreDir != "" {
+		policy.TrustStoreDir = manifest.Discovery.TrustStoreDir
+		if !filepath.IsAbs(policy.TrustStoreDir) {
+			policy.TrustStoreDir = filepath.Join(dir, policy.TrustStoreDir)
 		}
-		pluginPath := plugin.Path
-		if !filepath.IsAbs(pluginPath) {
-			pluginPath = filepath.Join(dir, pluginPath)
+	}
+	if opts.LocalOnly {
+		policy.IncludeGlobalUserResources = false
+		policy.AllowRemote = false
+	} else if manifest.Discovery.IncludeGlobalUserResources != nil {
+		policy.IncludeGlobalUserResources = *manifest.Discovery.IncludeGlobalUserResources
+	}
+	if !opts.LocalOnly && manifest.Discovery.AllowRemote != nil {
+		policy.AllowRemote = *manifest.Discovery.AllowRemote
+	}
+	if len(manifest.Sources) == 0 {
+		manifest.Sources = []string{"."}
+	}
+	for _, sourceURI := range manifest.Sources {
+		if opts.LocalOnly && isRemoteSource(sourceURI) {
+			out.Bundle.Diagnostics = append(out.Bundle.Diagnostics, resource.Info(resource.SourceRef{
+				Ecosystem: "agents",
+				Scope:     resource.ScopeRemote,
+				Path:      sourceURI,
+				Trust:     resource.TrustUntrusted,
+			}, fmt.Sprintf("remote source %q skipped in local-only discovery", sourceURI)))
+			continue
 		}
-		bundle, err := LoadDir(pluginPath)
+		sourcePath, source, err := materializeSource(dir, sourceURI, policy)
 		if err != nil {
-			return Resolution{}, fmt.Errorf("load manifest plugin %s: %w", pluginPath, err)
-		}
-		if err := out.Bundle.Append(bundle); err != nil {
 			return Resolution{}, err
 		}
-		out.Sources = append(out.Sources, pluginPath)
+		bundle, err := LoadDirWithSource(sourcePath, source)
+		if err != nil {
+			return Resolution{}, fmt.Errorf("load manifest source %s: %w", sourceURI, err)
+		}
+		appendResolvedBundle(&out, sourceURI, bundle)
 	}
+	if policy.IncludeGlobalUserResources {
+		home := opts.HomeDir
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		for _, name := range []string{".agents", ".claude"} {
+			if home == "" {
+				continue
+			}
+			candidate := filepath.Join(home, name)
+			if exists, err := osDirExists(candidate); err != nil {
+				return Resolution{}, err
+			} else if exists {
+				bundle, err := LoadDirWithSource(candidate, sourceForCandidate(candidate, home, resource.ScopeUser))
+				if err != nil {
+					return Resolution{}, fmt.Errorf("load %s: %w", candidate, err)
+				}
+				appendResolvedBundle(&out, candidate, bundle)
+			}
+		}
+	}
+	appendExternalCandidates(&out.Bundle, dir, policy)
 	return out, nil
 }
 
@@ -180,6 +284,9 @@ func readManifest(dir string) (string, AppManifest, bool, error) {
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			return "", AppManifest{}, false, fmt.Errorf("parse %s: %w", path, err)
 		}
+		if len(manifest.Plugins) > 0 && string(manifest.Plugins) != "null" {
+			return "", AppManifest{}, false, fmt.Errorf("parse %s: manifest key %q is no longer supported; use %q", path, "plugins", "sources")
+		}
 		return path, manifest, true, nil
 	}
 	return "", AppManifest{}, false, nil
@@ -196,28 +303,38 @@ func osDirExists(dir string) (bool, error) {
 	return info.IsDir(), nil
 }
 
-func (b *Bundle) Append(other Bundle) error {
-	for _, spec := range other.AgentSpecs {
-		for _, existing := range b.AgentSpecs {
-			if existing.Name == spec.Name {
-				return fmt.Errorf("agentdir: duplicate agent %q", spec.Name)
-			}
-		}
-		b.AgentSpecs = append(b.AgentSpecs, spec)
-	}
-	for _, cmd := range other.Commands {
-		for _, existing := range b.Commands {
-			if existing.Spec().Name == cmd.Spec().Name {
-				return fmt.Errorf("agentdir: duplicate command %q", cmd.Spec().Name)
-			}
-		}
-		b.Commands = append(b.Commands, cmd)
-	}
-	b.SkillSources = append(b.SkillSources, other.SkillSources...)
-	return nil
-}
-
 func SourceExists(fsys fs.FS, dir string) bool {
 	ok, _ := dirExists(fsys, dir)
 	return ok
+}
+
+func appendResolvedBundle(out *Resolution, source string, bundle resource.ContributionBundle) {
+	out.Bundle.Append(bundle)
+	if bundleHasResources(bundle) {
+		out.Sources = append(out.Sources, source)
+	}
+}
+
+func bundleHasResources(bundle resource.ContributionBundle) bool {
+	return len(bundle.AgentSpecs) > 0 ||
+		len(bundle.Commands) > 0 ||
+		len(bundle.Skills) > 0 ||
+		len(bundle.SkillSources) > 0 ||
+		len(bundle.Tools) > 0 ||
+		len(bundle.Hooks) > 0 ||
+		len(bundle.Permissions) > 0 ||
+		len(bundle.Diagnostics) > 0
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
