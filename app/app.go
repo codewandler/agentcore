@@ -1,0 +1,587 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/codewandler/agentsdk/agent"
+	"github.com/codewandler/agentsdk/agentdir"
+	"github.com/codewandler/agentsdk/command"
+	"github.com/codewandler/agentsdk/skill"
+	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/tools/standard"
+	"github.com/codewandler/agentsdk/usage"
+)
+
+// App is the user-facing composition root. It owns command dispatch and one or
+// more running agent instances.
+type App struct {
+	out          io.Writer
+	commands     *command.Registry
+	agents       map[string]*agent.Instance
+	specs        map[string]agent.Spec
+	specCommands map[string][]string
+	defaultAgent string
+	plugins      map[string]Plugin
+	skillSources []skill.Source
+	agentOptions []agent.Option
+	tools        *tool.Catalog
+	turnID       int
+}
+
+type Option func(*config)
+
+type config struct {
+	out          io.Writer
+	commands     []command.Command
+	agents       map[string]*agent.Instance
+	specs        []agent.Spec
+	defaultAgent string
+	plugins      []Plugin
+	bundles      []agentdir.Bundle
+	skillSources []skill.Source
+	discoveries  []SkillSourceDiscovery
+	agentOptions []agent.Option
+	tools        []tool.Tool
+	noBuiltins   bool
+}
+
+func New(opts ...Option) (*App, error) {
+	cfg := config{out: os.Stdout, agents: map[string]*agent.Instance{}}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	discoveredSources := []skill.Source{}
+	for _, discovery := range cfg.discoveries {
+		sources, err := DiscoverDefaultSkillSources(discovery)
+		if err != nil {
+			return nil, err
+		}
+		discoveredSources = append(discoveredSources, sources...)
+	}
+	discoveredSources = append(discoveredSources, cfg.skillSources...)
+
+	a := &App{
+		out:          cfg.out,
+		commands:     command.NewRegistry(),
+		agents:       map[string]*agent.Instance{},
+		specs:        map[string]agent.Spec{},
+		specCommands: map[string][]string{},
+		defaultAgent: cfg.defaultAgent,
+		plugins:      map[string]Plugin{},
+		skillSources: discoveredSources,
+		agentOptions: append([]agent.Option(nil), cfg.agentOptions...),
+	}
+	catalogTools := standard.DefaultTools()
+	catalogTools = append(catalogTools, cfg.tools...)
+	catalog, err := tool.NewCatalog(catalogTools...)
+	if err != nil {
+		return nil, err
+	}
+	a.tools = catalog
+	for name, inst := range cfg.agents {
+		if inst != nil {
+			a.agents[name] = inst
+		}
+	}
+	if len(a.agents) == 1 && a.defaultAgent == "" {
+		for name := range a.agents {
+			a.defaultAgent = name
+		}
+	}
+	if !cfg.noBuiltins {
+		// Built-ins are protected app-control commands. Resource commands that
+		// collide with them fail registration instead of overriding them.
+		if err := a.RegisterCommands(a.builtins()...); err != nil {
+			return nil, err
+		}
+	}
+	if len(cfg.commands) > 0 {
+		if err := a.RegisterCommands(cfg.commands...); err != nil {
+			return nil, err
+		}
+	}
+	for _, spec := range cfg.specs {
+		if err := a.RegisterAgentSpec(spec); err != nil {
+			return nil, err
+		}
+	}
+	for _, bundle := range cfg.bundles {
+		if err := a.RegisterBundle(bundle); err != nil {
+			return nil, err
+		}
+	}
+	for _, plugin := range cfg.plugins {
+		if err := a.RegisterPlugin(plugin); err != nil {
+			return nil, err
+		}
+	}
+	return a, nil
+}
+
+func WithOutput(out io.Writer) Option {
+	return func(c *config) { c.out = out }
+}
+
+func WithCommand(commands ...command.Command) Option {
+	return func(c *config) { c.commands = append(c.commands, commands...) }
+}
+
+func WithAgent(name string, inst *agent.Instance) Option {
+	return func(c *config) {
+		if c.agents == nil {
+			c.agents = map[string]*agent.Instance{}
+		}
+		c.agents[name] = inst
+	}
+}
+
+func WithAgentSpec(spec agent.Spec) Option {
+	return func(c *config) { c.specs = append(c.specs, spec) }
+}
+
+func WithBundle(bundle agentdir.Bundle) Option {
+	return func(c *config) { c.bundles = append(c.bundles, bundle) }
+}
+
+func WithDefaultAgent(name string) Option {
+	return func(c *config) { c.defaultAgent = name }
+}
+
+func WithPlugin(plugin Plugin) Option {
+	return func(c *config) {
+		if plugin != nil {
+			c.plugins = append(c.plugins, plugin)
+		}
+	}
+}
+
+func WithSkillSources(sources ...skill.Source) Option {
+	return func(c *config) { c.skillSources = append(c.skillSources, sources...) }
+}
+
+func WithDefaultSkillSourceDiscovery(discovery SkillSourceDiscovery) Option {
+	return func(c *config) { c.discoveries = append(c.discoveries, discovery) }
+}
+
+func WithAgentOptions(opts ...agent.Option) Option {
+	return func(c *config) { c.agentOptions = append(c.agentOptions, opts...) }
+}
+
+func WithAgentWorkspace(dir string) Option {
+	return WithAgentOptions(agent.WithWorkspace(dir))
+}
+
+func WithAgentToolTimeout(timeout time.Duration) Option {
+	return WithAgentOptions(agent.WithToolTimeout(timeout))
+}
+
+func WithAgentSessionStoreDir(dir string) Option {
+	return WithAgentOptions(agent.WithSessionStoreDir(dir))
+}
+
+func WithAgentCacheKeyPrefix(prefix string) Option {
+	return WithAgentOptions(agent.WithCacheKeyPrefix(prefix))
+}
+
+func WithAgentVerbose(verbose bool) Option {
+	return WithAgentOptions(agent.WithVerbose(verbose))
+}
+
+func WithAgentOutput(out io.Writer) Option {
+	return WithAgentOptions(agent.WithOutput(out))
+}
+
+func WithAgentTerminalUI(enabled bool) Option {
+	return WithAgentOptions(agent.WithTerminalUI(enabled))
+}
+
+func WithTools(tools ...tool.Tool) Option {
+	return func(c *config) { c.tools = append(c.tools, tools...) }
+}
+
+func WithoutBuiltins() Option {
+	return func(c *config) { c.noBuiltins = true }
+}
+
+func (a *App) Out() io.Writer {
+	if a == nil || a.out == nil {
+		return io.Discard
+	}
+	return a.out
+}
+
+func (a *App) Commands() *command.Registry {
+	if a == nil {
+		return nil
+	}
+	return a.commands
+}
+
+func (a *App) RegisterCommands(commands ...command.Command) error {
+	if a.commands == nil {
+		a.commands = command.NewRegistry()
+	}
+	return a.commands.Register(commands...)
+}
+
+func (a *App) RegisterAgent(name string, inst *agent.Instance) error {
+	if name == "" {
+		return fmt.Errorf("app: agent name is required")
+	}
+	if inst == nil {
+		return fmt.Errorf("app: agent %q is nil", name)
+	}
+	if a.agents == nil {
+		a.agents = map[string]*agent.Instance{}
+	}
+	if _, exists := a.agents[name]; exists {
+		return fmt.Errorf("app: agent %q already registered", name)
+	}
+	a.agents[name] = inst
+	if a.defaultAgent == "" {
+		a.defaultAgent = name
+	}
+	return nil
+}
+
+func (a *App) Agent(name string) (*agent.Instance, bool) {
+	if a == nil {
+		return nil, false
+	}
+	inst, ok := a.agents[name]
+	return inst, ok
+}
+
+func (a *App) RegisterAgentSpec(spec agent.Spec) error {
+	if spec.Name == "" {
+		return fmt.Errorf("app: agent spec name is required")
+	}
+	if a.specs == nil {
+		a.specs = map[string]agent.Spec{}
+	}
+	if a.specCommands == nil {
+		a.specCommands = map[string][]string{}
+	}
+	if _, exists := a.specs[spec.Name]; exists {
+		return fmt.Errorf("app: agent spec %q already registered", spec.Name)
+	}
+	a.specs[spec.Name] = spec
+	a.specCommands[spec.Name] = append([]string(nil), spec.Commands...)
+	if a.defaultAgent == "" {
+		a.defaultAgent = spec.Name
+	}
+	return nil
+}
+
+func (a *App) AgentCommandNames(name string) []string {
+	if a == nil {
+		return nil
+	}
+	return append([]string(nil), a.specCommands[name]...)
+}
+
+func (a *App) AgentSpec(name string) (agent.Spec, bool) {
+	if a == nil {
+		return agent.Spec{}, false
+	}
+	spec, ok := a.specs[name]
+	return spec, ok
+}
+
+func (a *App) InstantiateAgent(name string, opts ...agent.Option) (*agent.Instance, error) {
+	spec, ok := a.AgentSpec(name)
+	if !ok {
+		return nil, fmt.Errorf("app: agent spec %q not found", name)
+	}
+	tools, err := a.tools.Select(spec.Tools)
+	if err != nil {
+		return nil, err
+	}
+	if view := a.AgentCommandView(name); len(view.AgentCommands()) > 0 {
+		tools = append(tools, command.Tool(view))
+	}
+	repo, err := skill.NewRepository(a.agentSkillSources(spec), spec.Skills)
+	if err != nil {
+		return nil, err
+	}
+	base := []agent.Option{
+		agent.WithSpec(spec),
+		agent.WithTools(tools),
+		agent.WithSkillRepository(repo),
+	}
+	base = append(base, a.agentOptions...)
+	base = append(base, opts...)
+	inst, err := agent.New(base...)
+	if err != nil {
+		return nil, err
+	}
+	if a.agents == nil {
+		a.agents = map[string]*agent.Instance{}
+	}
+	a.agents[name] = inst
+	if a.defaultAgent == "" {
+		a.defaultAgent = name
+	}
+	return inst, nil
+}
+
+func (a *App) InstantiateDefaultAgent(opts ...agent.Option) (*agent.Instance, error) {
+	if a == nil || a.defaultAgent == "" {
+		return nil, fmt.Errorf("app: no default agent configured")
+	}
+	return a.InstantiateAgent(a.defaultAgent, opts...)
+}
+
+func (a *App) AgentCommandView(name string) *command.Registry {
+	view := command.NewRegistry()
+	if a == nil || a.commands == nil {
+		return view
+	}
+	allowed := map[string]bool{}
+	for _, commandName := range a.specCommands[name] {
+		allowed[commandName] = true
+	}
+	if len(allowed) == 0 {
+		return view
+	}
+	for _, cmd := range a.commands.All() {
+		spec := cmd.Spec()
+		if !allowed[spec.Name] {
+			continue
+		}
+		if spec.AgentCallable() {
+			_ = view.Register(cmd)
+		}
+	}
+	return view
+}
+
+func (a *App) AgentSpecs() []agent.Spec {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.specs))
+	for name := range a.specs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]agent.Spec, 0, len(names))
+	for _, name := range names {
+		out = append(out, a.specs[name])
+	}
+	return out
+}
+
+func (a *App) DefaultAgent() (*agent.Instance, bool) {
+	if a == nil || a.defaultAgent == "" {
+		return nil, false
+	}
+	return a.Agent(a.defaultAgent)
+}
+
+func (a *App) AgentNames() []string {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.agents))
+	for name := range a.agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (a *App) RegisterPlugin(plugin Plugin) error {
+	if plugin == nil {
+		return nil
+	}
+	if plugin.Name() == "" {
+		return fmt.Errorf("app: plugin name is required")
+	}
+	if a.plugins == nil {
+		a.plugins = map[string]Plugin{}
+	}
+	if _, exists := a.plugins[plugin.Name()]; exists {
+		return fmt.Errorf("app: plugin %q already registered", plugin.Name())
+	}
+	a.plugins[plugin.Name()] = plugin
+	if cp, ok := plugin.(CommandsPlugin); ok {
+		if err := a.RegisterCommands(cp.Commands()...); err != nil {
+			return fmt.Errorf("app: register plugin %q commands: %w", plugin.Name(), err)
+		}
+	}
+	if ap, ok := plugin.(AgentSpecsPlugin); ok {
+		for _, spec := range ap.AgentSpecs() {
+			if err := a.RegisterAgentSpec(spec); err != nil {
+				return fmt.Errorf("app: register plugin %q agent specs: %w", plugin.Name(), err)
+			}
+		}
+	}
+	if sp, ok := plugin.(SkillsPlugin); ok {
+		a.skillSources = append(a.skillSources, sp.SkillSources()...)
+	}
+	if tp, ok := plugin.(ToolsPlugin); ok {
+		if err := a.tools.Register(tp.Tools()...); err != nil {
+			return fmt.Errorf("app: register plugin %q tools: %w", plugin.Name(), err)
+		}
+	}
+	return nil
+}
+
+func (a *App) RegisterBundle(bundle agentdir.Bundle) error {
+	if err := a.RegisterCommands(bundle.Commands...); err != nil {
+		return err
+	}
+	for _, spec := range bundle.AgentSpecs {
+		if err := a.RegisterAgentSpec(spec); err != nil {
+			return err
+		}
+	}
+	a.skillSources = append(a.skillSources, bundle.SkillSources...)
+	return nil
+}
+
+func (a *App) SkillSources() []skill.Source {
+	if a == nil {
+		return nil
+	}
+	return append([]skill.Source(nil), a.skillSources...)
+}
+
+func (a *App) ToolCatalog() *tool.Catalog {
+	if a == nil {
+		return nil
+	}
+	return a.tools
+}
+
+// Send routes user input through command dispatch or the default agent.
+func (a *App) Send(ctx context.Context, input string) (command.Result, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return command.Handled(), nil
+	}
+	if strings.HasPrefix(input, "/") {
+		result, err := a.commands.ExecuteUser(ctx, input)
+		if err != nil {
+			return command.Result{}, err
+		}
+		return a.Apply(ctx, result, 0)
+	}
+	inst, ok := a.DefaultAgent()
+	if !ok {
+		return command.Result{}, fmt.Errorf("app: no default agent configured")
+	}
+	return command.Handled(), inst.RunTurn(ctx, a.nextTurnID(), input)
+}
+
+// Apply performs an already-executed command result. turnID is used when a
+// result asks to run the default agent.
+func (a *App) Apply(ctx context.Context, result command.Result, turnID int) (command.Result, error) {
+	switch result.Kind {
+	case command.ResultAgentTurn:
+		inst, ok := a.DefaultAgent()
+		if !ok {
+			return command.Result{}, fmt.Errorf("app: no default agent configured")
+		}
+		if strings.TrimSpace(result.Input) == "" {
+			return command.Handled(), nil
+		}
+		if turnID <= 0 {
+			turnID = a.nextTurnID()
+		}
+		return command.Handled(), inst.RunTurn(ctx, turnID, result.Input)
+	case command.ResultReset:
+		if inst, ok := a.DefaultAgent(); ok {
+			inst.Reset()
+		}
+		a.turnID = 0
+		return command.Handled(), nil
+	default:
+		return result, nil
+	}
+}
+
+func (a *App) agentSkillSources(spec agent.Spec) []skill.Source {
+	sources := append([]skill.Source(nil), a.skillSources...)
+	sources = append(sources, spec.SkillSources...)
+	return sources
+}
+
+func (a *App) nextTurnID() int {
+	a.turnID++
+	return a.turnID
+}
+
+// Methods below let terminal/repl use App directly.
+
+func (a *App) RunTurn(ctx context.Context, turnID int, task string) error {
+	inst, ok := a.DefaultAgent()
+	if !ok {
+		return fmt.Errorf("app: no default agent configured")
+	}
+	return inst.RunTurn(ctx, turnID, task)
+}
+
+func (a *App) Reset() {
+	if inst, ok := a.DefaultAgent(); ok {
+		inst.Reset()
+	}
+	a.turnID = 0
+}
+
+func (a *App) ParamsSummary() string {
+	if inst, ok := a.DefaultAgent(); ok {
+		return inst.ParamsSummary()
+	}
+	return ""
+}
+
+func (a *App) SessionID() string {
+	if inst, ok := a.DefaultAgent(); ok {
+		return inst.SessionID()
+	}
+	return ""
+}
+
+func (a *App) Tracker() *usage.Tracker {
+	if inst, ok := a.DefaultAgent(); ok {
+		return inst.Tracker()
+	}
+	return nil
+}
+
+func (a *App) builtins() []command.Command {
+	return []command.Command{
+		command.New(command.Spec{Name: "help", Aliases: []string{"?"}, Description: "Show available commands"}, func(context.Context, command.Params) (command.Result, error) {
+			return command.Text(a.commands.HelpText()), nil
+		}),
+		command.New(command.Spec{Name: "new", Aliases: []string{"reset"}, Description: "Start a new session"}, func(context.Context, command.Params) (command.Result, error) {
+			return command.Reset(), nil
+		}),
+		command.New(command.Spec{Name: "quit", Aliases: []string{"q", "exit"}, Description: "Exit the app"}, func(context.Context, command.Params) (command.Result, error) {
+			return command.Exit(), nil
+		}),
+		command.New(command.Spec{Name: "turn", Description: "Run a prompt as an agent turn", ArgumentHint: "[text]"}, func(_ context.Context, params command.Params) (command.Result, error) {
+			if params.Raw == "" {
+				return command.Text("usage: /turn <text>"), nil
+			}
+			return command.AgentTurn(params.Raw), nil
+		}),
+		command.New(command.Spec{Name: "session", Description: "Show session id and usage"}, func(context.Context, command.Params) (command.Result, error) {
+			if inst, ok := a.DefaultAgent(); ok {
+				record := inst.Tracker().Aggregate()
+				return command.Text(fmt.Sprintf("session: %s\ninput=%d output=%d", inst.SessionID(), record.Usage.InputTokens(), record.Usage.OutputTokens())), nil
+			}
+			return command.Text("session: none"), nil
+		}),
+	}
+}

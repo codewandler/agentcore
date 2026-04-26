@@ -1,0 +1,304 @@
+// Package command provides slash-command registration, parsing, and dispatch.
+package command
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// Spec describes a slash command. Name and aliases do not include the leading
+// slash.
+type Spec struct {
+	Name         string
+	Aliases      []string
+	Description  string
+	ArgumentHint string
+	Policy       Policy
+}
+
+// Policy describes who may invoke a command.
+type Policy struct {
+	UserCallable  bool
+	AgentCallable bool
+	Internal      bool
+}
+
+// Params carries parsed arguments from a slash command invocation.
+type Params struct {
+	Raw   string
+	Args  []string
+	Flags map[string]string
+}
+
+// Command is a named executable slash command.
+type Command interface {
+	Spec() Spec
+	Execute(context.Context, Params) (Result, error)
+}
+
+// Handler adapts a function into a Command.
+type Handler func(context.Context, Params) (Result, error)
+
+type funcCommand struct {
+	spec Spec
+	fn   Handler
+}
+
+// New returns a command backed by fn.
+func New(spec Spec, fn Handler) Command {
+	return &funcCommand{spec: normalizeSpec(spec), fn: fn}
+}
+
+func (c *funcCommand) Spec() Spec { return c.spec }
+
+func (c *funcCommand) Execute(ctx context.Context, params Params) (Result, error) {
+	if c.fn == nil {
+		return Handled(), nil
+	}
+	return c.fn(ctx, params)
+}
+
+// ResultKind describes the action a command asks its caller to perform.
+type ResultKind int
+
+const (
+	ResultHandled ResultKind = iota
+	ResultText
+	ResultAgentTurn
+	ResultReset
+	ResultExit
+)
+
+// Result is the typed outcome of a command execution.
+type Result struct {
+	Kind  ResultKind
+	Text  string
+	Input string
+}
+
+// Handled indicates the command handled itself and no further action is needed.
+func Handled() Result { return Result{Kind: ResultHandled} }
+
+// Text asks the caller to render text to the user.
+func Text(text string) Result { return Result{Kind: ResultText, Text: text} }
+
+// AgentTurn asks the caller to run the rendered input as an agent turn.
+func AgentTurn(input string) Result { return Result{Kind: ResultAgentTurn, Input: input} }
+
+// Reset asks the caller to reset the active agent/session.
+func Reset() Result { return Result{Kind: ResultReset} }
+
+// Exit asks the caller to exit the current interactive loop.
+func Exit() Result { return Result{Kind: ResultExit} }
+
+// Registry stores commands and resolves names and aliases.
+type Registry struct {
+	index   map[string]Command
+	ordered []Command
+}
+
+// NewRegistry returns an empty command registry.
+func NewRegistry() *Registry {
+	return &Registry{index: map[string]Command{}}
+}
+
+// Register adds commands to the registry. Duplicate names and aliases are
+// explicit errors.
+func (r *Registry) Register(commands ...Command) error {
+	if r.index == nil {
+		r.index = map[string]Command{}
+	}
+	for _, cmd := range commands {
+		if cmd == nil {
+			continue
+		}
+		spec := normalizeSpec(cmd.Spec())
+		if spec.Name == "" {
+			return fmt.Errorf("command: command name is required")
+		}
+		if _, exists := r.index[spec.Name]; exists {
+			return ErrDuplicate{Name: spec.Name}
+		}
+		for _, alias := range spec.Aliases {
+			if alias == "" {
+				continue
+			}
+			if _, exists := r.index[alias]; exists {
+				return ErrDuplicate{Name: alias}
+			}
+		}
+		wrapped := New(spec, cmd.Execute)
+		r.index[spec.Name] = wrapped
+		for _, alias := range spec.Aliases {
+			if alias != "" {
+				r.index[alias] = wrapped
+			}
+		}
+		r.ordered = append(r.ordered, wrapped)
+	}
+	return nil
+}
+
+// Get resolves name against primary names and aliases.
+func (r *Registry) Get(name string) (Command, bool) {
+	if r == nil {
+		return nil, false
+	}
+	cmd, ok := r.index[strings.TrimPrefix(strings.TrimSpace(name), "/")]
+	return cmd, ok
+}
+
+// All returns commands in registration order, without alias duplicates.
+func (r *Registry) All() []Command {
+	if r == nil {
+		return nil
+	}
+	out := make([]Command, len(r.ordered))
+	copy(out, r.ordered)
+	return out
+}
+
+// UserCommands returns commands visible/callable from user-facing interfaces.
+func (r *Registry) UserCommands() []Command {
+	return filterCommands(r.All(), func(spec Spec) bool { return spec.UserCallable() })
+}
+
+// AgentCommands returns commands explicitly exposed for agent/tool invocation.
+func (r *Registry) AgentCommands() []Command {
+	return filterCommands(r.All(), func(spec Spec) bool { return spec.AgentCallable() })
+}
+
+// Execute parses line and dispatches to the matching command.
+func (r *Registry) Execute(ctx context.Context, line string) (Result, error) {
+	name, params, err := Parse(line)
+	if err != nil {
+		return Result{}, err
+	}
+	cmd, ok := r.Get(name)
+	if !ok {
+		return Result{}, ErrUnknown{Name: name}
+	}
+	return cmd.Execute(ctx, params)
+}
+
+// ExecuteUser parses and dispatches a user-callable command.
+func (r *Registry) ExecuteUser(ctx context.Context, line string) (Result, error) {
+	name, params, err := Parse(line)
+	if err != nil {
+		return Result{}, err
+	}
+	cmd, ok := r.Get(name)
+	if !ok {
+		return Result{}, ErrUnknown{Name: name}
+	}
+	if !cmd.Spec().UserCallable() {
+		return Result{}, ErrNotCallable{Name: name, Caller: "user"}
+	}
+	return cmd.Execute(ctx, params)
+}
+
+// ExecuteAgent parses and dispatches an agent-callable command.
+func (r *Registry) ExecuteAgent(ctx context.Context, line string) (Result, error) {
+	name, params, err := Parse(line)
+	if err != nil {
+		return Result{}, err
+	}
+	cmd, ok := r.Get(name)
+	if !ok {
+		return Result{}, ErrUnknown{Name: name}
+	}
+	if !cmd.Spec().AgentCallable() {
+		return Result{}, ErrNotCallable{Name: name, Caller: "agent"}
+	}
+	return cmd.Execute(ctx, params)
+}
+
+// HelpText returns a compact command listing.
+func (r *Registry) HelpText() string {
+	cmds := r.UserCommands()
+	if len(cmds) == 0 {
+		return "No commands registered."
+	}
+	sort.SliceStable(cmds, func(i, j int) bool {
+		return cmds[i].Spec().Name < cmds[j].Spec().Name
+	})
+	var b strings.Builder
+	b.WriteString("Commands:\n")
+	for _, cmd := range cmds {
+		spec := cmd.Spec()
+		if spec.Name == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "/%s", spec.Name)
+		if spec.ArgumentHint != "" {
+			fmt.Fprintf(&b, " %s", spec.ArgumentHint)
+		}
+		if len(spec.Aliases) > 0 {
+			fmt.Fprintf(&b, " (aliases: %s)", strings.Join(spec.Aliases, ", "))
+		}
+		if spec.Description != "" {
+			fmt.Fprintf(&b, " - %s", spec.Description)
+		}
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func normalizeSpec(spec Spec) Spec {
+	spec.Name = strings.TrimPrefix(strings.TrimSpace(spec.Name), "/")
+	for i, alias := range spec.Aliases {
+		spec.Aliases[i] = strings.TrimPrefix(strings.TrimSpace(alias), "/")
+	}
+	return spec
+}
+
+// UserCallable reports whether command should be available in user-facing UIs.
+func (s Spec) UserCallable() bool {
+	return !s.Policy.Internal && (s.Policy.UserCallable || (!s.Policy.AgentCallable && !s.Policy.Internal))
+}
+
+// AgentCallable reports whether command may be invoked by an agent command tool.
+func (s Spec) AgentCallable() bool {
+	return !s.Policy.Internal && s.Policy.AgentCallable
+}
+
+func filterCommands(commands []Command, keep func(Spec) bool) []Command {
+	var out []Command
+	for _, cmd := range commands {
+		if cmd != nil && keep(cmd.Spec()) {
+			out = append(out, cmd)
+		}
+	}
+	return out
+}
+
+// ErrDuplicate is returned when a command name or alias is already registered.
+type ErrDuplicate struct {
+	Name string
+}
+
+func (e ErrDuplicate) Error() string {
+	return fmt.Sprintf("command: %q is already registered", e.Name)
+}
+
+// ErrUnknown is returned when a command cannot be found.
+type ErrUnknown struct {
+	Name string
+}
+
+func (e ErrUnknown) Error() string {
+	return fmt.Sprintf("command: unknown command %q", e.Name)
+}
+
+// ErrNotCallable is returned when a command exists but is not available to a
+// caller class.
+type ErrNotCallable struct {
+	Name   string
+	Caller string
+}
+
+func (e ErrNotCallable) Error() string {
+	return fmt.Sprintf("command: %q is not callable by %s", e.Name, e.Caller)
+}

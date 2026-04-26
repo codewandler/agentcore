@@ -10,131 +10,133 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
-type Option func(*Agent)
+type Option func(*Engine)
 
 func WithSession(session *conversation.Session) Option {
-	return func(a *Agent) { a.session = session }
+	return func(e *Engine) { e.session = session }
 }
 
 func WithSessionOptions(opts ...conversation.Option) Option {
-	return func(a *Agent) { a.sessionOptions = append(a.sessionOptions, opts...) }
+	return func(e *Engine) { e.sessionOptions = append(e.sessionOptions, opts...) }
 }
 
 func WithModel(model string) Option {
-	return func(a *Agent) {
-		a.request.Model = model
-		a.sessionOptions = append(a.sessionOptions, conversation.WithModel(model))
+	return func(e *Engine) {
+		e.request.Model = model
+		e.sessionOptions = append(e.sessionOptions, conversation.WithModel(model))
 	}
 }
 
 func WithMaxOutputTokens(max int) Option {
-	return func(a *Agent) {
-		a.request.MaxOutputTokens = &max
-		a.sessionOptions = append(a.sessionOptions, conversation.WithMaxOutputTokens(max))
+	return func(e *Engine) {
+		e.request.MaxOutputTokens = &max
+		e.sessionOptions = append(e.sessionOptions, conversation.WithMaxOutputTokens(max))
 	}
 }
 
 func WithTemperature(value float64) Option {
-	return func(a *Agent) {
-		a.request.Temperature = &value
-		a.sessionOptions = append(a.sessionOptions, conversation.WithTemperature(value))
+	return func(e *Engine) {
+		e.request.Temperature = &value
+		e.sessionOptions = append(e.sessionOptions, conversation.WithTemperature(value))
 	}
 }
 
 func WithSystem(text string) Option {
-	return func(a *Agent) { a.sessionOptions = append(a.sessionOptions, conversation.WithSystem(text)) }
+	return func(e *Engine) { e.sessionOptions = append(e.sessionOptions, conversation.WithSystem(text)) }
 }
 
 func WithReasoning(reasoning unified.ReasoningConfig) Option {
-	return func(a *Agent) {
-		a.request.Reasoning = &reasoning
-		a.sessionOptions = append(a.sessionOptions, conversation.WithReasoning(reasoning))
+	return func(e *Engine) {
+		e.request.Reasoning = &reasoning
+		e.sessionOptions = append(e.sessionOptions, conversation.WithReasoning(reasoning))
 	}
 }
 
 func WithTools(tools []tool.Tool) Option {
-	return func(a *Agent) {
-		a.tools = append([]tool.Tool(nil), tools...)
+	return func(e *Engine) {
+		e.tools = append([]tool.Tool(nil), tools...)
 		unifiedTools := tool.UnifiedToolsFrom(tools)
-		a.request.Tools = unifiedTools
-		a.sessionOptions = append(a.sessionOptions, conversation.WithTools(unifiedTools))
+		e.request.Tools = unifiedTools
+		e.sessionOptions = append(e.sessionOptions, conversation.WithTools(unifiedTools))
 	}
 }
 
 func WithToolChoice(choice unified.ToolChoice) Option {
-	return func(a *Agent) {
-		a.request.ToolChoice = &choice
-		a.sessionOptions = append(a.sessionOptions, conversation.WithToolChoice(choice))
+	return func(e *Engine) {
+		e.request.ToolChoice = &choice
+		e.sessionOptions = append(e.sessionOptions, conversation.WithToolChoice(choice))
 	}
 }
 
 func WithCachePolicy(policy unified.CachePolicy) Option {
-	return func(a *Agent) {
-		a.request.CachePolicy = policy
-		a.sessionOptions = append(a.sessionOptions, conversation.WithCachePolicy(policy))
+	return func(e *Engine) {
+		e.request.CachePolicy = policy
+		e.sessionOptions = append(e.sessionOptions, conversation.WithCachePolicy(policy))
 	}
 }
 
 func WithCacheKey(key string) Option {
-	return func(a *Agent) {
-		a.request.CacheKey = key
-		a.sessionOptions = append(a.sessionOptions, conversation.WithCacheKey(key))
+	return func(e *Engine) {
+		e.request.CacheKey = key
+		e.sessionOptions = append(e.sessionOptions, conversation.WithCacheKey(key))
 	}
 }
 
 func WithCacheTTL(ttl string) Option {
-	return func(a *Agent) {
-		a.request.CacheTTL = ttl
-		a.sessionOptions = append(a.sessionOptions, conversation.WithCacheTTL(ttl))
+	return func(e *Engine) {
+		e.request.CacheTTL = ttl
+		e.sessionOptions = append(e.sessionOptions, conversation.WithCacheTTL(ttl))
 	}
 }
 
 func WithProjectionPolicy(policy conversation.ProjectionPolicy) Option {
-	return func(a *Agent) { a.sessionOptions = append(a.sessionOptions, conversation.WithProjectionPolicy(policy)) }
+	return func(e *Engine) {
+		e.sessionOptions = append(e.sessionOptions, conversation.WithProjectionPolicy(policy))
+	}
 }
 
 func WithStream(stream bool) Option {
-	return func(a *Agent) { a.request.Stream = stream }
+	return func(e *Engine) { e.request.Stream = stream }
 }
 
 func WithRequestDefaults(req conversation.Request) Option {
-	return func(a *Agent) { a.request = cloneRequest(req) }
+	return func(e *Engine) { e.request = cloneRequest(req) }
 }
 
 func WithMaxSteps(max int) Option {
-	return func(a *Agent) {
+	return func(e *Engine) {
 		if max > 0 {
-			a.maxSteps = max
+			e.maxSteps = max
 		}
 	}
 }
 
 func WithToolCtx(ctx tool.Ctx) Option {
-	return func(a *Agent) { a.toolCtx = ctx }
+	return func(e *Engine) { e.toolCtx = ctx }
 }
 
 func WithToolContextFactory(factory func(context.Context) tool.Ctx) Option {
-	return func(a *Agent) { a.toolCtxFactory = factory }
+	return func(e *Engine) { e.toolCtxFactory = factory }
 }
 
 func WithToolTimeout(timeout time.Duration) Option {
-	return func(a *Agent) {
+	return func(e *Engine) {
 		if timeout > 0 {
-			a.toolTimeout = timeout
+			e.toolTimeout = timeout
 		}
 	}
 }
 
 func WithToolExecutor(executor runner.ToolExecutor) Option {
-	return func(a *Agent) { a.toolExecutor = executor }
+	return func(e *Engine) { e.toolExecutor = executor }
 }
 
 func WithProviderIdentity(identity conversation.ProviderIdentity) Option {
-	return func(a *Agent) { a.providerIdentity = identity }
+	return func(e *Engine) { e.providerIdentity = identity }
 }
 
 func WithEventHandler(handler runner.EventHandler) Option {
-	return func(a *Agent) { a.onEvent = handler }
+	return func(e *Engine) { e.onEvent = handler }
 }
 
 type TurnOption func(*TurnConfig)

@@ -11,7 +11,9 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
-type Agent struct {
+// Engine is the low-level execution engine for model/tool turns over a
+// conversation session.
+type Engine struct {
 	client           unified.Client
 	session          *conversation.Session
 	sessionOptions   []conversation.Option
@@ -26,69 +28,69 @@ type Agent struct {
 	onEvent          runner.EventHandler
 }
 
-func New(client unified.Client, opts ...Option) (*Agent, error) {
+func New(client unified.Client, opts ...Option) (*Engine, error) {
 	if client == nil {
 		return nil, fmt.Errorf("runtime: client is required")
 	}
-	agent := &Agent{
+	engine := &Engine{
 		client:   client,
 		maxSteps: 8,
 		request:  conversation.Request{Stream: true},
 	}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(agent)
+			opt(engine)
 		}
 	}
-	if agent.session == nil {
-		agent.session = conversation.New(agent.sessionOptions...)
+	if engine.session == nil {
+		engine.session = conversation.New(engine.sessionOptions...)
 	}
-	return agent, nil
+	return engine, nil
 }
 
-func Must(client unified.Client, opts ...Option) *Agent {
-	agent, err := New(client, opts...)
+func Must(client unified.Client, opts ...Option) *Engine {
+	engine, err := New(client, opts...)
 	if err != nil {
 		panic(err)
 	}
-	return agent
+	return engine
 }
 
 func SessionOptions(opts ...Option) []conversation.Option {
-	agent := &Agent{
+	engine := &Engine{
 		maxSteps: 8,
 		request:  conversation.Request{Stream: true},
 	}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(agent)
+			opt(engine)
 		}
 	}
-	return append([]conversation.Option(nil), agent.sessionOptions...)
+	return append([]conversation.Option(nil), engine.sessionOptions...)
 }
 
-func (a *Agent) Session() *conversation.Session {
-	if a == nil {
+func (e *Engine) Session() *conversation.Session {
+	if e == nil {
 		return nil
 	}
-	return a.session
+	return e.session
 }
 
-func (a *Agent) ResetSession(opts ...conversation.Option) *conversation.Session {
-	if a == nil {
+func (e *Engine) ResetSession(opts ...conversation.Option) *conversation.Session {
+	if e == nil {
 		return nil
 	}
-	sessionOptions := append([]conversation.Option(nil), a.sessionOptions...)
+	sessionOptions := append([]conversation.Option(nil), e.sessionOptions...)
 	sessionOptions = append(sessionOptions, opts...)
-	a.session = conversation.New(sessionOptions...)
-	return a.session
+	e.session = conversation.New(sessionOptions...)
+	return e.session
 }
 
-func (a *Agent) RunTurn(ctx context.Context, user string, opts ...TurnOption) (runner.Result, error) {
-	if a == nil {
-		return runner.Result{}, fmt.Errorf("runtime: agent is nil")
+func (e *Engine) RunTurn(ctx context.Context, user string, opts ...TurnOption) (runner.Result, error) {
+	if e == nil {
+		return runner.Result{}, fmt.Errorf("runtime: engine is nil")
 	}
-	cfg := a.turnConfig()
+	cfg := e.turnConfig()
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
@@ -103,20 +105,20 @@ func (a *Agent) RunTurn(ctx context.Context, user string, opts ...TurnOption) (r
 	if cfg.ToolCtx == nil && cfg.ToolCtxFactory != nil {
 		cfg.ToolCtx = cfg.ToolCtxFactory(ctx)
 	}
-	return runner.RunTurn(ctx, a.session, a.client, cfg.Request, cfg.runnerOptions()...)
+	return runner.RunTurn(ctx, e.session, e.client, cfg.Request, cfg.runnerOptions()...)
 }
 
-func (a *Agent) turnConfig() TurnConfig {
+func (e *Engine) turnConfig() TurnConfig {
 	return TurnConfig{
-		Request:          cloneRequest(a.request),
-		MaxSteps:         a.maxSteps,
-		Tools:            append([]tool.Tool(nil), a.tools...),
-		ToolCtx:          a.toolCtx,
-		ToolCtxFactory:   a.toolCtxFactory,
-		ToolTimeout:      a.toolTimeout,
-		ToolExecutor:     a.toolExecutor,
-		ProviderIdentity: a.providerIdentity,
-		OnEvent:          a.onEvent,
+		Request:          cloneRequest(e.request),
+		MaxSteps:         e.maxSteps,
+		Tools:            append([]tool.Tool(nil), e.tools...),
+		ToolCtx:          e.toolCtx,
+		ToolCtxFactory:   e.toolCtxFactory,
+		ToolTimeout:      e.toolTimeout,
+		ToolExecutor:     e.toolExecutor,
+		ProviderIdentity: e.providerIdentity,
+		OnEvent:          e.onEvent,
 	}
 }
 

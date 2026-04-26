@@ -3,6 +3,13 @@
 This file is for developers and AI agents working on agentsdk and its nearby
 consumer repos.
 
+## Resource format references
+
+When adding or changing filesystem resource layouts for agents, commands,
+plugins, or skills, update `docs/RESOURCES.md` with the external standard or
+compatibility source being followed. Prefer established formats over new
+agentsdk-specific layouts.
+
 ## Dependency update process
 
 When upgrading `llmadapter`, pass the released version through the dependency

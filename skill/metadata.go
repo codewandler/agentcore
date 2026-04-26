@@ -4,8 +4,10 @@ package skill
 type SkillMetadata struct {
 	Name          string      `yaml:"name"`
 	Description   string      `yaml:"description"`
+	License       string      `yaml:"license,omitempty"`
 	Risk          string      `yaml:"risk,omitempty"`
 	Compatibility string      `yaml:"compatibility,omitempty"`
+	AllowedTools  []string    `yaml:"allowed-tools,omitempty"`
 	Triggers      []string    `yaml:"triggers,omitempty"`
 	Domain        string      `yaml:"domain,omitempty"`
 	Role          string      `yaml:"role,omitempty"`
