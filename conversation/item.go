@@ -31,6 +31,7 @@ type Item struct {
 	Reasoning    unified.ReasoningPart
 	Continuation ProviderContinuation
 	Assistant    *AssistantTurnEvent
+	Compaction   *CompactionEvent
 	Payload      Payload
 }
 
@@ -43,6 +44,7 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 		return nil, err
 	}
 	items := make([]Item, 0, len(path))
+	replaced := make(map[NodeID]struct{})
 	for _, node := range path {
 		item := Item{
 			NodeID:       node.ID,
@@ -72,14 +74,40 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 			item.Kind = ItemAssistantTurn
 			item.Assistant = payload
 			item.Message = payload.Message
-		case CompactionEvent, *CompactionEvent:
+		case CompactionEvent:
 			item.Kind = ItemCompaction
+			compaction := payload
+			item.Compaction = &compaction
+			item.Message = compactionMessage(compaction)
+			for _, id := range payload.Replaces {
+				replaced[id] = struct{}{}
+			}
+		case *CompactionEvent:
+			if payload == nil {
+				continue
+			}
+			item.Kind = ItemCompaction
+			item.Compaction = payload
+			item.Message = compactionMessage(*payload)
+			for _, id := range payload.Replaces {
+				replaced[id] = struct{}{}
+			}
 		case AnnotationEvent, *AnnotationEvent:
 			item.Kind = ItemAnnotation
 		default:
 			continue
 		}
 		items = append(items, item)
+	}
+	if len(replaced) > 0 {
+		out := make([]Item, 0, len(items))
+		for _, item := range items {
+			if _, ok := replaced[item.NodeID]; ok {
+				continue
+			}
+			out = append(out, item)
+		}
+		items = out
 	}
 	return items, nil
 }
@@ -89,7 +117,7 @@ func MessagesFromItems(items []Item) []unified.Message {
 	messages := make([]unified.Message, 0, len(normalized))
 	for _, item := range normalized {
 		switch item.Kind {
-		case ItemMessage, ItemAssistantTurn, ItemContextFragment:
+		case ItemMessage, ItemAssistantTurn, ItemContextFragment, ItemCompaction:
 			messages = append(messages, sanitizeMessageForRequest(item.Message))
 		}
 	}
@@ -100,7 +128,7 @@ func ExpandItems(items []Item) []Item {
 	out := make([]Item, 0, len(items))
 	for _, item := range items {
 		switch item.Kind {
-		case ItemMessage, ItemAssistantTurn, ItemContextFragment:
+		case ItemMessage, ItemAssistantTurn, ItemContextFragment, ItemCompaction:
 			out = append(out, item)
 			for _, reasoning := range reasoningParts(item.Message.Content) {
 				derived := item
@@ -156,7 +184,7 @@ func NormalizeItems(items []Item) []Item {
 	messages := make([]Item, 0, len(expanded))
 	pendingToolCalls := map[string]unified.ToolCall{}
 	for _, item := range expanded {
-		if item.Kind != ItemMessage && item.Kind != ItemAssistantTurn && item.Kind != ItemContextFragment {
+		if item.Kind != ItemMessage && item.Kind != ItemAssistantTurn && item.Kind != ItemContextFragment && item.Kind != ItemCompaction {
 			continue
 		}
 		msg := sanitizeMessageForRequest(item.Message)
@@ -220,6 +248,20 @@ func NormalizeItems(items []Item) []Item {
 		}
 	}
 	return out
+}
+
+func compactionMessage(payload CompactionEvent) unified.Message {
+	return unified.Message{
+		Role: unified.RoleUser,
+		Name: "conversation_summary",
+		Content: []unified.ContentPart{unified.TextPart{
+			Text: payload.Summary,
+		}},
+		Meta: map[string]any{
+			"agentsdk.kind": "conversation.compaction",
+			"replaces":      append([]NodeID(nil), payload.Replaces...),
+		},
+	}
 }
 
 func sanitizeContentParts(parts []unified.ContentPart) []unified.ContentPart {

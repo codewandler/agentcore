@@ -282,6 +282,92 @@ func TestSessionProjectsPendingContextItems(t *testing.T) {
 	requireText(t, req.Messages[1], "user text")
 }
 
+func TestSessionCompactionSuppressesReplacedNodes(t *testing.T) {
+	s := New()
+	oldOne, err := s.AddUser("old one")
+	require.NoError(t, err)
+	oldTwo, err := s.AddUser("old two")
+	require.NoError(t, err)
+	keep, err := s.AddUser("keep")
+	require.NoError(t, err)
+
+	compaction, err := s.Compact("summary of old messages", oldOne, oldTwo)
+	require.NoError(t, err)
+
+	items, err := ProjectItems(s.Tree(), s.Branch())
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.Equal(t, ItemMessage, items[0].Kind)
+	require.Equal(t, keep, items[0].NodeID)
+	require.Equal(t, ItemCompaction, items[1].Kind)
+	require.NotNil(t, items[1].Compaction)
+	require.Equal(t, []NodeID{oldOne, oldTwo}, items[1].Compaction.Replaces)
+
+	req, err := s.BuildRequest(NewRequest().User("next").Build())
+	require.NoError(t, err)
+	require.Len(t, req.Messages, 3)
+	requireText(t, req.Messages[0], "keep")
+	require.Equal(t, unified.RoleUser, req.Messages[1].Role)
+	require.Equal(t, "conversation_summary", req.Messages[1].Name)
+	requireText(t, req.Messages[1], "summary of old messages")
+	requireText(t, req.Messages[2], "next")
+
+	_, ok := s.Tree().Node(oldOne)
+	require.True(t, ok)
+	_, ok = s.Tree().Node(oldTwo)
+	require.True(t, ok)
+	_, ok = s.Tree().Node(compaction)
+	require.True(t, ok)
+}
+
+func TestSessionCompactionCanReplaceEarlierCompaction(t *testing.T) {
+	s := New()
+	oldOne, err := s.AddUser("old one")
+	require.NoError(t, err)
+	firstSummary, err := s.Compact("first summary", oldOne)
+	require.NoError(t, err)
+
+	_, err = s.Compact("second summary", firstSummary)
+	require.NoError(t, err)
+
+	messages, err := s.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	requireText(t, messages[0], "second summary")
+}
+
+func TestSessionCompactionValidation(t *testing.T) {
+	s := New()
+	_, err := s.Compact("   ")
+	require.Error(t, err)
+
+	_, err = s.Compact("summary", "missing")
+	require.Error(t, err)
+
+	id, err := s.AddUser("kept")
+	require.NoError(t, err)
+	_, err = s.Compact("summary", id)
+	require.NoError(t, err)
+}
+
+func TestSessionCompactionPersistsThroughResume(t *testing.T) {
+	store := NewMemoryStore()
+	original := New(WithStore(store))
+	oldOne, err := original.AddUser("old one")
+	require.NoError(t, err)
+	oldTwo, err := original.AddUser("old two")
+	require.NoError(t, err)
+	_, err = original.Compact("summary of old messages", oldOne, oldTwo)
+	require.NoError(t, err)
+
+	resumed, err := Resume(t.Context(), store, original.ConversationID())
+	require.NoError(t, err)
+	messages, err := resumed.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	requireText(t, messages[0], "summary of old messages")
+}
+
 func TestSessionForkUsesSelectedBranchPath(t *testing.T) {
 	s := New()
 	_, err := s.AddUser("root")

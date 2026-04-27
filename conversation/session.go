@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/codewandler/llmadapter/unified"
@@ -278,6 +279,25 @@ func (s *Session) AddUser(text string) (NodeID, error) {
 	return s.AppendMessage(unified.Message{
 		Role:    unified.RoleUser,
 		Content: []unified.ContentPart{unified.TextPart{Text: text}},
+	})
+}
+
+func (s *Session) Compact(summary string, replaces ...NodeID) (NodeID, error) {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return "", fmt.Errorf("conversation: compaction summary is required")
+	}
+	for _, id := range replaces {
+		if id == "" {
+			return "", fmt.Errorf("conversation: compaction replacement node id is required")
+		}
+		if _, ok := s.tree.Node(id); !ok {
+			return "", fmt.Errorf("conversation: compaction replacement node %q not found", id)
+		}
+	}
+	return s.Append(CompactionEvent{
+		Summary:  summary,
+		Replaces: append([]NodeID(nil), replaces...),
 	})
 }
 
