@@ -33,3 +33,95 @@ func TestProjectItemsNormalizesMessageAndAssistantTurns(t *testing.T) {
 		t.Fatalf("messages = %d, want %d", got, want)
 	}
 }
+
+func TestNormalizeItemsInsertsMissingToolResults(t *testing.T) {
+	items := []Item{{
+		Kind: ItemAssistantTurn,
+		Message: unified.Message{
+			Role: unified.RoleAssistant,
+			ToolCalls: []unified.ToolCall{{
+				ID:   "call_1",
+				Name: "plan",
+			}},
+		},
+	}}
+
+	messages := MessagesFromItems(items)
+	if got, want := len(messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d", got, want)
+	}
+	if messages[1].Role != unified.RoleTool || len(messages[1].ToolResults) != 1 {
+		t.Fatalf("missing synthetic tool result: %#v", messages[1])
+	}
+	result := messages[1].ToolResults[0]
+	if result.ToolCallID != "call_1" || !result.IsError {
+		t.Fatalf("synthetic result = %#v", result)
+	}
+}
+
+func TestNormalizeItemsDropsOrphanToolResults(t *testing.T) {
+	items := []Item{{
+		Kind: ItemMessage,
+		Message: unified.Message{
+			Role: unified.RoleTool,
+			ToolResults: []unified.ToolResult{{
+				ToolCallID: "orphan",
+				Name:       "plan",
+				Content:    []unified.ContentPart{unified.TextPart{Text: "ignored"}},
+			}},
+		},
+	}}
+
+	messages := MessagesFromItems(items)
+	if len(messages) != 0 {
+		t.Fatalf("messages = %#v, want orphan tool result dropped", messages)
+	}
+}
+
+func TestNormalizeItemsStripsUnsupportedMedia(t *testing.T) {
+	items := []Item{{
+		Kind: ItemMessage,
+		Message: unified.Message{
+			Role: unified.RoleUser,
+			Content: []unified.ContentPart{
+				unified.TextPart{Text: "keep"},
+				unified.ImagePart{Alt: "empty"},
+				unified.FilePart{Filename: "empty.txt"},
+			},
+		},
+	}}
+
+	messages := MessagesFromItems(items)
+	if got, want := len(messages[0].Content), 1; got != want {
+		t.Fatalf("content parts = %d, want %d: %#v", got, want, messages[0].Content)
+	}
+}
+
+func TestExpandItemsDerivesToolReasoningAndContinuationItems(t *testing.T) {
+	assistant := AssistantTurnEvent{
+		Message: unified.Message{
+			Role: unified.RoleAssistant,
+			Content: []unified.ContentPart{
+				unified.ReasoningPart{Text: "think", Signature: "sig"},
+				unified.TextPart{Text: "done"},
+			},
+			ToolCalls: []unified.ToolCall{{ID: "call_1", Name: "plan"}},
+		},
+		Continuations: []ProviderContinuation{{ResponseID: "resp_1"}},
+	}
+	items := ExpandItems([]Item{{Kind: ItemAssistantTurn, Message: assistant.Message, Assistant: &assistant}})
+	var sawReasoning, sawToolCall, sawContinuation bool
+	for _, item := range items {
+		switch item.Kind {
+		case ItemReasoning:
+			sawReasoning = item.Reasoning.Text == "think"
+		case ItemToolCall:
+			sawToolCall = item.ToolCall.ID == "call_1"
+		case ItemContinuation:
+			sawContinuation = item.Continuation.ResponseID == "resp_1"
+		}
+	}
+	if !sawReasoning || !sawToolCall || !sawContinuation {
+		t.Fatalf("derived items missing: reasoning=%v toolCall=%v continuation=%v items=%#v", sawReasoning, sawToolCall, sawContinuation, items)
+	}
+}
