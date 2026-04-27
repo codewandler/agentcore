@@ -231,6 +231,8 @@ func commitRecoveredTranscript(history History, transcript []unified.Message) er
 	}
 	fragment := conversation.NewTurnFragment()
 	fragment.AddRequestMessages(transcript...)
+	// Recovery-only: persist the paired partial transcript without marking an
+	// assistant completion or advancing provider continuation state.
 	fragment.Complete("")
 	_, err := history.CommitFragment(fragment)
 	return err

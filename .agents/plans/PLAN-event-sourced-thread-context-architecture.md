@@ -1,6 +1,6 @@
 # PLAN: Event-Sourced Thread, Context, and Prompt Architecture
 
-Status: active implementation
+Status: implemented; future hardening deferred
 Created: 2026-04-27
 Last updated: 2026-04-27
 
@@ -77,12 +77,26 @@ The second cleanup pass has also landed:
   events expose event definitions, and memory/JSONL stores can validate
   registered payload schemas on append/import/load while leaving unregistered
   plugin events open by default.
+- `agentcontext/contextproviders.Git` implements provider-controlled git
+  context with `off`, `minimal`, and `changed_files` modes plus `MaxFiles` and
+  `MaxBytes` caps. The SDK default is minimal git identity; coding-agent apps
+  can opt into changed-file summaries.
+- The review cleanup for projection recovery is complete: tool-call
+  de-duplication no longer relies on slice aliasing, completed tool-call
+  tracking has a single mutation owner, recovery commits document the empty
+  finish reason, and repeated tool-call ID edge cases are covered.
 
-Remaining larger architecture work is intentionally outside this first
-implementation slice:
+The current implementation plan is complete. Remaining items are explicitly
+deferred future hardening or consumer-driven features, not open work for this
+plan:
 
 1. Add indexing/repair for JSONL thread metadata if/when listing/search needs
    outgrow replaying JSONL.
+2. Add plugin authority enforcement when plugin context providers become a real
+   consumer.
+3. Add live capability detachment if runtime removal is needed.
+4. Add deferred JSONL file creation and buffered write retries if storage
+   reliability/empty-thread cleanup becomes important.
 
 ## Executive Summary
 
@@ -297,7 +311,6 @@ ToolResultItem
 ContextFragmentItem
 CompactionItem
 AnnotationItem
-GhostSnapshotItem
 ```
 
 Provider messages are a projection target, not the durable model.

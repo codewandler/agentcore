@@ -118,6 +118,87 @@ func TestNormalizeItemsDropsDuplicateToolCallsAndResults(t *testing.T) {
 	}
 }
 
+func TestNormalizeItemsDropsRepeatedToolCallAfterCompletion(t *testing.T) {
+	items := []Item{
+		{
+			Kind: ItemAssistantTurn,
+			Message: unified.Message{
+				Role:      unified.RoleAssistant,
+				ToolCalls: []unified.ToolCall{{ID: "call_1", Name: "plan"}},
+			},
+		},
+		{
+			Kind: ItemMessage,
+			Message: unified.Message{
+				Role: unified.RoleTool,
+				ToolResults: []unified.ToolResult{{
+					ToolCallID: "call_1",
+					Name:       "plan",
+					Content:    []unified.ContentPart{unified.TextPart{Text: "ok"}},
+				}},
+			},
+		},
+		{
+			Kind: ItemAssistantTurn,
+			Message: unified.Message{
+				Role:      unified.RoleAssistant,
+				ToolCalls: []unified.ToolCall{{ID: "call_1", Name: "plan_again"}},
+			},
+		},
+	}
+
+	messages := MessagesFromItems(items)
+	if got, want := len(messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d: %#v", got, want, messages)
+	}
+	if got, want := len(messages[0].ToolCalls), 1; got != want {
+		t.Fatalf("tool calls = %d, want %d", got, want)
+	}
+	if got, want := len(messages[1].ToolResults), 1; got != want {
+		t.Fatalf("tool results = %d, want %d", got, want)
+	}
+}
+
+func TestNormalizeItemsDropsAssistantMessageWithOnlyDuplicateToolCalls(t *testing.T) {
+	items := []Item{
+		{
+			Kind: ItemAssistantTurn,
+			Message: unified.Message{
+				Role: unified.RoleAssistant,
+				ToolCalls: []unified.ToolCall{
+					{ID: "call_1", Name: "plan"},
+					{ID: "call_1", Name: "plan_duplicate"},
+				},
+			},
+		},
+		{
+			Kind: ItemMessage,
+			Message: unified.Message{
+				Role: unified.RoleTool,
+				ToolResults: []unified.ToolResult{{
+					ToolCallID: "call_1",
+					Name:       "plan",
+					Content:    []unified.ContentPart{unified.TextPart{Text: "ok"}},
+				}},
+			},
+		},
+		{
+			Kind: ItemAssistantTurn,
+			Message: unified.Message{
+				Role: unified.RoleAssistant,
+				ToolCalls: []unified.ToolCall{
+					{ID: "call_1", Name: "plan_third"},
+				},
+			},
+		},
+	}
+
+	messages := MessagesFromItems(items)
+	if got, want := len(messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d: %#v", got, want, messages)
+	}
+}
+
 func TestNormalizeItemsStripsUnsupportedMedia(t *testing.T) {
 	items := []Item{{
 		Kind: ItemMessage,

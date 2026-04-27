@@ -10,6 +10,18 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+### Added
+
+- Added `agentcontext/contextproviders.Git` with configurable `off`, `minimal`, and `changed_files` modes plus file and byte caps.
+
+### Changed
+
+- Removed raw `ProjectionInput.Messages` and `ProjectionInput.PendingMessages`; provider projection now takes normalized conversation items only.
+
+### Fixed
+
+- Hardened tool-call normalization for repeated call IDs and documented recovery-only partial transcript commits.
+
 ## [0.22.0] - 2026-04-27
 
 ### Added

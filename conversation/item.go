@@ -228,9 +228,9 @@ func NormalizeItems(items []Item) []Item {
 		msg := sanitizeMessageForRequest(item.Message)
 		msg.Content = sanitizeContentParts(msg.Content)
 		if msg.Role == unified.RoleAssistant {
-			msg.ToolCalls = sanitizeToolCalls(msg.ToolCalls)
-			filtered := msg.ToolCalls[:0]
-			for _, call := range msg.ToolCalls {
+			sanitized := sanitizeToolCalls(msg.ToolCalls)
+			filtered := make([]unified.ToolCall, 0, len(sanitized))
+			for _, call := range sanitized {
 				if _, done := completedToolCalls[call.ID]; done {
 					continue
 				}
@@ -246,7 +246,6 @@ func NormalizeItems(items []Item) []Item {
 			msg.ToolResults = sanitizeToolResults(msg.ToolResults, pendingToolCalls, completedToolCalls)
 			for _, result := range msg.ToolResults {
 				delete(pendingToolCalls, result.ToolCallID)
-				completedToolCalls[result.ToolCallID] = struct{}{}
 			}
 			if len(msg.ToolResults) == 0 && len(msg.Content) == 0 {
 				continue
