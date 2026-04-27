@@ -469,6 +469,37 @@ func TestThreadRuntimePropagatesEphemeralCacheControlForUnstableContextFragments
 	t.Fatal("missing context text part")
 }
 
+func TestThreadRuntimeDoesNotCacheControlContextFragmentsWithoutPolicy(t *testing.T) {
+	ctx := context.Background()
+	contexts, err := agentcontext.NewManager(runtimeContextProvider{
+		key: "planner",
+		fragments: []agentcontext.ContextFragment{
+			{Key: "planner/meta", Content: "Plan has 4 steps.", Authority: agentcontext.AuthorityUser},
+			{Key: "planner/step/1", Content: "step 1", Authority: agentcontext.AuthorityUser},
+			{Key: "planner/step/2", Content: "step 2", Authority: agentcontext.AuthorityUser},
+			{Key: "planner/step/3", Content: "step 3", Authority: agentcontext.AuthorityUser},
+			{Key: "planner/step/4", Content: "step 4", Authority: agentcontext.AuthorityUser},
+		},
+	})
+	require.NoError(t, err)
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_no_cache_control_default"})
+	require.NoError(t, err)
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	threadRuntime, err := NewThreadRuntime(live, registry, WithContextManager(contexts))
+	require.NoError(t, err)
+	client := &fakeClient{}
+	engine, err := New(client, WithThreadRuntime(threadRuntime))
+	require.NoError(t, err)
+
+	_, err = engine.RunTurn(ctx, "hi")
+	require.NoError(t, err)
+	require.Len(t, client.requests, 1)
+	requireMessageContaining(t, client.requests[0], "Plan has 4 steps.")
+	require.Zero(t, messageCacheControlCount(client.requests[0]))
+}
+
 func TestThreadRuntimeCompactsConversationAndCommitsContextRender(t *testing.T) {
 	ctx := context.Background()
 	store := thread.NewMemoryStore()
@@ -704,6 +735,19 @@ func requireNoMessageContaining(t *testing.T, req unified.Request, want string) 
 			}
 		}
 	}
+}
+
+func messageCacheControlCount(req unified.Request) int {
+	count := 0
+	for _, message := range req.Messages {
+		for _, part := range message.Content {
+			text, ok := part.(unified.TextPart)
+			if ok && text.CacheControl != nil {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func requireNoStoredMessageContaining(t *testing.T, messages []unified.Message, want string) {

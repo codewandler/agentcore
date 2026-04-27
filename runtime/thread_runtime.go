@@ -719,6 +719,10 @@ func (i contextInjection) appendFragments(fragments []agentcontext.ContextFragme
 }
 
 func cacheControlForContextFragment(fragment agentcontext.ContextFragment) *unified.CacheControl {
+	switch fragment.CachePolicy.Scope {
+	case "", agentcontext.CacheNone:
+		return nil
+	}
 	if !fragment.CachePolicy.Stable {
 		return &unified.CacheControl{Type: unified.CacheControlEphemeral}
 	}
