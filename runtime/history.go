@@ -294,6 +294,10 @@ func (h *History) CommitFragment(fragment *conversation.TurnFragment) ([]convers
 	return h.CommitFragmentWithThreadEvents(context.Background(), fragment)
 }
 
+func (h *History) ThreadEventsEnabled() bool {
+	return h != nil && h.live != nil
+}
+
 func (h *History) CommitFragmentWithThreadEvents(ctx context.Context, fragment *conversation.TurnFragment, events ...thread.Event) ([]conversation.NodeID, error) {
 	if fragment == nil {
 		return nil, fmt.Errorf("runtime: turn fragment is nil")

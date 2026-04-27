@@ -6,11 +6,12 @@ import (
 )
 
 type MemoryRegistry struct {
-	factories map[string]Factory
+	factories   map[string]Factory
+	stateEvents *stateEventRegistry
 }
 
 func NewRegistry(factories ...Factory) (*MemoryRegistry, error) {
-	r := &MemoryRegistry{factories: make(map[string]Factory)}
+	r := &MemoryRegistry{factories: make(map[string]Factory), stateEvents: newStateEventRegistry()}
 	if err := r.Register(factories...); err != nil {
 		return nil, err
 	}
@@ -33,6 +34,16 @@ func (r *MemoryRegistry) Register(factories ...Factory) error {
 			return fmt.Errorf("capability: factory %q already registered", name)
 		}
 		r.factories[name] = factory
+		if definitions, ok := factory.(StateEventDefinitions); ok {
+			for _, definition := range definitions.StateEventDefinitions() {
+				if definition.CapabilityName == "" {
+					definition.CapabilityName = name
+				}
+				if err := r.stateEvents.Register(definition); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -46,4 +57,11 @@ func (r *MemoryRegistry) Create(ctx context.Context, spec AttachSpec, runtime Ru
 		return nil, fmt.Errorf("capability: factory %q not registered", spec.CapabilityName)
 	}
 	return factory.New(ctx, spec, runtime)
+}
+
+func (r *MemoryRegistry) ValidateStateEvent(capabilityName string, event StateEvent) error {
+	if r == nil || r.stateEvents == nil {
+		return nil
+	}
+	return r.stateEvents.Validate(capabilityName, event)
 }

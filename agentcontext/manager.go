@@ -103,6 +103,8 @@ type ProviderBuildResult struct {
 }
 
 type BuildResult struct {
+	TurnID    string
+	Reason    RenderReason
 	Providers []ProviderBuildResult
 	Added     []ContextFragment
 	Updated   []ContextFragment
@@ -142,7 +144,7 @@ func (m *Manager) Prepare(ctx context.Context, req BuildRequest) (*PreparedRende
 	version := m.version
 	m.mu.Unlock()
 
-	result := BuildResult{}
+	result := BuildResult{TurnID: req.TurnID, Reason: req.Reason}
 	nextRecords := make(map[ProviderKey]ProviderRenderRecord, len(previousRecords))
 	for key, record := range previousRecords {
 		nextRecords[key] = cloneRecord(record)

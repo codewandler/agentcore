@@ -127,11 +127,55 @@ func TestManagerReplayAppliesStateEventsAndDetach(t *testing.T) {
 	}
 }
 
+func TestManagerReplayRejectsUnregisteredStateEvent(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_replay_invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := AttachSpec{
+		ThreadID:       live.ID(),
+		BranchID:       live.BranchID(),
+		CapabilityName: "fake",
+		InstanceID:     "fake_invalid",
+	}
+	attach, err := AttachEvent(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatched, err := DispatchEvent(spec, StateEvent{Name: "unknown", Body: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Append(ctx, attach, dispatched); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewRegistry(fakeFactory{name: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(registry, NewRuntime(live, thread.EventSource{}))
+	if err := manager.Replay(ctx, stored.Events); err == nil {
+		t.Fatal("expected replay to reject unregistered state event")
+	}
+}
+
 type fakeFactory struct {
 	name string
 }
 
 func (f fakeFactory) Name() string { return f.name }
+
+func (f fakeFactory) StateEventDefinitions() []StateEventDefinition {
+	return []StateEventDefinition{
+		DefineStateEvent[map[string]string](f.name, "set"),
+	}
+}
 
 func (f fakeFactory) New(_ context.Context, spec AttachSpec, runtime Runtime) (Capability, error) {
 	return &fakeCapability{name: spec.CapabilityName, instanceID: spec.InstanceID, runtime: runtime}, nil

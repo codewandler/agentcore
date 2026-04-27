@@ -267,6 +267,9 @@ func (l *liveThread) Append(ctx context.Context, events ...thread.Event) error {
 	if l.closed {
 		return fmt.Errorf("thread/jsonlstore: live thread %q is closed", l.threadID)
 	}
+	if len(events) == 0 {
+		return nil
+	}
 	live, err := l.memory.Resume(ctx, thread.ResumeParams{ID: l.threadID, BranchID: l.branchID, Source: l.source})
 	if err != nil {
 		return err
@@ -274,7 +277,24 @@ func (l *liveThread) Append(ctx context.Context, events ...thread.Event) error {
 	if err := live.Append(ctx, events...); err != nil {
 		return err
 	}
-	return l.store.rewrite(ctx, l.memory)
+	stored, err := l.memory.Read(ctx, thread.ReadParams{ID: l.threadID})
+	if err != nil {
+		return err
+	}
+	var appended []thread.Event
+	for _, event := range stored.Events {
+		if event.Seq >= l.nextSeq {
+			appended = append(appended, event)
+		}
+	}
+	if len(appended) == 0 {
+		return nil
+	}
+	if err := appendThreadFile(l.store.path(l.threadID), appended); err != nil {
+		return err
+	}
+	l.nextSeq = nextSeq(stored.Events)
+	return nil
 }
 
 func (l *liveThread) Flush(context.Context) error { return nil }
@@ -290,6 +310,31 @@ func (l *liveThread) Discard(ctx context.Context) error {
 		return err
 	}
 	return l.memory.DiscardThread(ctx, l.threadID)
+}
+
+func appendThreadFile(path string, events []thread.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(f)
+	for _, event := range events {
+		if err := enc.Encode(encode(event)); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func encode(event thread.Event) record {

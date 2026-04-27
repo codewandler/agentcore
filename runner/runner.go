@@ -15,6 +15,11 @@ import (
 
 var ErrMaxStepsReached = errors.New("runner: max steps reached")
 
+const (
+	EventProviderRouteSelected             thread.EventKind = "provider.route_selected"
+	EventProviderExecutionMetadataRecorded thread.EventKind = "provider.execution_metadata_recorded"
+)
+
 type Result struct {
 	Events []Event
 	Steps  int
@@ -29,6 +34,7 @@ type History interface {
 }
 
 type threadEventHistory interface {
+	ThreadEventsEnabled() bool
 	AppendThreadEvents(context.Context, ...thread.Event) error
 	CommitFragmentWithThreadEvents(context.Context, *conversation.TurnFragment, ...thread.Event) ([]conversation.NodeID, error)
 }
@@ -133,6 +139,9 @@ func RunTurn(ctx context.Context, history History, client unified.Client, req co
 			}
 			fragment.AddContinuation(conversation.NewProviderContinuationFromRoute(providerIdentity, messageID, routeEvent, executionEvent, unified.Extensions{}))
 		}
+		if threadHistory, ok := history.(threadEventHistory); ok && threadHistory.ThreadEventsEnabled() {
+			prepared.ThreadEvents = append(prepared.ThreadEvents, providerMetadataEvents(routeEvent, executionEvent)...)
+		}
 
 		if len(toolCalls) == 0 {
 			fragment.AddRequestMessages(transcript...)
@@ -183,6 +192,38 @@ func RunTurn(ctx context.Context, history History, client unified.Client, req co
 	fragment.Fail(err)
 	emit(ErrorEvent{Err: err})
 	return result, err
+}
+
+func providerMetadataEvents(route unified.RouteEvent, execution unified.ProviderExecutionEvent) []thread.Event {
+	events := make([]thread.Event, 0, 2)
+	if !isZeroRouteEvent(route) {
+		if raw, err := json.Marshal(route); err == nil {
+			events = append(events, thread.Event{Kind: EventProviderRouteSelected, Payload: raw, Source: thread.EventSource{Type: "provider", ID: route.ProviderName}})
+		}
+	}
+	if !isZeroExecutionEvent(execution) {
+		if raw, err := json.Marshal(execution); err == nil {
+			events = append(events, thread.Event{Kind: EventProviderExecutionMetadataRecorded, Payload: raw, Source: thread.EventSource{Type: "provider", ID: route.ProviderName}})
+		}
+	}
+	return events
+}
+
+func isZeroRouteEvent(event unified.RouteEvent) bool {
+	return event.SourceAPI == "" &&
+		event.TargetAPI == "" &&
+		event.TargetFamily == "" &&
+		event.ProviderName == "" &&
+		event.PublicModel == "" &&
+		event.NativeModel == "" &&
+		event.ConsumerContinuation == "" &&
+		event.InternalContinuation == "" &&
+		event.Transport == ""
+}
+
+func isZeroExecutionEvent(event unified.ProviderExecutionEvent) bool {
+	return event.Transport == "" &&
+		event.InternalContinuation == ""
 }
 
 func nativeContinuationAvailable(history History, identity conversation.ProviderIdentity) (bool, error) {

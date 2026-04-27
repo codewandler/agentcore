@@ -10,6 +10,7 @@ import (
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/conversation"
+	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/llmadapter/unified"
@@ -67,6 +68,7 @@ func TestThreadRuntimeInjectsPlannerToolsContextAndResumes(t *testing.T) {
 	requireEventCountRuntime(t, stored.Events, capability.EventAttached, 1)
 	requireEventCountRuntime(t, stored.Events, capability.EventStateEventDispatched, 2)
 	requireEventCountRuntime(t, stored.Events, EventContextFragmentRecorded, 2)
+	requireEventCountRuntime(t, stored.Events, EventContextSnapshotRecorded, 2)
 	requireEventCountRuntime(t, stored.Events, EventContextRenderCommitted, 2)
 
 	resumedRuntime, _, err := ResumeThreadRuntime(ctx, store, thread.ResumeParams{
@@ -151,6 +153,10 @@ func TestThreadRuntimeSendsContextDiffOnlyForNativeContinuation(t *testing.T) {
 				InternalContinuation: unified.ContinuationPreviousResponseID,
 				Transport:            unified.TransportHTTPSSE,
 			},
+			unified.ProviderExecutionEvent{
+				InternalContinuation: unified.ContinuationPreviousResponseID,
+				Transport:            unified.TransportHTTPSSE,
+			},
 			unified.TextDeltaEvent{Text: "done"},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 		},
@@ -170,6 +176,10 @@ func TestThreadRuntimeSendsContextDiffOnlyForNativeContinuation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, client.requests, 2)
 	requireMessageContaining(t, client.requests[1], "Plan \"Native context\" has 1 step(s).")
+	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, stored.Events, runner.EventProviderRouteSelected, 1)
+	requireEventCountRuntime(t, stored.Events, runner.EventProviderExecutionMetadataRecorded, 1)
 
 	_, err = engine.RunTurn(ctx, "continue")
 	require.NoError(t, err)

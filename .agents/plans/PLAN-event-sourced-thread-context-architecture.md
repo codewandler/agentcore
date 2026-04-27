@@ -35,22 +35,41 @@ the previous session API:
   capability slice with `capability.attached` and
   `capability.state_event_dispatched`.
 
-The remaining completion work after this cleanup is:
+The second cleanup pass has also landed:
 
-1. Durable-before-apply history commits: runtime history must append thread
-   events before mutating the in-memory tree.
-2. Context render events: context changes should be persisted as typed
-   `conversation.context_fragment` and
-   `conversation.context_fragment_removed` events, with render records kept as a
-   fast-path snapshot.
-3. Commit boundaries: normal final turns should batch context render events and
-   conversation payload events into one live-thread append when a thread-backed
-   history is available.
-4. Codex hints: thread-backed histories should use durable `ThreadID` as the
-   Codex session key; live runtime session id remains event-source metadata.
-5. Later hardening: strict event schema registry, provider metadata events,
-   buffered JSONL live writer, snapshot/index repair, and broader context
-   snapshot events.
+- Runtime history appends durable thread events before mutating the in-memory
+  conversation tree.
+- Context renders persist typed fragment add/update events, removal tombstones,
+  render records, and a hybrid `harness.context_snapshot_recorded` event with
+  provider fingerprints and inline provider snapshots.
+- Successful thread-backed turns persist llmadapter route metadata and provider
+  execution metadata at the same commit boundary as the assistant fragment.
+- Thread-backed histories use durable thread/branch data for Codex continuation
+  hints and expose whether durable thread events are available.
+- `thread/jsonlstore` live appends now use append-only writes with file sync,
+  closed-live protection, and discard cleanup instead of rewriting the whole
+  store on every append.
+- `capability` has low-boilerplate typed inner state-event definitions for
+  replay validation; the planner registers all current inner state events.
+- `agentcontext/contextproviders` includes reusable providers for environment,
+  time, model, permissions, project instructions, loaded skills, and active
+  tools.
+- The default terminal `/context` command prints the last committed context
+  render state for inspection.
+
+Remaining larger architecture work is intentionally outside this first
+implementation slice:
+
+1. Replace the remaining direct prompt projection paths with a full normalized
+   internal item projection layer everywhere it is still bypassed.
+2. Add synthetic aborted tool results and stricter tool call/result
+   normalization for cancellation, timeout, and malformed provider streams.
+3. Add compaction event projection beyond the current runtime helper.
+4. Add indexing/repair for JSONL thread metadata if/when listing/search needs
+   outgrow replaying JSONL.
+5. Decide whether all durable non-capability event kinds need a shared typed
+   registry, or whether schema validation should remain owned by the projections
+   that consume those events.
 
 ## Executive Summary
 

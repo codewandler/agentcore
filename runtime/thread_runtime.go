@@ -20,6 +20,7 @@ import (
 const (
 	EventContextFragmentRecorded thread.EventKind = "conversation.context_fragment"
 	EventContextFragmentRemoved  thread.EventKind = "conversation.context_fragment_removed"
+	EventContextSnapshotRecorded thread.EventKind = "harness.context_snapshot_recorded"
 	EventContextRenderCommitted  thread.EventKind = "harness.context_render_committed"
 )
 
@@ -316,6 +317,17 @@ type contextFragmentRemovedRecorded struct {
 	PreviousFingerprint string `json:"previous_fingerprint"`
 }
 
+type contextSnapshotRecorded struct {
+	TurnID    string                         `json:"turn_id,omitempty"`
+	Reason    agentcontext.RenderReason      `json:"reason,omitempty"`
+	Providers map[string]providerSnapshotRef `json:"providers,omitempty"`
+}
+
+type providerSnapshotRef struct {
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Inline      []byte `json:"inline,omitempty"`
+}
+
 func applyContextFragmentRecorded(records map[agentcontext.ProviderKey]agentcontext.ProviderRenderRecord, raw json.RawMessage) error {
 	var payload contextFragmentRecorded
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -440,6 +452,13 @@ func (r *ThreadRuntime) contextRenderEvents(render *agentcontext.PreparedRender)
 			Source:  r.source,
 		})
 	}
+	if payload, err := json.Marshal(contextSnapshotFromRender(render)); err == nil {
+		events = append(events, thread.Event{
+			Kind:    EventContextSnapshotRecorded,
+			Payload: payload,
+			Source:  r.source,
+		})
+	}
 	payload, err := json.Marshal(contextRenderCommitted{Records: render.Records()})
 	if err != nil {
 		return events
@@ -450,6 +469,28 @@ func (r *ThreadRuntime) contextRenderEvents(render *agentcontext.PreparedRender)
 		Source:  r.source,
 	})
 	return events
+}
+
+func contextSnapshotFromRender(render *agentcontext.PreparedRender) contextSnapshotRecorded {
+	if render == nil {
+		return contextSnapshotRecorded{}
+	}
+	snapshot := contextSnapshotRecorded{
+		TurnID:    render.Result.TurnID,
+		Reason:    render.Result.Reason,
+		Providers: map[string]providerSnapshotRef{},
+	}
+	for _, provider := range render.Result.Providers {
+		ref := providerSnapshotRef{Fingerprint: provider.Record.Fingerprint}
+		if provider.Record.Snapshot != nil {
+			if ref.Fingerprint == "" {
+				ref.Fingerprint = provider.Record.Snapshot.Fingerprint
+			}
+			ref.Inline = append([]byte(nil), provider.Record.Snapshot.Data...)
+		}
+		snapshot.Providers[string(provider.ProviderKey)] = ref
+	}
+	return snapshot
 }
 
 func providerKeyForFragment(result agentcontext.BuildResult, key agentcontext.FragmentKey) agentcontext.ProviderKey {
@@ -589,7 +630,8 @@ func chainRequestPreparers(first runner.RequestPreparer, second runner.RequestPr
 			return runner.PreparedRequest{}, err
 		}
 		return runner.PreparedRequest{
-			Request: next.Request,
+			Request:      next.Request,
+			ThreadEvents: append(append([]thread.Event(nil), prepared.ThreadEvents...), next.ThreadEvents...),
 			Commit: func(ctx context.Context) error {
 				if prepared.Commit != nil {
 					if err := prepared.Commit(ctx); err != nil {

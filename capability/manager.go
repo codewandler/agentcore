@@ -113,7 +113,11 @@ func (m *Manager) Replay(ctx context.Context, events []thread.Event) error {
 			if !ok {
 				return fmt.Errorf("capability: instance %q cannot apply state events", payload.InstanceID)
 			}
-			if err := applier.ApplyEvent(ctx, StateEvent{Name: payload.EventName, Body: payload.Body}); err != nil {
+			stateEvent := StateEvent{Name: payload.EventName, Body: payload.Body}
+			if err := m.registry.ValidateStateEvent(payload.CapabilityName, stateEvent); err != nil {
+				return err
+			}
+			if err := applier.ApplyEvent(ctx, stateEvent); err != nil {
 				return err
 			}
 		}

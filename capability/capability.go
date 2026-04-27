@@ -32,4 +32,5 @@ type Factory interface {
 type Registry interface {
 	Register(...Factory) error
 	Create(context.Context, AttachSpec, Runtime) (Capability, error)
+	ValidateStateEvent(capabilityName string, event StateEvent) error
 }
