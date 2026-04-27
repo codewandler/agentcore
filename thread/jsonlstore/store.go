@@ -15,8 +15,9 @@ import (
 )
 
 type Store struct {
-	dir string
-	mu  sync.Mutex
+	dir      string
+	mu       sync.Mutex
+	registry thread.EventRegistry
 }
 
 type record struct {
@@ -35,8 +36,22 @@ type record struct {
 	CorrelationID string             `json:"correlation_id,omitempty"`
 }
 
-func Open(dir string) *Store {
-	return &Store{dir: dir}
+type Option func(*Store)
+
+func WithEventRegistry(registry thread.EventRegistry) Option {
+	return func(s *Store) {
+		s.registry = registry
+	}
+}
+
+func Open(dir string, opts ...Option) *Store {
+	store := &Store{dir: dir}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(store)
+		}
+	}
+	return store
 }
 
 func (s *Store) Create(ctx context.Context, params thread.CreateParams) (thread.Live, error) {
@@ -161,7 +176,7 @@ func (s *Store) loadMemory(ctx context.Context) (*thread.MemoryStore, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	memory := thread.NewMemoryStore()
+	memory := thread.NewMemoryStore(thread.WithEventRegistry(s.registry))
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if os.IsNotExist(err) {

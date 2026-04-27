@@ -12,6 +12,14 @@ const (
 	EventStateEventDispatched thread.EventKind = "capability.state_event_dispatched"
 )
 
+func EventDefinitions() []thread.EventDefinition {
+	return []thread.EventDefinition{
+		thread.DefineEvent[Attached](EventAttached),
+		thread.DefineEvent[Detached](EventDetached),
+		thread.DefineEvent[StateEventDispatched](EventStateEventDispatched),
+	}
+}
+
 type AttachSpec struct {
 	ThreadID       thread.ID       `json:"thread_id,omitempty"`
 	BranchID       thread.BranchID `json:"branch_id,omitempty"`

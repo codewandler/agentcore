@@ -22,6 +22,14 @@ const (
 	EventProviderStreamFailed              thread.EventKind = "provider.stream_failed"
 )
 
+func EventDefinitions() []thread.EventDefinition {
+	return []thread.EventDefinition{
+		thread.DefineEvent[unified.RouteEvent](EventProviderRouteSelected),
+		thread.DefineEvent[unified.ProviderExecutionEvent](EventProviderExecutionMetadataRecorded),
+		thread.DefineEvent[providerStreamFailedPayload](EventProviderStreamFailed),
+	}
+}
+
 type Result struct {
 	Events []Event
 	Steps  int

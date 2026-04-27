@@ -10,8 +10,9 @@ import (
 )
 
 type MemoryStore struct {
-	mu      sync.Mutex
-	threads map[ID]*memoryThread
+	mu       sync.Mutex
+	threads  map[ID]*memoryThread
+	registry EventRegistry
 }
 
 type memoryThread struct {
@@ -26,8 +27,22 @@ type memoryThread struct {
 	events    []Event
 }
 
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{threads: make(map[ID]*memoryThread)}
+type MemoryStoreOption func(*MemoryStore)
+
+func WithEventRegistry(registry EventRegistry) MemoryStoreOption {
+	return func(s *MemoryStore) {
+		s.registry = registry
+	}
+}
+
+func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore {
+	store := &MemoryStore{threads: make(map[ID]*memoryThread)}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(store)
+		}
+	}
+	return store
 }
 
 func (s *MemoryStore) Import(ctx context.Context, events ...Event) error {
@@ -45,6 +60,9 @@ func (s *MemoryStore) Import(ctx context.Context, events ...Event) error {
 		}
 		if event.Kind == "" {
 			return fmt.Errorf("thread: imported event kind is required")
+		}
+		if err := s.validateEvent(event); err != nil {
+			return err
 		}
 		branchID := event.BranchID
 		if branchID == "" {
@@ -158,7 +176,7 @@ func (s *MemoryStore) Create(ctx context.Context, params CreateParams) (Live, er
 	if err != nil {
 		return nil, err
 	}
-	stored.events = append(stored.events, Event{
+	created := Event{
 		ID:       NewEventID(),
 		ThreadID: id,
 		BranchID: branchID,
@@ -167,7 +185,11 @@ func (s *MemoryStore) Create(ctx context.Context, params CreateParams) (Live, er
 		Payload:  createdPayload,
 		At:       now,
 		Source:   params.Source,
-	})
+	}
+	if err := s.validateEvent(created); err != nil {
+		return nil, err
+	}
+	stored.events = append(stored.events, created)
 	stored.nextSeq++
 	s.threads[id] = stored
 	return &memoryLive{store: s, threadID: id, branchID: branchID, source: params.Source}, nil
@@ -232,7 +254,11 @@ func (s *MemoryStore) Fork(ctx context.Context, params ForkParams) (Live, error)
 		return nil, err
 	}
 	source := params.Source
-	stored.appendLocked(to, Event{Kind: EventBranchCreated, Payload: payload, Source: source, At: now})
+	event := Event{Kind: EventBranchCreated, Payload: payload, Source: source, At: now}
+	if err := s.validateEvent(event); err != nil {
+		return nil, err
+	}
+	stored.appendLocked(to, event)
 	return &memoryLive{store: s, threadID: stored.id, branchID: to, source: source}, nil
 }
 
@@ -290,7 +316,11 @@ func (s *MemoryStore) setArchived(ctx context.Context, id ID, archived bool, kin
 		return fmt.Errorf("%w: thread %q", ErrNotFound, id)
 	}
 	stored.archived = archived
-	stored.appendLocked(stored.branchID, Event{Kind: kind})
+	event := Event{Kind: kind}
+	if err := s.validateEvent(event); err != nil {
+		return err
+	}
+	stored.appendLocked(stored.branchID, event)
 	return nil
 }
 
@@ -362,6 +392,9 @@ func (l *memoryLive) Append(ctx context.Context, events ...Event) error {
 		if event.Kind == "" {
 			return fmt.Errorf("thread: event kind is required")
 		}
+		if err := l.store.validateEvent(event); err != nil {
+			return err
+		}
 		event.ThreadID = l.threadID
 		if event.BranchID == "" {
 			event.BranchID = l.branchID
@@ -373,6 +406,13 @@ func (l *memoryLive) Append(ctx context.Context, events ...Event) error {
 	}
 	stored.appendLocked(l.branchID, batch...)
 	return nil
+}
+
+func (s *MemoryStore) validateEvent(event Event) error {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	return s.registry.Validate(event)
 }
 
 func (l *memoryLive) Flush(context.Context) error { return nil }

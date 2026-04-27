@@ -18,6 +18,21 @@ const (
 	eventConversationAnnotation       thread.EventKind = "conversation.annotation"
 )
 
+func EventDefinitions() []thread.EventDefinition {
+	return []thread.EventDefinition{
+		thread.DefineEvent[wireMessageEvent](eventConversationUserMessage),
+		thread.DefineEvent[wireAssistantTurnEvent](eventConversationAssistantMessage),
+		thread.DefineEvent[wireMessageEvent](eventConversationToolResult),
+		thread.DefineEvent[wireMessageEvent](eventConversationMessage),
+		thread.DefineEvent[conversation.CompactionEvent](eventConversationCompaction),
+		thread.DefineEvent[conversation.AnnotationEvent](eventConversationAnnotation),
+		thread.DefineEvent[contextFragmentRecorded](EventContextFragmentRecorded),
+		thread.DefineEvent[contextFragmentRemovedRecorded](EventContextFragmentRemoved),
+		thread.DefineEvent[contextSnapshotRecorded](EventContextSnapshotRecorded),
+		thread.DefineEvent[contextRenderCommitted](EventContextRenderCommitted),
+	}
+}
+
 func threadEventFromPayload(payload conversation.Payload, event thread.Event) (thread.Event, error) {
 	kind, raw, err := marshalThreadPayload(payload)
 	if err != nil {

@@ -72,15 +72,17 @@ The second cleanup pass has also landed:
   last stream event, text/reasoning byte counts, and partial tool-call facts.
   These diagnostics are durable thread events only; they are not projected into
   model-visible conversation messages.
+- `thread` now has an optional typed outer event registry. Core thread events,
+  capability events, runner/provider events, and runtime conversation/context
+  events expose event definitions, and memory/JSONL stores can validate
+  registered payload schemas on append/import/load while leaving unregistered
+  plugin events open by default.
 
 Remaining larger architecture work is intentionally outside this first
 implementation slice:
 
 1. Add indexing/repair for JSONL thread metadata if/when listing/search needs
    outgrow replaying JSONL.
-2. Decide whether all durable non-capability event kinds need a shared typed
-   registry, or whether schema validation should remain owned by the projections
-   that consume those events.
 
 ## Executive Summary
 

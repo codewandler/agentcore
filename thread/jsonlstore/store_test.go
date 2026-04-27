@@ -3,6 +3,8 @@ package jsonlstore
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/codewandler/agentsdk/thread"
@@ -86,5 +88,33 @@ func TestLiveAppendFlushShutdownAndDiscard(t *testing.T) {
 	}
 	if _, err := reopened.Read(ctx, thread.ReadParams{ID: "thread_live"}); err == nil {
 		t.Fatal("expected discarded thread read to fail")
+	}
+}
+
+func TestStoreValidatesRegisteredEventsOnLoad(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	event := thread.Event{
+		ID:       "evt_invalid",
+		ThreadID: "thread_invalid",
+		BranchID: thread.MainBranch,
+		Seq:      1,
+		Kind:     thread.EventBranchCreated,
+		Payload:  json.RawMessage(`[]`),
+	}
+	raw, err := json.Marshal(encode(event))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "thread_invalid.jsonl"), append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := thread.NewEventRegistry(thread.CoreEventDefinitions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := Open(dir, WithEventRegistry(registry))
+	if _, err := store.Read(ctx, thread.ReadParams{ID: "thread_invalid"}); err == nil {
+		t.Fatal("expected load validation error")
 	}
 }
