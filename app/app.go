@@ -34,6 +34,7 @@ type App struct {
 	skillSources []skill.Source
 	agentOptions []agent.Option
 	tools        *tool.Catalog
+	defaultTools []tool.Tool
 	turnID       int
 }
 
@@ -83,13 +84,16 @@ func New(opts ...Option) (*App, error) {
 		skillSources: discoveredSources,
 		agentOptions: append([]agent.Option(nil), cfg.agentOptions...),
 	}
-	catalogTools := standard.DefaultTools()
+	defaultTools := standard.DefaultTools()
+	defaultTools = append(defaultTools, cfg.tools...)
+	catalogTools := standard.CatalogTools()
 	catalogTools = append(catalogTools, cfg.tools...)
 	catalog, err := tool.NewCatalog(catalogTools...)
 	if err != nil {
 		return nil, err
 	}
 	a.tools = catalog
+	a.defaultTools = append([]tool.Tool(nil), defaultTools...)
 	for name, inst := range cfg.agents {
 		if inst != nil {
 			a.agents[name] = inst
@@ -308,9 +312,15 @@ func (a *App) InstantiateAgent(name string, opts ...agent.Option) (*agent.Instan
 	if !ok {
 		return nil, fmt.Errorf("app: agent spec %q not found", name)
 	}
-	tools, err := a.tools.Select(spec.Tools)
-	if err != nil {
-		return nil, err
+	var tools []tool.Tool
+	if len(spec.Tools) == 0 {
+		tools = append([]tool.Tool(nil), a.defaultTools...)
+	} else {
+		var err error
+		tools, err = a.tools.Select(spec.Tools)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if view := a.AgentCommandView(name); len(view.AgentCommands()) > 0 {
 		tools = append(tools, command.Tool(view))

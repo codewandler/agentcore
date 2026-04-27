@@ -47,6 +47,26 @@ func TestDefaultToolsIncludesToolManagement(t *testing.T) {
 	require.True(t, names["tools_list"])
 }
 
+func TestCatalogToolsIncludesOptionalStandardTools(t *testing.T) {
+	tools := CatalogTools()
+
+	names := map[string]bool{}
+	for _, t := range tools {
+		names[t.Name()] = true
+	}
+
+	for _, name := range []string{
+		"git_status",
+		"git_diff",
+		"notify_send",
+		"todo",
+		"turn_done",
+		"web_search",
+	} {
+		require.True(t, names[name], "missing %s", name)
+	}
+}
+
 func TestDefaultToolsetOwnsActivationState(t *testing.T) {
 	toolset := DefaultToolset()
 

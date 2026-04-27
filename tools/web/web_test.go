@@ -164,7 +164,7 @@ func TestWebSearch_ReturnsFormattedResults(t *testing.T) {
 		{Title: "Effective Go", URL: "https://go.dev/doc/effective_go", Snippet: "Best practices"},
 	}}
 
-	tl := webSearch(provider)
+	tl := SearchTool(provider)
 	res, err := tl.Execute(tctx(), toJSON(t, WebSearchParams{Query: "golang tutorial", MaxResults: 2}))
 	require.NoError(t, err)
 	require.False(t, res.IsError())
@@ -175,14 +175,14 @@ func TestWebSearch_ReturnsFormattedResults(t *testing.T) {
 }
 
 func TestWebSearch_EmptyQueryReturnsError(t *testing.T) {
-	tl := webSearch(&stubProvider{})
+	tl := SearchTool(&stubProvider{})
 	res, err := tl.Execute(tctx(), toJSON(t, WebSearchParams{Query: ""}))
 	require.NoError(t, err)
 	require.True(t, res.IsError())
 }
 
 func TestWebSearch_NoResultsGraceful(t *testing.T) {
-	tl := webSearch(&stubProvider{results: nil})
+	tl := SearchTool(&stubProvider{results: nil})
 	res, err := tl.Execute(tctx(), toJSON(t, WebSearchParams{Query: "xyzzy"}))
 	require.NoError(t, err)
 	require.False(t, res.IsError())

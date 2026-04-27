@@ -64,7 +64,7 @@ type WebSearchParams struct {
 func Tools(provider websearch.Provider) []tool.Tool {
 	tools := []tool.Tool{webFetch()}
 	if provider != nil {
-		tools = append(tools, webSearch(provider))
+		tools = append(tools, SearchTool(provider))
 	}
 	return tools
 }
@@ -168,7 +168,18 @@ func webFetch() tool.Tool {
 
 // ── web_search ────────────────────────────────────────────────────────────────
 
-func webSearch(provider websearch.Provider) tool.Tool {
+// SearchTool returns the web_search tool. When provider is nil, the returned
+// tool reports a configuration error at call time instead of being omitted.
+// Use [Tools] when nil providers should omit web_search entirely.
+func SearchTool(provider websearch.Provider) tool.Tool {
+	if provider == nil {
+		return tool.New("web_search",
+			"Search the web. This tool is unavailable until a web search provider is configured.",
+			func(tool.Ctx, WebSearchParams) (tool.Result, error) {
+				return tool.Error("web_search is not configured; set TAVILY_API_KEY or pass a web search provider"), nil
+			},
+		)
+	}
 	desc := fmt.Sprintf("Search the web using %s. Returns titles, URLs, and snippets.", provider.Name())
 	return tool.New("web_search", desc,
 		func(ctx tool.Ctx, p WebSearchParams) (tool.Result, error) {

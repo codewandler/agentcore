@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -109,6 +110,49 @@ func TestAppInstantiateAndSendRoutesToDefaultAgent(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, contextResult.Text, "provider: environment")
 	require.Contains(t, contextResult.Text, "provider: time")
+}
+
+func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "coder",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+		Tools:     []string{"git_status", "web_search"},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	_, err = app.InstantiateAgent("coder",
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+}
+
+func TestAppDefaultSpecUsesDefaultToolsetNotFullCatalog(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "coder",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	_, err = app.InstantiateAgent("coder",
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+	_, err = app.Send(context.Background(), "hello")
+	require.NoError(t, err)
+
+	var names []string
+	for _, tool := range client.RequestAt(0).Tools {
+		names = append(names, tool.Name)
+	}
+	require.Contains(t, names, "tools_list")
+	require.NotContains(t, names, "git_status")
+	require.True(t, slices.Contains(names, "web_fetch"))
 }
 
 func TestAppSendAdvancesTurnUsageIDs(t *testing.T) {

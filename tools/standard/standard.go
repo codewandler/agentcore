@@ -112,3 +112,28 @@ func DefaultOptions() Options {
 func DefaultTools() []tool.Tool {
 	return Tools(DefaultOptions())
 }
+
+// CatalogOptions returns the full standard tool catalog for app/resource
+// selection. It is intentionally broader than DefaultOptions: explicit agent
+// specs may opt into optional tools without making every default agent start
+// with those tools active.
+func CatalogOptions() Options {
+	opts := DefaultOptions()
+	opts.IncludeGit = true
+	opts.IncludeNotify = true
+	opts.IncludeTodo = true
+	opts.IncludeTurnDone = true
+	return opts
+}
+
+// CatalogTools returns all standard tools that app/resource agents may select.
+// If web search is not configured, the catalog still contains web_search as a
+// call-time configuration error so resource bundles can start consistently.
+func CatalogTools() []tool.Tool {
+	opts := CatalogOptions()
+	tools := Tools(opts)
+	if opts.WebSearchProvider == nil {
+		tools = append(tools, web.SearchTool(nil))
+	}
+	return tools
+}
