@@ -11,26 +11,75 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+func CreateThreadEngine(ctx context.Context, store thread.Store, params thread.CreateParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
+	if err := validateThreadEngineInputs(store, client, registry); err != nil {
+		return nil, thread.Stored{}, err
+	}
+	live, err := store.Create(ctx, params)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	runtimeOpts := threadRuntimeSourceOptions(params.Source)
+	threadRuntime, err := NewThreadRuntime(live, registry, runtimeOpts...)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	engine, err := newThreadEngine(ctx, store, threadRuntime, client, opts...)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	return engine, stored, nil
+}
+
+func OpenThreadEngine(ctx context.Context, store thread.Store, params thread.CreateParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
+	if err := validateThreadEngineInputs(store, client, registry); err != nil {
+		return nil, thread.Stored{}, err
+	}
+	if params.ID == "" {
+		return CreateThreadEngine(ctx, store, params, client, registry, opts...)
+	}
+	if _, err := store.Read(ctx, thread.ReadParams{ID: params.ID}); err != nil {
+		if errors.Is(err, thread.ErrNotFound) {
+			return CreateThreadEngine(ctx, store, params, client, registry, opts...)
+		}
+		return nil, thread.Stored{}, err
+	}
+	return ResumeThreadEngine(ctx, store, thread.ResumeParams{
+		ID:       params.ID,
+		BranchID: params.BranchID,
+		Source:   params.Source,
+	}, client, registry, opts...)
+}
+
 func ResumeThreadEngine(ctx context.Context, store thread.Store, params thread.ResumeParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
-	if store == nil {
-		return nil, thread.Stored{}, fmt.Errorf("runtime: thread store is required")
-	}
-	if client == nil {
-		return nil, thread.Stored{}, fmt.Errorf("runtime: client is required")
-	}
-	if registry == nil {
-		return nil, thread.Stored{}, fmt.Errorf("runtime: capability registry is required")
+	if err := validateThreadEngineInputs(store, client, registry); err != nil {
+		return nil, thread.Stored{}, err
 	}
 	threadRuntime, stored, err := ResumeThreadRuntime(ctx, store, params, registry)
 	if err != nil {
 		return nil, thread.Stored{}, err
+	}
+	engine, err := newThreadEngine(ctx, store, threadRuntime, client, opts...)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	return engine, stored, nil
+}
+
+func newThreadEngine(ctx context.Context, store thread.Store, threadRuntime *ThreadRuntime, client unified.Client, opts ...Option) (*Engine, error) {
+	if threadRuntime == nil || threadRuntime.Live() == nil {
+		return nil, fmt.Errorf("runtime: thread runtime is required")
 	}
 	eventStore := conversation.NewThreadEventStore(store, threadRuntime.Live())
 	sessionOptions := append(SessionOptions(opts...), conversation.WithStore(eventStore))
 	session, err := conversation.Resume(ctx, eventStore, "", sessionOptions...)
 	if err != nil {
 		if !errors.Is(err, conversation.ErrNoEvents) {
-			return nil, thread.Stored{}, err
+			return nil, err
 		}
 		session = conversation.New(sessionOptions...)
 	}
@@ -38,7 +87,27 @@ func ResumeThreadEngine(ctx context.Context, store thread.Store, params thread.R
 	engineOptions = append(engineOptions, WithSession(session), WithThreadRuntime(threadRuntime))
 	engine, err := New(client, engineOptions...)
 	if err != nil {
-		return nil, thread.Stored{}, err
+		return nil, err
 	}
-	return engine, stored, nil
+	return engine, nil
+}
+
+func validateThreadEngineInputs(store thread.Store, client unified.Client, registry capability.Registry) error {
+	if store == nil {
+		return fmt.Errorf("runtime: thread store is required")
+	}
+	if client == nil {
+		return fmt.Errorf("runtime: client is required")
+	}
+	if registry == nil {
+		return fmt.Errorf("runtime: capability registry is required")
+	}
+	return nil
+}
+
+func threadRuntimeSourceOptions(source thread.EventSource) []ThreadRuntimeOption {
+	if source.Type == "" && source.ID == "" && source.SessionID == "" {
+		return nil
+	}
+	return []ThreadRuntimeOption{WithThreadRuntimeSource(source)}
 }

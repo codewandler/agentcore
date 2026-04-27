@@ -2,8 +2,14 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+)
+
+var (
+	ErrNotFound      = errors.New("thread: not found")
+	ErrAlreadyExists = errors.New("thread: already exists")
 )
 
 type CreateParams struct {
@@ -126,13 +132,13 @@ func (s Stored) branchWindows(branchID BranchID) (map[BranchID]branchWindow, err
 		if branchID == MainBranch || branchID == "" {
 			return map[BranchID]branchWindow{MainBranch: {}}, nil
 		}
-		return nil, fmt.Errorf("thread: branch %q not found", branchID)
+		return nil, fmt.Errorf("%w: branch %q", ErrNotFound, branchID)
 	}
 	var reversed []Branch
 	for current := branchID; current != ""; {
 		branch, ok := s.Branches[current]
 		if !ok {
-			return nil, fmt.Errorf("thread: branch %q not found", current)
+			return nil, fmt.Errorf("%w: branch %q", ErrNotFound, current)
 		}
 		reversed = append(reversed, branch)
 		current = branch.Parent

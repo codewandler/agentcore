@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/codewandler/agentsdk/agentcontext"
@@ -13,6 +14,102 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCreateThreadEngineCreatesDurableEngine(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	client := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "created"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+	}}}
+
+	engine, stored, err := CreateThreadEngine(ctx, store, thread.CreateParams{
+		ID:       "thread_engine_create",
+		Metadata: map[string]string{"title": "created"},
+		Source:   thread.EventSource{Type: "test", SessionID: "session_create"},
+	}, client, registry, WithModel("model-create"))
+	require.NoError(t, err)
+	require.Equal(t, thread.ID("thread_engine_create"), stored.ID)
+	require.Equal(t, "created", stored.Metadata["title"])
+	require.NotNil(t, engine.Session())
+	require.NotNil(t, engine.ThreadRuntime())
+
+	_, err = engine.RunTurn(ctx, "hello")
+	require.NoError(t, err)
+	require.Equal(t, "model-create", client.requests[0].Model)
+
+	after, err := store.Read(ctx, thread.ReadParams{ID: "thread_engine_create"})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, after.Events, thread.EventThreadCreated, 1)
+	requireEventCountRuntime(t, after.Events, conversation.EventConversationStored, 2)
+}
+
+func TestOpenThreadEngineCreatesMissingThreadAndResumesExistingThread(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	createClient := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "opened"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+	}}}
+
+	created, stored, err := OpenThreadEngine(ctx, store, thread.CreateParams{
+		ID:       "thread_engine_open",
+		Metadata: map[string]string{"title": "open"},
+	}, createClient, registry, WithModel("model-open"))
+	require.NoError(t, err)
+	require.Equal(t, thread.ID("thread_engine_open"), stored.ID)
+	_, err = created.RunTurn(ctx, "first")
+	require.NoError(t, err)
+
+	resumed, stored, err := OpenThreadEngine(ctx, store, thread.CreateParams{
+		ID:       "thread_engine_open",
+		Metadata: map[string]string{"title": "ignored"},
+	}, &fakeClient{}, registry, WithModel("model-open"))
+	require.NoError(t, err)
+	require.Equal(t, "open", stored.Metadata["title"])
+	messages, err := resumed.Session().Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	requireTextMessage(t, messages[0], "first")
+	requireTextMessage(t, messages[1], "opened")
+
+	after, err := store.Read(ctx, thread.ReadParams{ID: "thread_engine_open"})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, after.Events, thread.EventThreadCreated, 1)
+	requireEventCountRuntime(t, after.Events, conversation.EventConversationStored, 2)
+}
+
+func TestOpenThreadEngineReturnsMissingBranchErrorForExistingThread(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	_, err := store.Create(ctx, thread.CreateParams{ID: "thread_engine_missing_branch"})
+	require.NoError(t, err)
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+
+	_, _, err = OpenThreadEngine(ctx, store, thread.CreateParams{
+		ID:       "thread_engine_missing_branch",
+		BranchID: "missing",
+	}, &fakeClient{}, registry)
+	require.ErrorIs(t, err, thread.ErrNotFound)
+}
+
+func TestThreadStoreTypedErrors(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+
+	_, err := store.Resume(ctx, thread.ResumeParams{ID: "missing"})
+	require.ErrorIs(t, err, thread.ErrNotFound)
+	_, err = store.Create(ctx, thread.CreateParams{ID: "thread_errors"})
+	require.NoError(t, err)
+	_, err = store.Create(ctx, thread.CreateParams{ID: "thread_errors"})
+	require.ErrorIs(t, err, thread.ErrAlreadyExists)
+	require.True(t, errors.Is(err, thread.ErrAlreadyExists))
+}
 
 func TestResumeThreadEngineCreatesSessionWhenConversationMissing(t *testing.T) {
 	ctx := context.Background()

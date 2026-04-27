@@ -133,7 +133,7 @@ func (s *MemoryStore) Create(ctx context.Context, params CreateParams) (Live, er
 		id = NewID()
 	}
 	if _, ok := s.threads[id]; ok {
-		return nil, fmt.Errorf("thread: thread %q already exists", id)
+		return nil, fmt.Errorf("%w: thread %q", ErrAlreadyExists, id)
 	}
 	branchID := params.BranchID
 	if branchID == "" {
@@ -181,14 +181,14 @@ func (s *MemoryStore) Resume(ctx context.Context, params ResumeParams) (Live, er
 	defer s.mu.Unlock()
 	stored, ok := s.threads[params.ID]
 	if !ok {
-		return nil, fmt.Errorf("thread: thread %q not found", params.ID)
+		return nil, fmt.Errorf("%w: thread %q", ErrNotFound, params.ID)
 	}
 	branchID := params.BranchID
 	if branchID == "" {
 		branchID = stored.branchID
 	}
 	if _, ok := stored.branches[branchID]; !ok {
-		return nil, fmt.Errorf("thread: branch %q not found", branchID)
+		return nil, fmt.Errorf("%w: branch %q", ErrNotFound, branchID)
 	}
 	return &memoryLive{store: s, threadID: stored.id, branchID: branchID, source: params.Source}, nil
 }
@@ -201,7 +201,7 @@ func (s *MemoryStore) Fork(ctx context.Context, params ForkParams) (Live, error)
 	defer s.mu.Unlock()
 	stored, ok := s.threads[params.ID]
 	if !ok {
-		return nil, fmt.Errorf("thread: thread %q not found", params.ID)
+		return nil, fmt.Errorf("%w: thread %q", ErrNotFound, params.ID)
 	}
 	from := params.FromBranchID
 	if from == "" {
@@ -211,14 +211,14 @@ func (s *MemoryStore) Fork(ctx context.Context, params ForkParams) (Live, error)
 		from = MainBranch
 	}
 	if _, ok := stored.branches[from]; !ok {
-		return nil, fmt.Errorf("thread: branch %q not found", from)
+		return nil, fmt.Errorf("%w: branch %q", ErrNotFound, from)
 	}
 	to := params.ToBranchID
 	if to == "" {
 		to = NewBranchID()
 	}
 	if _, ok := stored.branches[to]; ok {
-		return nil, fmt.Errorf("thread: branch %q already exists", to)
+		return nil, fmt.Errorf("%w: branch %q", ErrAlreadyExists, to)
 	}
 	now := time.Now()
 	forkSeq := stored.nextSeq - 1
@@ -244,7 +244,7 @@ func (s *MemoryStore) Read(ctx context.Context, params ReadParams) (Stored, erro
 	defer s.mu.Unlock()
 	stored, ok := s.threads[params.ID]
 	if !ok {
-		return Stored{}, fmt.Errorf("thread: thread %q not found", params.ID)
+		return Stored{}, fmt.Errorf("%w: thread %q", ErrNotFound, params.ID)
 	}
 	return stored.snapshot(), nil
 }
@@ -287,7 +287,7 @@ func (s *MemoryStore) setArchived(ctx context.Context, id ID, archived bool, kin
 	defer s.mu.Unlock()
 	stored, ok := s.threads[id]
 	if !ok {
-		return fmt.Errorf("thread: thread %q not found", id)
+		return fmt.Errorf("%w: thread %q", ErrNotFound, id)
 	}
 	stored.archived = archived
 	stored.appendLocked(stored.branchID, Event{Kind: kind})
@@ -355,7 +355,7 @@ func (l *memoryLive) Append(ctx context.Context, events ...Event) error {
 	}
 	stored, ok := l.store.threads[l.threadID]
 	if !ok {
-		return fmt.Errorf("thread: thread %q not found", l.threadID)
+		return fmt.Errorf("%w: thread %q", ErrNotFound, l.threadID)
 	}
 	batch := make([]Event, len(events))
 	for i, event := range events {
