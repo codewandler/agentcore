@@ -8,7 +8,10 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("thread: not found")
+	// ErrNotFound is returned when a requested thread or branch does not exist.
+	ErrNotFound = errors.New("thread: not found")
+
+	// ErrAlreadyExists is returned when creating a duplicate thread or branch.
 	ErrAlreadyExists = errors.New("thread: already exists")
 )
 

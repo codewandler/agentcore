@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// minimalCtx is a test implementation of tool.Ctx (embeds context.Context + adds flai-specific methods).
+// minimalCtx is a test implementation of tool.Ctx (embeds context.Context + adds agentsdk-specific methods).
 type minimalCtx struct {
 	context.Context
 }

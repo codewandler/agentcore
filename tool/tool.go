@@ -1,4 +1,4 @@
-// Package tool defines the interfaces and types for the flai tool system.
+// Package tool defines the interfaces and types for the agentsdk tool system.
 // Tools are capabilities the LLM can invoke. They are registered in a Registry,
 // selectively activated, and called by the agent loop.
 package tool
@@ -92,7 +92,7 @@ type StringSliceParam []string
 // UnmarshalJSON implements json.Unmarshaler for StringSliceParam.
 // It accepts both a single string and an array of strings.
 func (p *StringSliceParam) UnmarshalJSON(data []byte) error {
-	if len(data) == 4 && data[0] == 'n' {
+	if string(data) == "null" {
 		*p = nil
 		return nil
 	}

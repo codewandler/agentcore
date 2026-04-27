@@ -7,9 +7,14 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// ProviderKey is the stable identity of one context provider in a manager.
 type ProviderKey string
+
+// FragmentKey is the stable identity of one rendered context fragment.
 type FragmentKey string
 
+// Preference tells providers whether the caller prefers changed fragments or a
+// full refresh. Providers may ignore the hint when they need to.
 type Preference string
 
 const (
@@ -17,6 +22,7 @@ const (
 	PreferFull    Preference = "full"
 )
 
+// RenderReason describes why the context manager is rendering context.
 type RenderReason string
 
 const (
@@ -29,6 +35,7 @@ const (
 	RenderForcedFullRefresh RenderReason = "forced_full_refresh"
 )
 
+// FragmentAuthority classifies who owns the rendered fragment content.
 type FragmentAuthority string
 
 const (
@@ -37,6 +44,7 @@ const (
 	AuthorityTool      FragmentAuthority = "tool"
 )
 
+// CacheScope describes how broadly a model/provider cache hint may be reused.
 type CacheScope string
 
 const (
@@ -46,12 +54,14 @@ const (
 	CacheThread CacheScope = "thread"
 )
 
+// CachePolicy carries cache hints for rendered context fragments.
 type CachePolicy struct {
 	Stable bool
 	MaxAge time.Duration
 	Scope  CacheScope
 }
 
+// ContextFragment is one model-facing piece of contextual content.
 type ContextFragment struct {
 	Key         FragmentKey
 	Role        unified.Role
@@ -63,17 +73,20 @@ type ContextFragment struct {
 	CachePolicy CachePolicy
 }
 
+// ProviderSnapshot stores provider-owned opaque state captured with a render.
 type ProviderSnapshot struct {
 	Fingerprint string
 	Data        []byte
 }
 
+// ProviderContext is the full response from a provider for one render request.
 type ProviderContext struct {
 	Fragments   []ContextFragment
 	Snapshot    *ProviderSnapshot
 	Fingerprint string
 }
 
+// Request is the input passed to context providers during context rendering.
 type Request struct {
 	ThreadID     string
 	BranchID     string
@@ -85,11 +98,14 @@ type Request struct {
 	Reason       RenderReason
 }
 
+// Provider contributes context fragments to a manager render.
 type Provider interface {
 	Key() ProviderKey
 	GetContext(context.Context, Request) (ProviderContext, error)
 }
 
+// FingerprintingProvider can cheaply report whether its state changed before
+// the manager asks it to build full context.
 type FingerprintingProvider interface {
 	Provider
 	StateFingerprint(context.Context, Request) (fingerprint string, ok bool, err error)

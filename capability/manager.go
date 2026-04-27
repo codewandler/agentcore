@@ -12,6 +12,10 @@ import (
 	"github.com/codewandler/agentsdk/tool"
 )
 
+// Manager owns attached capability instances for one thread runtime.
+//
+// Manager methods guard the instance map, but each Capability implementation is
+// responsible for its own internal concurrency.
 type Manager struct {
 	mu           sync.RWMutex
 	registry     Registry

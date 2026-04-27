@@ -10,6 +10,12 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// Session owns the mutable conversation tree, active branch, defaults, and
+// optional event store for one in-memory conversation view.
+//
+// Session methods mutate shared head/default state and are not safe for
+// concurrent mutation. Use a single writer per session or guard access outside
+// the package.
 type Session struct {
 	conversationID ConversationID
 	sessionID      SessionID
@@ -19,6 +25,7 @@ type Session struct {
 	store          EventStore
 }
 
+// ErrNoEvents is returned by Resume when the store has no matching events.
 var ErrNoEvents = errors.New("conversation: no events found")
 
 type defaults struct {
@@ -42,8 +49,10 @@ type defaults struct {
 	projection      ProjectionPolicy
 }
 
+// Option configures a Session during creation or resume.
 type Option func(*Session)
 
+// New creates an empty in-memory session.
 func New(opts ...Option) *Session {
 	s := &Session{
 		conversationID: NewConversationID(),
@@ -60,6 +69,7 @@ func New(opts ...Option) *Session {
 	return s
 }
 
+// Resume rebuilds a session from persisted conversation events.
 func Resume(ctx context.Context, store EventStore, conversationID ConversationID, opts ...Option) (*Session, error) {
 	if store == nil {
 		return nil, fmt.Errorf("conversation: store is required")

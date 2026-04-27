@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+// Manager renders registered providers and owns the provider render records
+// used to diff changed context between turns.
 type Manager struct {
 	mu        sync.Mutex
 	providers []Provider
@@ -14,6 +16,7 @@ type Manager struct {
 	version   int64
 }
 
+// NewManager creates a context manager with the supplied providers.
 func NewManager(providers ...Provider) (*Manager, error) {
 	m := &Manager{
 		records: make(map[ProviderKey]ProviderRenderRecord),
@@ -24,6 +27,7 @@ func NewManager(providers ...Provider) (*Manager, error) {
 	return m, nil
 }
 
+// Register adds providers to the manager. Provider keys must be unique.
 func (m *Manager) Register(providers ...Provider) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -58,6 +62,7 @@ func (m *Manager) registerLocked(providers ...Provider) error {
 	return nil
 }
 
+// Records returns a defensive copy of the manager's last render records.
 func (m *Manager) Records() map[ProviderKey]ProviderRenderRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -68,6 +73,8 @@ func (m *Manager) Records() map[ProviderKey]ProviderRenderRecord {
 	return out
 }
 
+// SetRecords replaces the manager's last render records, typically after
+// replaying a persisted context render on resume.
 func (m *Manager) SetRecords(records map[ProviderKey]ProviderRenderRecord) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

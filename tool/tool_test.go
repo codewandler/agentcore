@@ -49,6 +49,22 @@ func TestStringSliceParam_Unmarshal_Nil(t *testing.T) {
 	require.Equal(t, []string(nil), []string(p.Paths))
 }
 
+func TestStringSliceParam_Unmarshal_Null(t *testing.T) {
+	var p struct {
+		Paths StringSliceParam `json:"paths"`
+	}
+	input := `{"paths": null}`
+	err := json.Unmarshal([]byte(input), &p)
+	require.NoError(t, err)
+	require.Equal(t, []string(nil), []string(p.Paths))
+}
+
+func TestStringSliceParam_Unmarshal_InvalidBareToken(t *testing.T) {
+	var paths StringSliceParam
+	err := paths.UnmarshalJSON([]byte("nope"))
+	require.Error(t, err)
+}
+
 func TestStringSliceParam_JSONSchema(t *testing.T) {
 	schema := StringSliceParam{}.JSONSchema()
 

@@ -24,7 +24,7 @@ const (
 	maxFetchTimeout     = 60 * time.Second
 	maxResponseSize     = 5 * 1024 * 1024 // 5 MB
 	maxRedirects        = 10
-	userAgent           = "flai/1.0"
+	userAgent           = "agentsdk/1.0"
 
 	defaultSearchResults = 5
 	maxSearchResults     = 10

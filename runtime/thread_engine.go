@@ -12,6 +12,8 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// CreateThreadEngine creates a new thread, initializes its ThreadRuntime, and
+// returns a runtime Engine backed by that thread's event store.
 func CreateThreadEngine(ctx context.Context, store thread.Store, params thread.CreateParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
 	if err := validateThreadEngineInputs(store, client, registry); err != nil {
 		return nil, thread.Stored{}, err
@@ -39,6 +41,8 @@ func CreateThreadEngine(ctx context.Context, store thread.Store, params thread.C
 	return engine, stored, nil
 }
 
+// OpenThreadEngine resumes params.ID when it exists, otherwise creates it. When
+// params.ID is empty it always creates a new thread.
 func OpenThreadEngine(ctx context.Context, store thread.Store, params thread.CreateParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
 	if err := validateThreadEngineInputs(store, client, registry); err != nil {
 		return nil, thread.Stored{}, err
@@ -59,6 +63,8 @@ func OpenThreadEngine(ctx context.Context, store thread.Store, params thread.Cre
 	}, client, registry, opts...)
 }
 
+// ResumeThreadEngine resumes an existing thread branch and returns an Engine
+// whose session, capabilities, and context diffs are rebuilt from thread events.
 func ResumeThreadEngine(ctx context.Context, store thread.Store, params thread.ResumeParams, client unified.Client, registry capability.Registry, opts ...Option) (*Engine, thread.Stored, error) {
 	if err := validateThreadEngineInputs(store, client, registry); err != nil {
 		return nil, thread.Stored{}, err

@@ -287,4 +287,4 @@ func clean(root string) string {
 }
 
 // RegistryKey is the Extra() key under which skill tools look up the Repository.
-const RegistryKey = "flai.skill_registry"
+const RegistryKey = "agentsdk.skill_registry"

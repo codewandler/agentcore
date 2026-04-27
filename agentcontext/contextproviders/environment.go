@@ -12,8 +12,10 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// EnvironmentOption configures an EnvironmentProvider.
 type EnvironmentOption func(*EnvironmentProvider)
 
+// EnvironmentProvider renders stable process and host environment context.
 type EnvironmentProvider struct {
 	key        agentcontext.ProviderKey
 	workDir    string
@@ -22,6 +24,8 @@ type EnvironmentProvider struct {
 	readKernel func() string
 }
 
+// Environment creates a provider for current working directory, OS, arch,
+// kernel version, and hostname.
 func Environment(opts ...EnvironmentOption) *EnvironmentProvider {
 	p := &EnvironmentProvider{
 		key:        "environment",
@@ -35,22 +39,27 @@ func Environment(opts ...EnvironmentOption) *EnvironmentProvider {
 	return p
 }
 
+// WithEnvironmentKey overrides the provider key.
 func WithEnvironmentKey(key agentcontext.ProviderKey) EnvironmentOption {
 	return func(p *EnvironmentProvider) { p.key = key }
 }
 
+// WithWorkDir overrides the working directory value rendered by the provider.
 func WithWorkDir(workDir string) EnvironmentOption {
 	return func(p *EnvironmentProvider) { p.workDir = workDir }
 }
 
+// WithHostname overrides the hostname value rendered by the provider.
 func WithHostname(hostname string) EnvironmentOption {
 	return func(p *EnvironmentProvider) { p.hostname = hostname }
 }
 
+// WithKernelVersion overrides the kernel version rendered by the provider.
 func WithKernelVersion(version string) EnvironmentOption {
 	return func(p *EnvironmentProvider) { p.kernel = version }
 }
 
+// WithKernelVersionFunc overrides the function used to read the kernel version.
 func WithKernelVersionFunc(fn func() string) EnvironmentOption {
 	return func(p *EnvironmentProvider) { p.readKernel = fn }
 }

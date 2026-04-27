@@ -36,7 +36,7 @@ type NotifyParams struct {
 	ExpireTime int `json:"expire_time,omitempty" jsonschema:"description=Auto-dismiss timeout in milliseconds (0 = server default),examples=[3000]"`
 
 	// AppName overrides the application name shown in the notification.
-	AppName string `json:"app_name,omitempty" jsonschema:"description=Application name shown in the notification (default: flai)"`
+	AppName string `json:"app_name,omitempty" jsonschema:"description=Application name shown in the notification (default: agentsdk)"`
 
 	// Icon is an icon name (e.g. dialog-information) or an absolute path to
 	// an image file shown alongside the notification.
@@ -246,7 +246,7 @@ func buildArgs(p NotifyParams) []string {
 
 	appName := p.AppName
 	if appName == "" {
-		appName = "flai"
+		appName = "agentsdk"
 	}
 	args = append(args, "--app-name="+appName)
 

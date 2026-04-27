@@ -15,8 +15,12 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// EventContextRenderCommitted records the latest provider render fingerprints
+// so resumed runtimes can continue manager-owned context diffs.
 const EventContextRenderCommitted thread.EventKind = "harness.context_render_committed"
 
+// ThreadRuntime binds a live thread to capabilities, context providers, and
+// replay state used by the high-level runtime engine helpers.
 type ThreadRuntime struct {
 	live         thread.Live
 	source       thread.EventSource
@@ -24,6 +28,7 @@ type ThreadRuntime struct {
 	contexts     *agentcontext.Manager
 }
 
+// ThreadRuntimeOption configures a ThreadRuntime.
 type ThreadRuntimeOption func(*threadRuntimeConfig)
 
 type threadRuntimeConfig struct {
@@ -31,14 +36,20 @@ type threadRuntimeConfig struct {
 	context *agentcontext.Manager
 }
 
+// WithThreadRuntimeSource tags capability events emitted by the runtime with
+// the provided source identity.
 func WithThreadRuntimeSource(source thread.EventSource) ThreadRuntimeOption {
 	return func(c *threadRuntimeConfig) { c.source = source }
 }
 
+// WithContextManager uses an existing context manager instead of creating a new
+// manager for the thread runtime.
 func WithContextManager(manager *agentcontext.Manager) ThreadRuntimeOption {
 	return func(c *threadRuntimeConfig) { c.context = manager }
 }
 
+// NewThreadRuntime creates the capability and context runtime for a live thread.
+// The returned runtime owns replayable capability state for that thread branch.
 func NewThreadRuntime(live thread.Live, registry capability.Registry, opts ...ThreadRuntimeOption) (*ThreadRuntime, error) {
 	if live == nil {
 		return nil, fmt.Errorf("runtime: live thread is required")
@@ -73,6 +84,8 @@ func NewThreadRuntime(live thread.Live, registry capability.Registry, opts ...Th
 	}, nil
 }
 
+// ResumeThreadRuntime resumes a live thread, replays capability events, and
+// restores the last committed context render records for manager-owned diffs.
 func ResumeThreadRuntime(ctx context.Context, store thread.Store, params thread.ResumeParams, registry capability.Registry, opts ...ThreadRuntimeOption) (*ThreadRuntime, thread.Stored, error) {
 	if store == nil {
 		return nil, thread.Stored{}, fmt.Errorf("runtime: thread store is required")

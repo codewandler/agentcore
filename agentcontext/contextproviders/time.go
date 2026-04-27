@@ -9,8 +9,10 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
+// TimeOption configures a TimeProvider.
 type TimeOption func(*TimeProvider)
 
+// TimeProvider renders the current time bucket as volatile context.
 type TimeProvider struct {
 	key      agentcontext.ProviderKey
 	clock    func() time.Time
@@ -18,6 +20,8 @@ type TimeProvider struct {
 	location *time.Location
 }
 
+// Time creates a provider that renders time truncated to interval. A nonpositive
+// interval defaults to one minute.
 func Time(interval time.Duration, opts ...TimeOption) *TimeProvider {
 	p := &TimeProvider{
 		key:      "time",
@@ -33,10 +37,12 @@ func Time(interval time.Duration, opts ...TimeOption) *TimeProvider {
 	return p
 }
 
+// WithTimeKey overrides the provider key.
 func WithTimeKey(key agentcontext.ProviderKey) TimeOption {
 	return func(p *TimeProvider) { p.key = key }
 }
 
+// WithClock overrides the clock used by the provider.
 func WithClock(clock func() time.Time) TimeOption {
 	return func(p *TimeProvider) {
 		if clock != nil {
@@ -45,6 +51,7 @@ func WithClock(clock func() time.Time) TimeOption {
 	}
 }
 
+// WithLocation overrides the location used to format time.
 func WithLocation(location *time.Location) TimeOption {
 	return func(p *TimeProvider) {
 		if location != nil {

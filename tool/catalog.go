@@ -8,6 +8,9 @@ import (
 )
 
 // Catalog stores tools by name for app-level selection.
+//
+// A Catalog is intended to be populated during setup and then read during
+// request handling. Concurrent calls to Register are not safe.
 type Catalog struct {
 	tools map[string]Tool
 	order []string

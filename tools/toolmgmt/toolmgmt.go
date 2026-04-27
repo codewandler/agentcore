@@ -12,7 +12,7 @@ import (
 )
 
 // KeyActivationState is the Extra() key under which tools_* look up the ActivationState.
-const KeyActivationState = "flai.activation_state"
+const KeyActivationState = "agentsdk.activation_state"
 
 // ToolListParams has no fields — tools_list always returns everything.
 type ToolListParams struct{}
@@ -32,11 +32,11 @@ type ToolDeactivateParams struct {
 func activationState(ctx tool.Ctx) (activation.State, error) {
 	v, ok := ctx.Extra()[KeyActivationState]
 	if !ok {
-		return nil, fmt.Errorf("tools_* tools require flai.activation_state in Extra(); check agent wiring")
+		return nil, fmt.Errorf("tools_* tools require %s in Extra(); check agent wiring", KeyActivationState)
 	}
 	state, ok := v.(activation.State)
 	if !ok {
-		return nil, fmt.Errorf("flai.activation_state has unexpected type %T", v)
+		return nil, fmt.Errorf("%s has unexpected type %T", KeyActivationState, v)
 	}
 	return state, nil
 }

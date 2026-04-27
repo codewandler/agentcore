@@ -145,10 +145,15 @@ func WithThreadRuntime(runtime *ThreadRuntime) Option {
 	return func(e *Engine) { e.threadRuntime = runtime }
 }
 
+// WithThreadContextManager supplies the context manager used when a thread
+// runtime is built by the engine options.
 func WithThreadContextManager(manager *agentcontext.Manager) Option {
 	return func(e *Engine) { e.threadContexts = manager }
 }
 
+// WithContextProviders registers additional context providers on the thread
+// runtime context manager. When WithThreadRuntime is supplied, providers are
+// registered on that runtime's manager during Engine construction.
 func WithContextProviders(providers ...agentcontext.Provider) Option {
 	return func(e *Engine) {
 		e.contextProviders = append(e.contextProviders, providers...)

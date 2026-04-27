@@ -43,7 +43,7 @@ func piperSpeak(_ context.Context, text string) error {
 	}
 
 	// Write the WAV bytes to a temp file so the background player can consume it.
-	tmp, err := os.CreateTemp("", "flai-piper-*.wav")
+	tmp, err := os.CreateTemp("", "agentsdk-piper-*.wav")
 	if err != nil {
 		return fmt.Errorf("piper: create temp file: %w", err)
 	}
