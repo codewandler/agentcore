@@ -10,6 +10,12 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+### Added
+
+- Added `internal/htmlconvert` package to centralize HTML-to-Markdown conversion
+  logic, providing a clean integration point for `tools/web` and future HTML
+  processing needs.
+
 ### Changed
 
 - Defaulted request-level cache policy to `On` while removing the public
@@ -19,6 +25,9 @@ match these entries as the project starts publishing releases.
   append-only `<system-context>` diff blocks that are sent to upstream on user
   turns and tool-result follow-ups.
 - Updated `github.com/codewandler/llmadapter` to `v1.0.0-rc.12`.
+- Refactored `tools/web` to use `internal/htmlconvert` for HTML-to-Markdown
+  conversion, decoupling the web tool from direct dependency on external HTML
+  conversion library.
 
 ## [0.25.0] - 2026-04-27
 

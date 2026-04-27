@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
-
+	"github.com/codewandler/agentsdk/internal/htmlconvert"
 	"github.com/codewandler/agentsdk/internal/humanize"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/websearch"
@@ -146,9 +145,7 @@ func webFetch() tool.Tool {
 			ct := resp.Header.Get("Content-Type")
 			bodyStr := string(rawBody)
 			if isHTML(ct) {
-				if md, err := htmltomarkdown.ConvertString(bodyStr); err == nil {
-					bodyStr = md
-				}
+				bodyStr = htmlconvert.ToMarkdown(bodyStr)
 			}
 
 			finalURL := resp.Request.URL.String()
