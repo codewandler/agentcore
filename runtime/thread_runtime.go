@@ -221,8 +221,8 @@ func (r *ThreadRuntime) PrepareRequest(ctx context.Context, meta runner.RequestP
 	if len(injection.Instructions) > 0 {
 		out.Instructions = append(append([]unified.Instruction(nil), injection.Instructions...), req.Instructions...)
 	}
-	if len(injection.Messages) > 0 {
-		out.Messages = append(append([]unified.Message(nil), injection.Messages...), req.Messages...)
+	if len(injection.Items) > 0 {
+		out.Items = append(append([]conversation.Item(nil), injection.Items...), req.Items...)
 	}
 	return runner.PreparedRequest{
 		Request: out,
@@ -374,14 +374,14 @@ func chainRequestPreparers(first runner.RequestPreparer, second runner.RequestPr
 
 type contextInjection struct {
 	Instructions []unified.Instruction
-	Messages     []unified.Message
+	Items        []conversation.Item
 }
 
 func contextInjectionForRender(result agentcontext.BuildResult, nativeContinuation bool) contextInjection {
 	if nativeContinuation {
-		return contextInjection{
-			Messages: contextRemovalMessages(result.Removed),
-		}.appendFragments(append(append([]agentcontext.ContextFragment(nil), result.Added...), result.Updated...))
+		injection := contextInjection{}
+		injection.Items = append(injection.Items, contextRemovalItems(result.Removed)...)
+		return injection.appendFragments(append(append([]agentcontext.ContextFragment(nil), result.Added...), result.Updated...))
 	}
 	return contextInjection{}.appendFragments(result.Active)
 }
@@ -412,35 +412,41 @@ func (i contextInjection) appendFragments(fragments []agentcontext.ContextFragme
 		if role == "" || role == unified.RoleTool {
 			role = unified.RoleUser
 		}
-		i.Messages = append(i.Messages, unified.Message{
-			Role:    role,
-			Name:    "context",
-			Content: []unified.ContentPart{unified.TextPart{Text: content}},
-			Meta: map[string]any{
-				"context_fragment": string(fragment.Key),
-				"authority":        string(fragment.Authority),
+		i.Items = append(i.Items, conversation.Item{
+			Kind: conversation.ItemContextFragment,
+			Message: unified.Message{
+				Role:    role,
+				Name:    "context",
+				Content: []unified.ContentPart{unified.TextPart{Text: content}},
+				Meta: map[string]any{
+					"context_fragment": string(fragment.Key),
+					"authority":        string(fragment.Authority),
+				},
 			},
 		})
 	}
 	return i
 }
 
-func contextRemovalMessages(removed []agentcontext.FragmentRemoved) []unified.Message {
-	messages := make([]unified.Message, 0, len(removed))
+func contextRemovalItems(removed []agentcontext.FragmentRemoved) []conversation.Item {
+	items := make([]conversation.Item, 0, len(removed))
 	for _, fragment := range removed {
-		messages = append(messages, unified.Message{
-			Role: unified.RoleUser,
-			Name: "context",
-			Content: []unified.ContentPart{unified.TextPart{
-				Text: fmt.Sprintf("Context fragment removed: %s", fragment.FragmentKey),
-			}},
-			Meta: map[string]any{
-				"context_fragment": string(fragment.FragmentKey),
-				"context_removed":  true,
+		items = append(items, conversation.Item{
+			Kind: conversation.ItemContextFragment,
+			Message: unified.Message{
+				Role: unified.RoleUser,
+				Name: "context",
+				Content: []unified.ContentPart{unified.TextPart{
+					Text: fmt.Sprintf("Context fragment removed: %s", fragment.FragmentKey),
+				}},
+				Meta: map[string]any{
+					"context_fragment": string(fragment.FragmentKey),
+					"context_removed":  true,
+				},
 			},
 		})
 	}
-	return messages
+	return items
 }
 
 func renderContextFragment(fragment agentcontext.ContextFragment) string {

@@ -158,6 +158,7 @@ func cloneRequest(req conversation.Request) conversation.Request {
 	req.Instructions = append([]unified.Instruction(nil), req.Instructions...)
 	req.Tools = append([]unified.Tool(nil), req.Tools...)
 	req.Messages = append([]unified.Message(nil), req.Messages...)
+	req.Items = append([]conversation.Item(nil), req.Items...)
 	req.Extensions = cloneExtensions(req.Extensions)
 	return req
 }

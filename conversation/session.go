@@ -294,16 +294,19 @@ func (s *Session) BuildRequestForProvider(req Request, identity ProviderIdentity
 }
 
 func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNativeContinuation bool) (unified.Request, error) {
-	messages, err := s.Messages()
+	items, err := ProjectItems(s.tree, s.branch)
 	if err != nil {
 		return unified.Request{}, err
 	}
 	pendingMessages := append([]unified.Message(nil), req.Messages...)
+	pendingItems := append([]Item(nil), req.Items...)
+	pendingItems = append(pendingItems, itemsFromMessages(pendingMessages)...)
 	projection, err := s.projection().Project(ProjectionInput{
 		Tree:                    s.tree,
 		Branch:                  s.branch,
 		ProviderIdentity:        identity,
-		Messages:                messages,
+		Items:                   items,
+		PendingItems:            pendingItems,
 		PendingMessages:         pendingMessages,
 		Extensions:              req.Extensions,
 		AllowNativeContinuation: useNativeContinuation,

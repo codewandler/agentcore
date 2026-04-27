@@ -238,7 +238,9 @@ func TestSessionNativeContinuationUsesSelectedBranchHead(t *testing.T) {
 }
 
 func TestSessionProjectionPolicyOverride(t *testing.T) {
+	var seen ProjectionInput
 	s := New(WithProjectionPolicy(ProjectionPolicyFunc(func(input ProjectionInput) (ProjectionResult, error) {
+		seen = input
 		return ProjectionResult{
 			Messages: []unified.Message{{
 				Role:    unified.RoleUser,
@@ -253,6 +255,31 @@ func TestSessionProjectionPolicyOverride(t *testing.T) {
 
 	require.Len(t, req.Messages, 1)
 	requireText(t, req.Messages[0], "projected")
+	require.Empty(t, seen.Items)
+	require.Len(t, seen.PendingItems, 1)
+	requireText(t, seen.PendingItems[0].Message, "ignored")
+}
+
+func TestSessionProjectsPendingContextItems(t *testing.T) {
+	s := New()
+	req, err := s.BuildRequest(Request{
+		Items: []Item{{
+			Kind: ItemContextFragment,
+			Message: unified.Message{
+				Role:    unified.RoleUser,
+				Name:    "context",
+				Content: []unified.ContentPart{unified.TextPart{Text: "context item"}},
+			},
+		}},
+		Messages: []unified.Message{{
+			Role:    unified.RoleUser,
+			Content: []unified.ContentPart{unified.TextPart{Text: "user text"}},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, req.Messages, 2)
+	requireText(t, req.Messages[0], "context item")
+	requireText(t, req.Messages[1], "user text")
 }
 
 func TestSessionForkUsesSelectedBranchPath(t *testing.T) {

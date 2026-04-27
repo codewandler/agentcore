@@ -10,6 +10,8 @@ type ProjectionInput struct {
 	Tree                    *Tree
 	Branch                  BranchID
 	ProviderIdentity        ProviderIdentity
+	Items                   []Item
+	PendingItems            []Item
 	Messages                []unified.Message
 	PendingMessages         []unified.Message
 	Extensions              unified.Extensions
@@ -98,7 +100,15 @@ func estimateContentChars(part unified.ContentPart) int {
 
 func defaultProject(input ProjectionInput) (ProjectionResult, error) {
 	extensions := cloneExtensions(input.Extensions)
-	pendingMessages := append([]unified.Message(nil), input.PendingMessages...)
+	items := append([]Item(nil), input.Items...)
+	if len(items) == 0 && len(input.Messages) > 0 {
+		items = itemsFromMessages(input.Messages)
+	}
+	pendingItems := append([]Item(nil), input.PendingItems...)
+	if len(pendingItems) == 0 && len(input.PendingMessages) > 0 {
+		pendingItems = itemsFromMessages(input.PendingMessages)
+	}
+	pendingMessages := MessagesFromItems(pendingItems)
 	if input.AllowNativeContinuation && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
 		continuation, ok, err := ContinuationAtBranchHead(input.Tree, input.Branch, input.ProviderIdentity)
 		if err != nil {
@@ -114,9 +124,17 @@ func defaultProject(input ProjectionInput) (ProjectionResult, error) {
 			return ProjectionResult{Messages: pendingMessages, Extensions: extensions}, nil
 		}
 	}
-	messages := append([]unified.Message(nil), input.Messages...)
+	messages := MessagesFromItems(items)
 	messages = append(messages, pendingMessages...)
 	return ProjectionResult{Messages: messages, Extensions: extensions}, nil
+}
+
+func itemsFromMessages(messages []unified.Message) []Item {
+	items := make([]Item, 0, len(messages))
+	for _, message := range messages {
+		items = append(items, Item{Kind: ItemMessage, Message: message})
+	}
+	return items
 }
 
 func cloneExtensions(in unified.Extensions) unified.Extensions {

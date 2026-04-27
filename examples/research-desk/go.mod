@@ -20,7 +20,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
-	github.com/codewandler/llmadapter v1.0.0-rc.6 // indirect
+	github.com/codewandler/llmadapter v1.0.0-rc.8 // indirect
 	github.com/codewandler/modeldb v0.13.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect

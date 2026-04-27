@@ -4,7 +4,7 @@ go 1.26.1
 
 require (
 	github.com/codewandler/agentsdk v0.0.0
-	github.com/codewandler/llmadapter v1.0.0-rc.6
+	github.com/codewandler/llmadapter v1.0.0-rc.8
 )
 
 require (

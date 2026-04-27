@@ -17,6 +17,7 @@ type Request struct {
 	Tools           []unified.Tool
 	ToolChoice      *unified.ToolChoice
 	Messages        []unified.Message
+	Items           []Item
 	Stream          bool
 	User            string
 	CachePolicy     unified.CachePolicy
