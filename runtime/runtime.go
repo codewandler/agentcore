@@ -25,6 +25,8 @@ type Engine struct {
 	toolTimeout      time.Duration
 	toolExecutor     runner.ToolExecutor
 	providerIdentity conversation.ProviderIdentity
+	requestPreparer  runner.RequestPreparer
+	threadRuntime    *ThreadRuntime
 	onEvent          runner.EventHandler
 }
 
@@ -105,6 +107,11 @@ func (e *Engine) RunTurn(ctx context.Context, user string, opts ...TurnOption) (
 	if cfg.ToolCtx == nil && cfg.ToolCtxFactory != nil {
 		cfg.ToolCtx = cfg.ToolCtxFactory(ctx)
 	}
+	if e.threadRuntime != nil {
+		if err := cfg.addThreadRuntime(e.threadRuntime); err != nil {
+			return runner.Result{}, err
+		}
+	}
 	return runner.RunTurn(ctx, e.session, e.client, cfg.Request, cfg.runnerOptions()...)
 }
 
@@ -118,6 +125,7 @@ func (e *Engine) turnConfig() TurnConfig {
 		ToolTimeout:      e.toolTimeout,
 		ToolExecutor:     e.toolExecutor,
 		ProviderIdentity: e.providerIdentity,
+		RequestPreparer:  e.requestPreparer,
 		OnEvent:          e.onEvent,
 	}
 }
@@ -129,6 +137,7 @@ func (c TurnConfig) runnerOptions() []runner.Option {
 		runner.WithToolCtx(c.ToolCtx),
 		runner.WithToolTimeout(c.ToolTimeout),
 		runner.WithProviderIdentity(c.ProviderIdentity),
+		runner.WithRequestPreparer(c.RequestPreparer),
 		runner.WithEventHandler(c.OnEvent),
 	}
 	if c.ToolExecutor != nil {

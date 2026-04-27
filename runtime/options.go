@@ -135,6 +135,14 @@ func WithProviderIdentity(identity conversation.ProviderIdentity) Option {
 	return func(e *Engine) { e.providerIdentity = identity }
 }
 
+func WithRequestPreparer(preparer runner.RequestPreparer) Option {
+	return func(e *Engine) { e.requestPreparer = preparer }
+}
+
+func WithThreadRuntime(runtime *ThreadRuntime) Option {
+	return func(e *Engine) { e.threadRuntime = runtime }
+}
+
 func WithEventHandler(handler runner.EventHandler) Option {
 	return func(e *Engine) { e.onEvent = handler }
 }
@@ -150,6 +158,7 @@ type TurnConfig struct {
 	ToolExecutor     runner.ToolExecutor
 	ToolCtxFactory   func(context.Context) tool.Ctx
 	ProviderIdentity conversation.ProviderIdentity
+	RequestPreparer  runner.RequestPreparer
 	OnEvent          runner.EventHandler
 }
 
@@ -178,6 +187,10 @@ func WithTurnEventHandler(handler runner.EventHandler) TurnOption {
 
 func WithTurnProviderIdentity(identity conversation.ProviderIdentity) TurnOption {
 	return func(c *TurnConfig) { c.ProviderIdentity = identity }
+}
+
+func WithTurnRequestPreparer(preparer runner.RequestPreparer) TurnOption {
+	return func(c *TurnConfig) { c.RequestPreparer = preparer }
 }
 
 func WithTurnMaxSteps(max int) TurnOption {
