@@ -80,3 +80,21 @@ If you have an installed `agentsdk` binary:
 ```bash
 agentsdk run examples/engineer
 ```
+
+## Runtime skill activation
+
+The engineer example now supports runtime skill discovery and activation.
+
+List discovered skills and their current state:
+
+```text
+/skills
+```
+
+Activate a discovered skill on the current agent session:
+
+```text
+/skill architecture
+```
+
+If the `skill` tool is available to the model, it can also activate skills and exact references under `references/` with batched actions.

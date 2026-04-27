@@ -659,9 +659,61 @@ func (a *App) builtins() []command.Command {
 		}),
 		command.New(command.Spec{Name: "context", Description: "Show last context render state"}, func(context.Context, command.Params) (command.Result, error) {
 			if inst, ok := a.DefaultAgent(); ok {
-				return command.Text(inst.ContextState()), nil
+				state := inst.ContextState()
+				if state != "context: no render state" {
+					return command.Text(state), nil
+				}
 			}
-			return command.Text("context: no default agent"), nil
+			if a.defaultAgent == "" {
+				return command.Text("context: no default agent"), nil
+			}
+			return command.Text(fmt.Sprintf("context: no render state yet for agent %q\nrun a turn first to capture provider context", a.defaultAgent)), nil
+		}),
+		command.New(command.Spec{Name: "skills", Description: "List discovered skills and activation status"}, func(context.Context, command.Params) (command.Result, error) {
+			if inst, ok := a.DefaultAgent(); ok {
+				return command.Text(renderSkillsForAgent(inst)), nil
+			}
+			if a.defaultAgent == "" {
+				return command.Text("skills: no default agent"), nil
+			}
+			spec, ok := a.AgentSpec(a.defaultAgent)
+			if !ok {
+				return command.Text("skills: no default agent"), nil
+			}
+			repo, err := skill.NewRepository(a.agentSkillSources(spec), spec.Skills)
+			if err != nil {
+				return command.Text(fmt.Sprintf("skills: %v", err)), nil
+			}
+			state, err := skill.NewActivationState(repo, repo.LoadedNames())
+			if err != nil {
+				return command.Text(fmt.Sprintf("skills: %v", err)), nil
+			}
+			return command.Text(renderSkillState(state)), nil
+		}),
+		command.New(command.Spec{Name: "skill", Description: "Activate a skill on the current agent", ArgumentHint: "<name>"}, func(_ context.Context, params command.Params) (command.Result, error) {
+			name := strings.TrimSpace(params.Raw)
+			if name == "" {
+				return command.Text("usage: /skill <name>"), nil
+			}
+			inst, ok := a.DefaultAgent()
+			if !ok {
+				return command.Text("skill: no current agent"), nil
+			}
+			before := skill.StatusInactive
+			if state := inst.SkillActivationState(); state != nil {
+				before = state.Status(name)
+			}
+			status, err := inst.ActivateSkill(name)
+			if err != nil {
+				return command.Text("skill: " + err.Error()), nil
+			}
+			if before == skill.StatusBase || status == skill.StatusBase {
+				return command.Text(fmt.Sprintf("skill: %q already active (base)", name)), nil
+			}
+			if before == skill.StatusDynamic {
+				return command.Text(fmt.Sprintf("skill: %q already active (dynamic)", name)), nil
+			}
+			return command.Text(fmt.Sprintf("skill: activated %q", name)), nil
 		}),
 	}
 }
@@ -685,4 +737,54 @@ func (a *App) agentsHelpText() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func renderSkillsForAgent(inst *agent.Instance) string {
+	if inst == nil {
+		return "skills: no current agent"
+	}
+	state := inst.SkillActivationState()
+	if state == nil {
+		return "skills: unavailable"
+	}
+	return renderSkillState(state)
+}
+
+func renderSkillState(state *skill.ActivationState) string {
+	if state == nil || state.Repository() == nil {
+		return "skills: unavailable"
+	}
+	var b strings.Builder
+	b.WriteString("skills:\n")
+	for _, item := range state.Repository().List() {
+		marker := "[available]"
+		switch state.Status(item.Name) {
+		case skill.StatusBase:
+			marker = "[active:base]"
+		case skill.StatusDynamic:
+			marker = "[active:dynamic]"
+		}
+		fmt.Fprintf(&b, "- %s %s", item.Name, marker)
+		if item.Description != "" {
+			fmt.Fprintf(&b, " — %s", item.Description)
+		}
+		b.WriteByte('\n')
+		for _, ref := range item.References {
+			refMarker := "[available]"
+			for _, active := range state.ActiveReferences(item.Name) {
+				if active.Path == ref.Path {
+					refMarker = "[active]"
+					break
+				}
+			}
+			fmt.Fprintf(&b, "  - %s %s\n", ref.Path, refMarker)
+		}
+	}
+	if diagnostics := state.Diagnostics(); len(diagnostics) > 0 {
+		b.WriteString("warnings:\n")
+		for _, diagnostic := range diagnostics {
+			fmt.Fprintf(&b, "- %s\n", diagnostic)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

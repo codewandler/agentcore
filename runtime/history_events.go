@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/codewandler/agentsdk/conversation"
+	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/llmadapter/unified"
 )
@@ -30,6 +31,8 @@ func EventDefinitions() []thread.EventDefinition {
 		thread.DefineEvent[contextFragmentRemovedRecorded](EventContextFragmentRemoved),
 		thread.DefineEvent[contextSnapshotRecorded](EventContextSnapshotRecorded),
 		thread.DefineEvent[contextRenderCommitted](EventContextRenderCommitted),
+		thread.DefineEvent[skill.SkillActivatedEvent](skill.EventSkillActivated),
+		thread.DefineEvent[skill.SkillReferenceActivatedEvent](skill.EventSkillReferenceActivated),
 	}
 }
 

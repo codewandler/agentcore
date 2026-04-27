@@ -13,6 +13,9 @@ Portable tool definitions, conversation/runtime helpers, markdown utilities, and
   agent bundles with `agentsdk run`.
 - **Resource discovery**: Load `.agents` and `.claude` agents, commands, and
   skills from local directories or declarative git sources.
+- **Runtime skill activation**: Discover skills at runtime, activate skills and
+  exact `references/` paths, and persist activation state across resumed
+  sessions.
 - **Model compatibility policy**: Inspect or require llmadapter use-case
   compatibility evidence for agentic workloads.
 - **Conversation state**: Session IDs, conversation IDs, branches, replay projection, JSONL persistence, and provider continuation metadata.
@@ -69,6 +72,8 @@ agent, err := runtime.New(auto.Client,
             runtime.WithToolWorkDir("."),
             runtime.WithToolSessionID("session-id"),
             runtime.WithToolActivation(toolset.Activation()),
+            // Add runtime.WithToolSkillActivation(state) when your app wires
+            // mutable skill activation state into the model tool context.
         )
     }),
     runtime.WithEventHandler(func(event runner.Event) {
@@ -206,7 +211,18 @@ You are a concise coding agent.
 
 Command files live in `commands/*.md`; their frontmatter is parsed into slash
 command metadata and their body is used as a prompt template. Skills use the
-`SKILL.md` directory format under `skills/<name>/SKILL.md`.
+`SKILL.md` directory format under `skills/<name>/SKILL.md`. Skill directories
+may also contain optional reference files under `skills/<name>/references/*.md`.
+Runtime skill activation recognizes only exact relative paths under
+`references/` as activatable skill references.
+
+At runtime, the terminal app exposes:
+
+- `/skills` — list discovered skills and their activation state
+- `/skill <name>` — activate a discovered skill on the current agent session
+
+If the `skill` tool is available to the model, it can activate skills and exact
+reference paths with batched actions.
 
 To inspect what agentsdk can load without running an agent:
 

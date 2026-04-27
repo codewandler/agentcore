@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	md "github.com/codewandler/agentsdk/markdown"
 )
@@ -53,6 +54,18 @@ func FSSource(id, label string, fsys fs.FS, root string, kind SourceKind, order 
 	return Source{ID: id, Label: label, Kind: kind, FS: fsys, Root: clean(root), Order: order}
 }
 
+// Reference is a discovered reference file under a skill-local references/
+// directory.
+type Reference struct {
+	Path        string
+	Metadata    RefMetadata
+	SourceID    string
+	SourceLabel string
+	SkillName   string
+	ModifiedAt  time.Time
+	Body        string
+}
+
 // Skill is a discovered Agent Skill directory.
 type Skill struct {
 	Name        string
@@ -62,6 +75,7 @@ type Skill struct {
 	SourceLabel string
 	Dir         string
 	Body        string
+	References  []Reference
 }
 
 // Repository is the resolved skill catalog and loaded skill set for one agent.
@@ -127,6 +141,32 @@ func (r *Repository) Get(name string) (Skill, bool) {
 	}
 	s, ok := r.skills[strings.TrimSpace(name)]
 	return s, ok
+}
+
+// ListReferences returns all discovered references for a skill in deterministic
+// path order.
+func (r *Repository) ListReferences(name string) []Reference {
+	if r == nil {
+		return nil
+	}
+	s, ok := r.Get(name)
+	if !ok {
+		return nil
+	}
+	out := append([]Reference(nil), s.References...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// GetReference returns one discovered reference by exact relative path.
+func (r *Repository) GetReference(name, refPath string) (Reference, bool) {
+	refPath = strings.TrimSpace(refPath)
+	for _, ref := range r.ListReferences(name) {
+		if ref.Path == refPath {
+			return ref, true
+		}
+	}
+	return Reference{}, false
 }
 
 // Load marks a discovered skill as loaded for system-context materialization.
@@ -257,9 +297,75 @@ func loadSource(source Source) ([]Skill, error) {
 			SourceLabel: sourceLabel(source),
 			Dir:         dir,
 			Body:        strings.TrimSpace(body),
+			References:  loadReferences(source, fm.Name, dir),
 		})
 	}
 	return out, nil
+}
+
+func loadReferences(source Source, skillName, dir string) []Reference {
+	refsDir := path.Join(dir, "references")
+	entries, err := fs.ReadDir(source.FS, refsDir)
+	if err != nil {
+		return nil
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		refPath := path.Join("references", entry.Name())
+		if !validReferencePath(refPath) {
+			continue
+		}
+		paths = append(paths, refPath)
+	}
+	sort.Strings(paths)
+	out := make([]Reference, 0, len(paths))
+	for _, refPath := range paths {
+		data, err := fs.ReadFile(source.FS, path.Join(dir, refPath))
+		if err != nil {
+			continue
+		}
+		meta, body, err := md.Parse(strings.NewReader(string(data)))
+		if err != nil {
+			continue
+		}
+		fm, err := md.Bind[RefMetadata](meta)
+		if err != nil {
+			continue
+		}
+		out = append(out, Reference{
+			Path:        refPath,
+			Metadata:    fm,
+			SourceID:    source.ID,
+			SourceLabel: sourceLabel(source),
+			SkillName:   skillName,
+			Body:        strings.TrimSpace(body),
+		})
+	}
+	return out
+}
+
+func validReferencePath(refPath string) bool {
+	refPath = strings.TrimSpace(refPath)
+	if refPath == "" {
+		return false
+	}
+	if strings.HasPrefix(refPath, "/") {
+		return false
+	}
+	cleaned := path.Clean(refPath)
+	if cleaned == "." || cleaned == "SKILL.md" || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return false
+	}
+	if !strings.HasPrefix(cleaned, "references/") {
+		return false
+	}
+	if strings.Contains(cleaned, "../") {
+		return false
+	}
+	return path.Base(cleaned) != "SKILL.md"
 }
 
 func sortSources(sources []Source) {

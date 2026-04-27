@@ -43,6 +43,17 @@ Relevant compatibility layouts:
 loads `.agents/skills` as a skill compatibility source, but `.agents/agents`
 and `.agents/commands` are not ambient default layouts.
 
+Within a skill directory, agentsdk also recognizes optional reference files under
+`references/`, for example:
+
+```text
+.agents/skills/<skill>/SKILL.md
+.agents/skills/<skill>/references/<file>.md
+```
+
+For runtime skill activation, only exact relative paths under `references/` are
+eligible as activatable skill references.
+
 ## Agentsdk Native App Manifests
 
 Agentsdk supports `app.manifest.json` and `agentsdk.app.json` as native app

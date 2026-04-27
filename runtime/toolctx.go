@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/codewandler/agentsdk/activation"
+	"github.com/codewandler/agentsdk/skill"
+	"github.com/codewandler/agentsdk/tools/skills"
 	"github.com/codewandler/agentsdk/tools/toolmgmt"
 )
 
@@ -54,6 +56,10 @@ func WithToolExtra(key string, value any) ToolContextOption {
 
 func WithToolActivation(state activation.State) ToolContextOption {
 	return WithToolExtra(toolmgmt.KeyActivationState, state)
+}
+
+func WithToolSkillActivation(state *skill.ActivationState) ToolContextOption {
+	return WithToolExtra(skills.KeyActivationState, state)
 }
 
 func WithToolExtras(values map[string]any) ToolContextOption {

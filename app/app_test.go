@@ -211,6 +211,28 @@ func TestAppContextBuiltinHandlesNoDefaultAgent(t *testing.T) {
 	require.Equal(t, "context: no default agent", result.Text)
 }
 
+func TestAppContextBuiltinExplainsWhenDefaultAgentHasNoRenderState(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "main",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	_, err = app.InstantiateDefaultAgent(
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+
+	result, err := app.Commands().Execute(context.Background(), "/context")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "context: no render state yet for agent \"main\"")
+	require.Contains(t, result.Text, "run a turn first to capture provider context")
+}
+
 func TestAppAgentsBuiltinListsRegisteredAgents(t *testing.T) {
 	app, err := New(
 		WithAgentSpec(agent.Spec{Name: "reviewer", Description: "Reviews changes"}),
@@ -381,4 +403,29 @@ func (p testCommandsPlugin) Name() string { return p.name }
 
 func (p testCommandsPlugin) Commands() []command.Command {
 	return append([]command.Command(nil), p.commands...)
+}
+
+func TestAppSkillBuiltinReportsAlreadyActiveDynamicSkill(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "main",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+		SkillSources: []skill.Source{skill.FSSource("skills", "skills", fstest.MapFS{
+			"skills/architecture/SKILL.md": {Data: []byte("---\nname: architecture\ndescription: Architecture\n---\n# Architecture")},
+		}, "skills", skill.SourceEmbedded, 0)},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	inst, err := app.InstantiateDefaultAgent(
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+	_, err = inst.ActivateSkill("architecture")
+	require.NoError(t, err)
+
+	result, err := app.Commands().Execute(context.Background(), "/skill architecture")
+	require.NoError(t, err)
+	require.Contains(t, result.Text, "already active (dynamic)")
 }

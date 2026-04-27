@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/skill"
@@ -81,6 +82,11 @@ func ProjectInstructions(instructions ...ProjectInstruction) agentcontext.Provid
 	return staticSetProvider{key: "project_instructions", fragments: fragments}
 }
 
+type SkillInventory struct {
+	Catalog *skill.Repository
+	State   *skill.ActivationState
+}
+
 func Skills(skills ...skill.Skill) agentcontext.Provider {
 	fragments := make([]agentcontext.ContextFragment, 0, len(skills))
 	for _, loaded := range skills {
@@ -99,6 +105,10 @@ func Skills(skills ...skill.Skill) agentcontext.Provider {
 		})
 	}
 	return staticSetProvider{key: "skills", fragments: fragments}
+}
+
+func SkillInventoryProvider(inventory SkillInventory) agentcontext.Provider {
+	return skillInventoryProvider{inventory: inventory}
 }
 
 func Tools(tools ...tool.Tool) agentcontext.Provider {
@@ -181,6 +191,78 @@ func (p staticSetProvider) StateFingerprint(ctx context.Context, _ agentcontext.
 	return agentcontext.ProviderFingerprint(p.fragments), true, nil
 }
 
+type skillInventoryProvider struct {
+	inventory SkillInventory
+}
+
+func (p skillInventoryProvider) Key() agentcontext.ProviderKey { return "skills" }
+
+func (p skillInventoryProvider) GetContext(ctx context.Context, _ agentcontext.Request) (agentcontext.ProviderContext, error) {
+	if err := ctx.Err(); err != nil {
+		return agentcontext.ProviderContext{}, err
+	}
+	fragments := p.fragments()
+	return agentcontext.ProviderContext{
+		Fragments:   fragments,
+		Fingerprint: agentcontext.ProviderFingerprint(fragments),
+	}, nil
+}
+
+func (p skillInventoryProvider) StateFingerprint(ctx context.Context, _ agentcontext.Request) (string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	fragments := p.fragments()
+	return agentcontext.ProviderFingerprint(fragments), true, nil
+}
+
+func (p skillInventoryProvider) fragments() []agentcontext.ContextFragment {
+	catalog := p.inventory.Catalog
+	if catalog == nil && p.inventory.State != nil {
+		catalog = p.inventory.State.Repository()
+	}
+	if catalog == nil {
+		return nil
+	}
+	list := catalog.List()
+	fragments := make([]agentcontext.ContextFragment, 0, len(list))
+	for _, item := range list {
+		status := skill.StatusInactive
+		if p.inventory.State != nil {
+			status = p.inventory.State.Status(item.Name)
+		}
+		content := renderSkillMetadata(item, status)
+		if status != skill.StatusInactive && strings.TrimSpace(item.Body) != "" {
+			content += "\n\n" + strings.TrimSpace(item.Body)
+		}
+		fragments = append(fragments, agentcontext.ContextFragment{
+			Key:       agentcontext.FragmentKey("skills/catalog/" + sanitizeKey(item.Name)),
+			Role:      unified.RoleUser,
+			Content:   content,
+			Authority: agentcontext.AuthorityUser,
+			CachePolicy: agentcontext.CachePolicy{
+				Stable: true,
+				Scope:  agentcontext.CacheThread,
+			},
+		})
+		if p.inventory.State != nil {
+			for _, ref := range p.inventory.State.ActiveReferences(item.Name) {
+				fragments = append(fragments, agentcontext.ContextFragment{
+					Key:       agentcontext.FragmentKey("skills/references/" + sanitizeKey(item.Name) + "/" + sanitizeKey(ref.Path)),
+					Role:      unified.RoleUser,
+					Content:   renderReference(ref),
+					Authority: agentcontext.AuthorityUser,
+					CachePolicy: agentcontext.CachePolicy{
+						Stable: true,
+						Scope:  agentcontext.CacheThread,
+					},
+				})
+			}
+		}
+	}
+	return fragments
+}
+
 func renderModelInfo(info ModelInfo) string {
 	var b strings.Builder
 	writeLine(&b, "model", info.Name)
@@ -202,6 +284,37 @@ func renderSkill(s skill.Skill) string {
 			b.WriteString("\n")
 		}
 		b.WriteString(strings.TrimSpace(s.Body))
+	}
+	return b.String()
+}
+
+func renderSkillMetadata(s skill.Skill, status skill.Status) string {
+	var b strings.Builder
+	writeLine(&b, "skill", s.Name)
+	writeLine(&b, "description", s.Description)
+	writeLine(&b, "source", s.SourceLabel)
+	writeLine(&b, "status", string(status))
+	if len(s.References) > 0 {
+		writeLine(&b, "references", fmt.Sprintf("%d discovered", len(s.References)))
+	}
+	return b.String()
+}
+
+func renderReference(ref skill.Reference) string {
+	var b strings.Builder
+	writeLine(&b, "path", ref.Path)
+	writeLine(&b, "skill", ref.SkillName)
+	writeLine(&b, "source", ref.SourceLabel)
+	if !ref.ModifiedAt.IsZero() {
+		writeLine(&b, "modified", ref.ModifiedAt.UTC().Format(time.RFC3339))
+	}
+	triggers := ref.Metadata.AllTriggers()
+	if len(triggers) > 0 {
+		writeLine(&b, "triggers", strings.Join(triggers, ", "))
+	}
+	if strings.TrimSpace(ref.Body) != "" {
+		b.WriteString("\n")
+		b.WriteString(strings.TrimSpace(ref.Body))
 	}
 	return b.String()
 }

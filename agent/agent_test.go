@@ -349,3 +349,132 @@ func TestDefaultSpecPlannerAttachesAndExposesPlanTool(t *testing.T) {
 	}
 	require.True(t, found, "plan tool not found in request tools: %v", client.RequestAt(0).Tools)
 }
+
+func TestAgentActivateSkillRefreshesMaterializedSystem(t *testing.T) {
+	fsys := fstest.MapFS{
+		"skills/base/SKILL.md":  {Data: []byte("---\nname: base\ndescription: Base\n---\n# Base")},
+		"skills/extra/SKILL.md": {Data: []byte("---\nname: extra\ndescription: Extra\n---\n# Extra")},
+	}
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	a, err := New(
+		WithSpec(Spec{
+			Name:         "coder",
+			System:       "Base system.",
+			Skills:       []string{"base"},
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+		}),
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+	require.Contains(t, a.MaterializedSystem(), "# Base")
+	require.NotContains(t, a.MaterializedSystem(), "# Extra")
+
+	status, err := a.ActivateSkill("extra")
+	require.NoError(t, err)
+	require.Equal(t, skill.StatusDynamic, status)
+	require.Contains(t, a.MaterializedSystem(), "# Extra")
+}
+
+func TestAgentActivateSkillReferencesRequiresActiveSkill(t *testing.T) {
+	fsys := fstest.MapFS{
+		"skills/base/SKILL.md":             {Data: []byte("---\nname: base\ndescription: Base\n---\n# Base")},
+		"skills/base/references/review.md": {Data: []byte("---\ntrigger: review\n---\nReview body")},
+	}
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	a, err := New(
+		WithSpec(Spec{
+			Name:         "coder",
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+		}),
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+
+	_, err = a.ActivateSkillReferences("base", []string{"references/review.md"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "require the skill to be active first")
+}
+
+func TestAgentResumesActivatedSkillAcrossSession(t *testing.T) {
+	dir := t.TempDir()
+	fsys := fstest.MapFS{
+		"skills/base/SKILL.md":  {Data: []byte("---\nname: base\ndescription: Base\n---\n# Base")},
+		"skills/extra/SKILL.md": {Data: []byte("---\nname: extra\ndescription: Extra\n---\n# Extra")},
+	}
+	firstClient := runnertest.NewClient(runnertest.TextStream("ok"))
+	first, err := New(
+		WithClient(firstClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithSpec(Spec{
+			Name:         "coder",
+			Skills:       []string{"base"},
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+			Inference:    InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000},
+		}),
+	)
+	require.NoError(t, err)
+	_, err = first.ActivateSkill("extra")
+	require.NoError(t, err)
+	require.Contains(t, first.MaterializedSystem(), "# Extra")
+
+	secondClient := runnertest.NewClient(runnertest.TextStream("ok"))
+	second, err := New(
+		WithClient(secondClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithResumeSession(first.SessionStorePath()),
+		WithSpec(Spec{
+			Name:         "coder",
+			Skills:       []string{"base"},
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+			Inference:    InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000},
+		}),
+	)
+	require.NoError(t, err)
+	require.Contains(t, second.MaterializedSystem(), "# Extra")
+	require.Equal(t, skill.StatusDynamic, second.SkillActivationState().Status("extra"))
+}
+
+func TestAgentResumesActivatedSkillReferenceAcrossSession(t *testing.T) {
+	dir := t.TempDir()
+	fsys := fstest.MapFS{
+		"skills/base/SKILL.md":             {Data: []byte("---\nname: base\ndescription: Base\n---\n# Base")},
+		"skills/base/references/review.md": {Data: []byte("---\ntrigger: review\n---\nReview body")},
+	}
+	firstClient := runnertest.NewClient(runnertest.TextStream("ok"))
+	first, err := New(
+		WithClient(firstClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithSpec(Spec{
+			Name:         "coder",
+			Skills:       []string{"base"},
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+			Inference:    InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000},
+		}),
+	)
+	require.NoError(t, err)
+	_, err = first.ActivateSkillReferences("base", []string{"references/review.md"})
+	require.NoError(t, err)
+	require.Contains(t, first.MaterializedSystem(), "Review body")
+
+	secondClient := runnertest.NewClient(runnertest.TextStream("ok"))
+	second, err := New(
+		WithClient(secondClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithResumeSession(first.SessionStorePath()),
+		WithSpec(Spec{
+			Name:         "coder",
+			Skills:       []string{"base"},
+			SkillSources: []skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)},
+			Inference:    InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000},
+		}),
+	)
+	require.NoError(t, err)
+	require.Contains(t, second.MaterializedSystem(), "Review body")
+	require.Len(t, second.SkillActivationState().ActiveReferences("base"), 1)
+}

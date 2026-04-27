@@ -8,6 +8,7 @@ import (
 	"github.com/codewandler/agentsdk/tools/git"
 	"github.com/codewandler/agentsdk/tools/notify"
 	"github.com/codewandler/agentsdk/tools/shell"
+	"github.com/codewandler/agentsdk/tools/skills"
 	"github.com/codewandler/agentsdk/tools/todo"
 	"github.com/codewandler/agentsdk/tools/toolmgmt"
 	"github.com/codewandler/agentsdk/tools/turn"
@@ -82,6 +83,7 @@ func Tools(opts Options) []tool.Tool {
 	out = append(out, shell.Tools()...)
 	out = append(out, filesystem.Tools()...)
 	out = append(out, web.Tools(opts.WebSearchProvider)...)
+	out = append(out, skills.Tools()...)
 	if opts.IncludeGit {
 		out = append(out, git.Tools()...)
 	}

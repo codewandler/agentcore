@@ -10,6 +10,20 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-04-27
+
+### Added
+
+- Added runtime skill discovery and activation state with session-persistent replay for skills and exact `references/` paths.
+- Added `tools/skills` with batched `skill` actions for model-driven skill activation.
+- Added `/skills` and `/skill <name>` builtins to the terminal app.
+- Added reference discovery under `skills/<name>/references/*.md` and prompt/context rendering for activated references.
+- Added `ROADMAP.md` with the next planned follow-up work for the skill system.
+
+### Changed
+
+- Expanded README and `docs/RESOURCES.md` to document runtime skill activation and skill references.
+
 ## [0.23.0] - 2026-04-27
 
 ### Added

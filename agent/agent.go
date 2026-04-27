@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -96,6 +97,7 @@ type Instance struct {
 	specResourceID       string
 	specResourceFrom     string
 	skillRepo            *skill.Repository
+	skillState           *skill.ActivationState
 	materializedSystem   string
 	capabilitySpecs      []capability.AttachSpec
 	capabilityRegistry   capability.Registry
@@ -227,7 +229,13 @@ func (a *Instance) SkillRepository() *skill.Repository {
 }
 
 func (a *Instance) LoadedSkills() []skill.Skill {
-	if a == nil || a.skillRepo == nil {
+	if a == nil {
+		return nil
+	}
+	if a.skillState != nil {
+		return a.skillState.ActiveSkills()
+	}
+	if a.skillRepo == nil {
 		return nil
 	}
 	return a.skillRepo.Loaded()
@@ -259,27 +267,110 @@ func (a *Instance) initSkills() error {
 	if a.skillRepo == nil {
 		repo, err := skill.NewRepository(a.specSkillSources, a.specSkills)
 		if err != nil {
-			return err
+			if len(a.specSkillSources) > 0 || len(a.specSkills) == 0 {
+				return err
+			}
+			repo, err = skill.NewRepository(a.specSkillSources, nil)
+			if err != nil {
+				return err
+			}
 		}
 		a.skillRepo = repo
 	} else {
 		for _, name := range a.specSkills {
-			if err := a.skillRepo.Load(name); err != nil {
+			if err := a.skillRepo.Load(name); err != nil && len(a.specSkillSources) > 0 {
 				return err
 			}
 		}
 	}
+	state, err := skill.NewActivationState(a.skillRepo, a.skillRepo.LoadedNames())
+	if err != nil {
+		return err
+	}
+	a.skillState = state
+	a.refreshMaterializedSystem()
+	return nil
+}
+
+func (a *Instance) refreshMaterializedSystem() {
+	if a == nil {
+		return
+	}
 	base := a.systemBuilder(a.workspace, a.system)
-	skills := a.skillRepo.Materialize()
+	skills := ""
+	if a.skillState != nil {
+		skills = a.skillState.Materialize()
+	} else if a.skillRepo != nil {
+		skills = a.skillRepo.Materialize()
+	}
 	if strings.TrimSpace(skills) == "" {
 		a.materializedSystem = base
-		return nil
+		return
 	}
 	if strings.TrimSpace(base) == "" {
 		a.materializedSystem = skills
-		return nil
+		return
 	}
 	a.materializedSystem = strings.TrimRight(base, "\n") + "\n\n" + skills
+}
+
+func (a *Instance) ActivateSkill(name string) (skill.Status, error) {
+	if a == nil || a.skillState == nil {
+		return skill.StatusInactive, fmt.Errorf("agent: skill activation is not initialized")
+	}
+	before := a.skillState.Status(name)
+	status, err := a.skillState.ActivateSkill(name)
+	if err != nil {
+		return skill.StatusInactive, err
+	}
+	if before == skill.StatusInactive {
+		if err := a.appendSkillEvent(skill.EventSkillActivated, skill.SkillActivatedEvent{Skill: strings.TrimSpace(name)}); err != nil {
+			return skill.StatusInactive, err
+		}
+	}
+	a.refreshMaterializedSystem()
+	return status, nil
+}
+
+func (a *Instance) ActivateSkillReferences(name string, refs []string) ([]string, error) {
+	if a == nil || a.skillState == nil {
+		return nil, fmt.Errorf("agent: skill activation is not initialized")
+	}
+	activated, err := a.skillState.ActivateReferences(name, refs)
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range activated {
+		if err := a.appendSkillEvent(skill.EventSkillReferenceActivated, skill.SkillReferenceActivatedEvent{Skill: strings.TrimSpace(name), Path: ref}); err != nil {
+			return nil, err
+		}
+	}
+	a.refreshMaterializedSystem()
+	return activated, nil
+}
+
+func (a *Instance) SkillActivationState() *skill.ActivationState {
+	if a == nil {
+		return nil
+	}
+	return a.skillState
+}
+
+func (a *Instance) appendSkillEvent(kind thread.EventKind, payload any) error {
+	if a == nil {
+		return nil
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	event := thread.Event{Kind: kind, Payload: raw}
+	if a.threadRuntime != nil && a.threadRuntime.Live() != nil {
+		return a.threadRuntime.Live().Append(context.Background(), event)
+	}
+	if a.history != nil {
+		return a.history.AppendThreadEvents(context.Background(), event)
+	}
 	return nil
 }
 
@@ -597,6 +688,7 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 				agentruntime.WithToolWorkDir(a.workspace),
 				agentruntime.WithToolSessionID(a.sessionID),
 				agentruntime.WithToolActivation(a.toolset.Activation()),
+				agentruntime.WithToolSkillActivation(a.skillState),
 			)
 		}),
 	}
@@ -661,6 +753,9 @@ func (a *Instance) initSession(ctx context.Context) error {
 				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
 			}
 			_ = events // capability replay already handled by ResumeThreadRuntime
+			if err := a.replaySkillEvents(events); err != nil {
+				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
+			}
 			history, err := agentruntime.ResumeHistoryFromThread(ctx, store, tr.Live(), append(a.historyOptions(false), agentruntime.WithHistorySessionID(id))...)
 			if err != nil {
 				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
@@ -679,6 +774,12 @@ func (a *Instance) initSession(ctx context.Context) error {
 				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
 			}
 			a.history = history
+			stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
+			if err == nil {
+				if branchEvents, err := stored.EventsForBranch(live.BranchID()); err == nil {
+					_ = a.replaySkillEvents(branchEvents)
+				}
+			}
 		}
 		a.sessionID = id
 		a.sessionStoreDir = dir
@@ -760,6 +861,36 @@ func (a *Instance) ensureCapabilityRegistry() (capability.Registry, error) {
 	return capability.NewRegistry(planner.Factory{})
 }
 
+func (a *Instance) replaySkillEvents(events []thread.Event) error {
+	if a == nil || a.skillState == nil {
+		return nil
+	}
+	for _, event := range events {
+		switch event.Kind {
+		case skill.EventSkillActivated:
+			var payload skill.SkillActivatedEvent
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				return err
+			}
+			if _, err := a.skillState.ActivateSkill(payload.Skill); err != nil {
+				a.skillState.AddDiagnostic("replay skipped skill %q: %v", payload.Skill, err)
+				continue
+			}
+		case skill.EventSkillReferenceActivated:
+			var payload skill.SkillReferenceActivatedEvent
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				return err
+			}
+			if _, err := a.skillState.ActivateReferences(payload.Skill, []string{payload.Path}); err != nil {
+				a.skillState.AddDiagnostic("replay skipped reference %q for skill %q: %v", payload.Path, payload.Skill, err)
+				continue
+			}
+		}
+	}
+	a.refreshMaterializedSystem()
+	return nil
+}
+
 // contextProviders returns the baseline context providers for this agent
 // instance. These are registered on the context manager (thread-backed or
 // standalone) so the model sees current environment, time, model identity,
@@ -777,8 +908,11 @@ func (a *Instance) contextProviders() []agentcontext.Provider {
 	if a.toolset != nil {
 		providers = append(providers, contextproviders.Tools(a.toolset.ActiveTools()...))
 	}
-	if loaded := a.LoadedSkills(); len(loaded) > 0 {
-		providers = append(providers, contextproviders.Skills(loaded...))
+	if a.skillRepo != nil || a.skillState != nil {
+		providers = append(providers, contextproviders.SkillInventoryProvider(contextproviders.SkillInventory{
+			Catalog: a.skillRepo,
+			State:   a.skillState,
+		}))
 	}
 	if len(a.specInstructionPaths) > 0 {
 		providers = append(providers, contextproviders.AgentsMarkdown(a.specInstructionPaths, contextproviders.AgentsMarkdownOption(contextproviders.WithFileWorkDir(a.workspace))))

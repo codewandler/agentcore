@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/codewandler/agentsdk/agentcontext"
@@ -81,6 +82,105 @@ func TestToolsProviderRendersSortedToolList(t *testing.T) {
 	content := providerContext.Fragments[0].Content
 	if !strings.Contains(content, "- alpha: first\n- zeta: last") {
 		t.Fatalf("tools content not sorted: %s", content)
+	}
+}
+
+func TestSkillInventoryProviderRendersAvailableAndActivatedState(t *testing.T) {
+	repo, state := testSkillInventory(t)
+	_, err := state.ActivateSkill("architecture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = state.ActivateReferences("architecture", []string{"references/tradeoffs.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider := SkillInventoryProvider(SkillInventory{Catalog: repo, State: state})
+	providerContext, err := provider.GetContext(context.Background(), agentcontext.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(providerContext.Fragments) != 3 {
+		t.Fatalf("fragment count = %d, want 3", len(providerContext.Fragments))
+	}
+	if !strings.Contains(providerContext.Fragments[0].Content, "status: dynamic") {
+		t.Fatalf("missing active status in %q", providerContext.Fragments[0].Content)
+	}
+	if !strings.Contains(providerContext.Fragments[0].Content, "Decide carefully") {
+		t.Fatalf("missing active body in %q", providerContext.Fragments[0].Content)
+	}
+	if !strings.Contains(providerContext.Fragments[1].Content, "path: references/tradeoffs.md") {
+		t.Fatalf("missing active ref in %q", providerContext.Fragments[1].Content)
+	}
+	if !strings.Contains(providerContext.Fragments[2].Content, "status: inactive") {
+		t.Fatalf("missing inactive status in %q", providerContext.Fragments[2].Content)
+	}
+	if strings.Contains(providerContext.Fragments[2].Content, "Review deeply") {
+		t.Fatalf("inactive skill unexpectedly rendered body: %q", providerContext.Fragments[2].Content)
+	}
+}
+
+func TestSkillInventoryProviderOmitsInactiveReferencesFromPromptContext(t *testing.T) {
+	repo, state := testSkillInventory(t)
+	_, err := state.ActivateSkill("architecture")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider := SkillInventoryProvider(SkillInventory{Catalog: repo, State: state})
+	providerContext, err := provider.GetContext(context.Background(), agentcontext.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range providerContext.Fragments {
+		if strings.Contains(fragment.Content, "tradeoffs reference") {
+			t.Fatalf("inactive reference unexpectedly rendered: %q", fragment.Content)
+		}
+	}
+}
+
+func testSkillInventory(t *testing.T) (*skill.Repository, *skill.ActivationState) {
+	t.Helper()
+	fsys := fstest.MapFS{
+		"skills/architecture/SKILL.md":                {Data: []byte("---\nname: architecture\ndescription: Architecture help\n---\nDecide carefully")},
+		"skills/architecture/references/tradeoffs.md": {Data: []byte("---\ntrigger: tradeoffs\n---\ntradeoffs reference")},
+		"skills/review/SKILL.md":                      {Data: []byte("---\nname: review\ndescription: Review help\n---\nReview deeply")},
+	}
+	repo, err := skill.NewRepository([]skill.Source{skill.FSSource("skills", "skills", fsys, "skills", skill.SourceEmbedded, 0)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := skill.NewActivationState(repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo, state
+}
+
+func TestSkillInventoryProviderStableReferenceFragmentKey(t *testing.T) {
+	repo, state := testSkillInventory(t)
+	_, err := state.ActivateSkill("architecture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = state.ActivateReferences("architecture", []string{"references/tradeoffs.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := SkillInventoryProvider(SkillInventory{Catalog: repo, State: state})
+	providerContext, err := provider.GetContext(context.Background(), agentcontext.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, fragment := range providerContext.Fragments {
+		if fragment.Key == agentcontext.FragmentKey("skills/references/architecture/references_tradeoffs.md") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing stable reference fragment key in %#v", providerContext.Fragments)
 	}
 }
 
