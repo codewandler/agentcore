@@ -10,6 +10,20 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-04-27
+
+### Added
+
+- Added `Taskfile.yaml` with an `install` task for installing the `agentsdk` binary.
+- Added an app manifest to the engineer example so global user skill discovery participates by default.
+
+### Changed
+
+- Changed the engineer example so bundled skills are discoverable but not auto-activated by default.
+- Explicitly enabled the `skill` tool in the engineer example.
+- Included active tool `Guidance()` text in the prompt-visible tools context provider.
+- Improved `skill` tool guidance for activating exact `references/` paths.
+
 ## [0.24.0] - 2026-04-27
 
 ### Added
