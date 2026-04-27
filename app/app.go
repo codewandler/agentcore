@@ -625,6 +625,9 @@ func (a *App) builtins() []command.Command {
 		command.New(command.Spec{Name: "help", Aliases: []string{"?"}, Description: "Show available commands"}, func(context.Context, command.Params) (command.Result, error) {
 			return command.Text(a.commands.HelpText()), nil
 		}),
+		command.New(command.Spec{Name: "agents", Description: "Show available agents"}, func(context.Context, command.Params) (command.Result, error) {
+			return command.Text(a.agentsHelpText()), nil
+		}),
 		command.New(command.Spec{Name: "new", Aliases: []string{"reset"}, Description: "Start a new session"}, func(context.Context, command.Params) (command.Result, error) {
 			return command.Reset(), nil
 		}),
@@ -645,4 +648,25 @@ func (a *App) builtins() []command.Command {
 			return command.Text("session: none"), nil
 		}),
 	}
+}
+
+func (a *App) agentsHelpText() string {
+	specs := a.AgentSpecs()
+	if len(specs) == 0 {
+		return "No agents registered."
+	}
+	var b strings.Builder
+	b.WriteString("Agents:\n")
+	for _, spec := range specs {
+		marker := " "
+		if spec.Name == a.defaultAgent {
+			marker = "*"
+		}
+		fmt.Fprintf(&b, "%s %s", marker, spec.Name)
+		if spec.Description != "" {
+			fmt.Fprintf(&b, " - %s", spec.Description)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }

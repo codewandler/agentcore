@@ -30,16 +30,20 @@ type Config struct {
 	Session            string
 	ContinueLast       bool
 
-	Inference      agent.InferenceOptions
-	ApplyInference bool
-	MaxSteps       int
-	ApplyMaxSteps  bool
-	SystemOverride string
-	ToolTimeout    time.Duration
-	TotalTimeout   time.Duration
-	CacheKeyPrefix string
-	Verbose        bool
-	Prompt         string
+	Inference        agent.InferenceOptions
+	ApplyInference   bool
+	SourceAPI        string
+	ApplySourceAPI   bool
+	ModelPolicy      agent.ModelPolicy
+	ApplyModelPolicy bool
+	MaxSteps         int
+	ApplyMaxSteps    bool
+	SystemOverride   string
+	ToolTimeout      time.Duration
+	TotalTimeout     time.Duration
+	CacheKeyPrefix   string
+	Verbose          bool
+	Prompt           string
 
 	AgentOptions    []agent.Option
 	AppOptions      []app.Option
@@ -118,6 +122,23 @@ func Run(ctx context.Context, cfg Config) error {
 	}); err != nil {
 		return err
 	}
+	modelPolicy := cfg.ModelPolicy
+	applyModelPolicy := cfg.ApplyModelPolicy
+	if resolved.HasModelPolicy {
+		if applyModelPolicy {
+			modelPolicy = overlayModelPolicy(resolved.ModelPolicy, cfg.ModelPolicy)
+		} else {
+			modelPolicy = resolved.ModelPolicy
+		}
+		applyModelPolicy = true
+	}
+	if cfg.ApplySourceAPI && applyModelPolicy {
+		sourceAPI, err := agent.ParseSourceAPI(cfg.SourceAPI)
+		if err != nil {
+			return err
+		}
+		modelPolicy.SourceAPI = sourceAPI
+	}
 
 	appOpts := []app.Option{
 		app.WithOutput(out),
@@ -145,6 +166,16 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	instOpts := append([]agent.Option(nil), cfg.AgentOptions...)
+	if cfg.ApplySourceAPI {
+		sourceAPI, err := agent.ParseSourceAPI(cfg.SourceAPI)
+		if err != nil {
+			return err
+		}
+		instOpts = append(instOpts, agent.WithSourceAPI(sourceAPI))
+	}
+	if applyModelPolicy {
+		instOpts = append(instOpts, agent.WithModelPolicy(modelPolicy))
+	}
 	if resumePath != "" {
 		instOpts = append(instOpts, agent.WithResumeSession(resumePath))
 	}
@@ -175,6 +206,29 @@ func Run(ctx context.Context, cfg Config) error {
 		prompt = "> "
 	}
 	return repl.Run(ctx, application, in, repl.WithPrompt(prompt))
+}
+
+func overlayModelPolicy(base agent.ModelPolicy, override agent.ModelPolicy) agent.ModelPolicy {
+	out := base
+	if override.UseCase != "" {
+		out.UseCase = override.UseCase
+	}
+	if override.SourceAPI != "" {
+		out.SourceAPI = override.SourceAPI
+	}
+	if override.ApprovedOnly {
+		out.ApprovedOnly = true
+	}
+	if override.AllowDegraded {
+		out.AllowDegraded = true
+	}
+	if override.AllowUntested {
+		out.AllowUntested = true
+	}
+	if override.EvidencePath != "" {
+		out.EvidencePath = override.EvidencePath
+	}
+	return out
 }
 
 func resolveSessionsDir(cfg Config) (string, error) {

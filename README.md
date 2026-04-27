@@ -13,6 +13,8 @@ Portable tool definitions, conversation/runtime helpers, markdown utilities, and
   agent bundles with `agentsdk run`.
 - **Resource discovery**: Load `.agents` and `.claude` agents, commands, and
   skills from local directories or declarative git sources.
+- **Model compatibility policy**: Inspect or require llmadapter use-case
+  compatibility evidence for agentic workloads.
 - **Conversation state**: Session IDs, conversation IDs, branches, replay projection, JSONL persistence, and provider continuation metadata.
 - **Usage tracking**: Aggregate `llmadapter/unified` token and cost records with runner usage helpers.
 - **Markdown + frontmatter**: Parse and load structured instruction files.
@@ -176,6 +178,20 @@ Generic `agentsdk run` does not include global user resources by default. Pass
 go run ./cmd/agentsdk run . --include-global
 ```
 
+Use-case compatibility can be inspected or enforced through llmadapter evidence:
+
+```bash
+go run ./cmd/agentsdk run . --model-use-case agentic_coding -v
+go run ./cmd/agentsdk run . --model-approved-only -v
+go run ./cmd/agentsdk models --model-use-case agentic_coding
+```
+
+`--model-approved-only` pins runtime routing to one evidence-approved provider
+route and disables fallback. Without `--model-approved-only`,
+`--model-use-case` only adds diagnostics. `--source-api auto` allows selection
+across supported source APIs; explicit values such as `openai.responses` or
+`anthropic.messages` restrict selection and routing.
+
 ## App Manifests
 
 A directory can contain `app.manifest.json` or `agentsdk.app.json` to declare
@@ -189,6 +205,11 @@ the app's default agent, discovery policy, and source list:
     "include_external_ecosystems": false,
     "allow_remote": false,
     "trust_store_dir": ".agentsdk"
+  },
+  "model_policy": {
+    "use_case": "agentic_coding",
+    "source_api": "auto",
+    "approved_only": false
   },
   "sources": [
     ".agents",

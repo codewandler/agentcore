@@ -61,6 +61,14 @@ Current manifest keys:
     "allow_remote": false,
     "trust_store_dir": ".agentsdk"
   },
+  "model_policy": {
+    "use_case": "agentic_coding",
+    "source_api": "auto",
+    "approved_only": false,
+    "allow_degraded": false,
+    "allow_untested": false,
+    "evidence_path": ".agentsdk/compatibility/agentic_coding.json"
+  },
   "sources": [
     ".agents",
     "file:///absolute/path/to/plugin",
@@ -72,6 +80,13 @@ Current manifest keys:
 
 `sources` entries load the same `.agents`, `.claude`, or plugin-root resource
 layouts from local directories or git materialized directories.
+
+`model_policy` is an agentsdk runtime policy, not a resource format. It can ask
+agentsdk to evaluate or enforce llmadapter compatibility evidence for a use case
+such as `agentic_coding`. `source_api: "auto"` allows route selection across
+supported source APIs; explicit source APIs restrict both selection and runtime
+routing. Relative `evidence_path` values are resolved relative to the manifest
+directory.
 
 ## Project Instructions
 

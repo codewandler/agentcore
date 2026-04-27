@@ -163,7 +163,14 @@ func WithAutoMux(autoMux func(adapterconfig.AutoOptions) (adapterconfig.AutoResu
 }
 
 func WithSourceAPI(api adapt.ApiKind) Option {
-	return func(a *Instance) { a.sourceAPI = api }
+	return func(a *Instance) {
+		a.sourceAPI = api
+		a.sourceAPIExplicit = true
+	}
+}
+
+func WithModelPolicy(policy ModelPolicy) Option {
+	return func(a *Instance) { a.modelPolicy = policy }
 }
 
 func WithToolset(toolset *standard.Toolset) Option {

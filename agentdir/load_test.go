@@ -78,6 +78,30 @@ func TestResolveDirPrefersManifest(t *testing.T) {
 	require.Equal(t, "main", resolved.Bundle.AgentSpecs[0].Name)
 }
 
+func TestResolveDirManifestModelPolicy(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "app.manifest.json"), `{
+		"sources":["plugin"],
+		"model_policy":{
+			"use_case":"agentic_coding",
+			"source_api":"anthropic.messages",
+			"approved_only":true,
+			"allow_degraded":true,
+			"evidence_path":"compat/evidence.json"
+		}
+	}`)
+	writeFile(t, filepath.Join(dir, "plugin", "agents", "main.md"), "---\nname: main\n---\nmain")
+
+	resolved, err := ResolveDir(dir)
+	require.NoError(t, err)
+	require.True(t, resolved.HasModelPolicy)
+	require.Equal(t, agent.ModelUseCaseAgenticCoding, resolved.ModelPolicy.UseCase)
+	require.Equal(t, "anthropic.messages", string(resolved.ModelPolicy.SourceAPI))
+	require.True(t, resolved.ModelPolicy.ApprovedOnly)
+	require.True(t, resolved.ModelPolicy.AllowDegraded)
+	require.Equal(t, filepath.Join(dir, "compat", "evidence.json"), resolved.ModelPolicy.EvidencePath)
+}
+
 func TestResolveDirProbesClaudeAndAgentsBeforeRoot(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".claude", "agents", "main.md"), "---\nname: main\n---\nmain")

@@ -41,6 +41,7 @@ type CommandConfig struct {
 	ApplyDefaultMaxSteps  bool
 
 	ModelCompleter ModelCompleter
+	Profile        Profile
 
 	AgentOptions []agent.Option
 	AppOptions   []app.Option
@@ -51,10 +52,12 @@ type CommandConfig struct {
 }
 
 func NewCommand(cfg CommandConfig) *cobra.Command {
+	cfg = applyProfileDefaults(cfg)
 	inference := cfg.DefaultInference
 	if inference == (agent.InferenceOptions{}) {
 		inference = agent.DefaultInferenceOptions()
 	}
+	applyProfileInferenceDefaults(&inference, cfg.Profile.Defaults)
 	maxSteps := cfg.DefaultMaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 30
@@ -64,18 +67,30 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 		toolTimeout = 30 * time.Second
 	}
 	var (
-		agentName     = cfg.DefaultAgent
-		workspace     string
-		systemPrompt  string
-		totalTimeout  time.Duration
-		thinkingFlag  = string(inference.Thinking)
-		effortFlag    = string(inference.Effort)
-		session       string
-		continueLast  bool
-		sessionsDir   string
-		verbose       bool
-		includeGlobal bool
+		agentName      = cfg.DefaultAgent
+		workspace      string
+		systemPrompt   string
+		totalTimeout   time.Duration
+		thinkingFlag   = string(inference.Thinking)
+		effortFlag     = string(inference.Effort)
+		session        string
+		continueLast   bool
+		sessionsDir    string
+		verbose        bool
+		includeGlobal  bool
+		sourceAPIFlag  = cfg.Profile.Defaults.SourceAPI
+		useCaseFlag    string
+		approvedOnly   = cfg.Profile.Defaults.ModelPolicy.ApprovedOnly
+		allowDegraded  = cfg.Profile.Defaults.ModelPolicy.AllowDegraded
+		allowUntested  = cfg.Profile.Defaults.ModelPolicy.AllowUntested
+		compatEvidence = cfg.Profile.Defaults.ModelPolicy.EvidencePath
 	)
+	if cfg.Profile.Defaults.ModelPolicy.UseCase != "" {
+		useCaseFlag = string(cfg.Profile.Defaults.ModelPolicy.UseCase)
+	}
+	if cfg.Profile.Defaults.ModelPolicy.SourceAPI != "" {
+		sourceAPIFlag = agent.FormatSourceAPI(cfg.Profile.Defaults.ModelPolicy.SourceAPI)
+	}
 	cmd := &cobra.Command{
 		Use:           cfg.Use,
 		Short:         cfg.Short,
@@ -104,6 +119,36 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 				inference.Effort = unified.ReasoningEffort(effortFlag)
 			}
 			flags := cmd.Flags()
+			modelPolicy := cfg.Profile.Defaults.ModelPolicy
+			applyModelPolicy := modelPolicy.Configured() ||
+				flags.Changed("model-use-case") ||
+				flags.Changed("model-approved-only") ||
+				flags.Changed("model-allow-degraded") ||
+				flags.Changed("model-allow-untested") ||
+				flags.Changed("model-compat-evidence")
+			if applyModelPolicy {
+				if useCaseFlag != "" {
+					useCase, err := agent.ParseModelUseCase(useCaseFlag)
+					if err != nil {
+						return err
+					}
+					modelPolicy.UseCase = useCase
+				}
+				modelPolicy.ApprovedOnly = approvedOnly
+				modelPolicy.AllowDegraded = allowDegraded
+				modelPolicy.AllowUntested = allowUntested
+				modelPolicy.EvidencePath = compatEvidence
+				if modelPolicy.ApprovedOnly && modelPolicy.UseCase == "" {
+					modelPolicy.UseCase = agent.ModelUseCaseAgenticCoding
+				}
+			}
+			if flags.Changed("source-api") && applyModelPolicy {
+				sourceAPI, err := agent.ParseSourceAPI(sourceAPIFlag)
+				if err != nil {
+					return err
+				}
+				modelPolicy.SourceAPI = sourceAPI
+			}
 			applyInference := cfg.ApplyDefaultInference ||
 				flags.Changed("model") ||
 				flags.Changed("max-tokens") ||
@@ -121,6 +166,10 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 				ContinueLast:       continueLast,
 				Inference:          inference,
 				ApplyInference:     applyInference,
+				SourceAPI:          sourceAPIFlag,
+				ApplySourceAPI:     flags.Changed("source-api"),
+				ModelPolicy:        modelPolicy,
+				ApplyModelPolicy:   applyModelPolicy,
 				MaxSteps:           maxSteps,
 				ApplyMaxSteps:      cfg.ApplyDefaultMaxSteps || flags.Changed("max-steps"),
 				SystemOverride:     systemPrompt,
@@ -140,30 +189,206 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 			return Run(context.Background(), runCfg)
 		},
 	}
-	f := cmd.Flags()
-	if cfg.AgentFlag || cfg.ResourceArg {
-		f.StringVar(&agentName, "agent", agentName, "Agent name to run")
-	}
-	f.StringVarP(&inference.Model, "model", "m", inference.Model, "Model alias or full path")
-	f.StringVarP(&workspace, "workspace", "w", "", "Working directory (default: $PWD)")
-	f.IntVar(&maxSteps, "max-steps", maxSteps, "Maximum agent loop iterations per turn")
-	f.IntVar(&inference.MaxTokens, "max-tokens", inference.MaxTokens, "Maximum output tokens per LLM call")
-	f.StringVarP(&systemPrompt, "system", "s", "", "Override the system prompt body")
-	f.DurationVar(&totalTimeout, "timeout", 0, "Total runtime timeout for one-shot mode (0 = no limit)")
-	f.DurationVar(&toolTimeout, "tool-timeout", toolTimeout, "Per-tool call timeout")
-	f.Float64Var(&inference.Temperature, "temperature", inference.Temperature, "Sampling temperature 0.0-2.0")
-	f.StringVar(&thinkingFlag, "thinking", thinkingFlag, "Thinking mode: auto|on|off")
-	f.StringVar(&effortFlag, "effort", effortFlag, "Effort level: low|medium|high")
-	f.StringVar(&session, "session", "", "Resume a session by id or JSONL path")
-	f.BoolVar(&continueLast, "continue", false, "Resume the most recently active session")
-	f.StringVar(&sessionsDir, "sessions-dir", "", "Session storage directory")
-	f.BoolVarP(&verbose, "verbose", "v", false, "Show resolved provider/model diagnostics")
-	f.BoolVar(&includeGlobal, "include-global", false, "Load ~/.agents and ~/.claude resources")
+	addCoreFlags(cmd, cfg, &agentName, &workspace, &systemPrompt)
+	addResourceFlags(cmd, cfg, &includeGlobal)
+	addInferenceFlags(cmd, cfg, &inference, &thinkingFlag, &effortFlag, &sourceAPIFlag)
+	addRuntimeFlags(cmd, cfg, &maxSteps, &totalTimeout, &toolTimeout)
+	addSessionFlags(cmd, cfg, &session, &continueLast, &sessionsDir)
+	addModelCompatibilityFlags(cmd, cfg, &useCaseFlag, &approvedOnly, &allowDegraded, &allowUntested, &compatEvidence)
+	addDebugFlags(cmd, cfg, &verbose)
+	applyProfileFlagVisibility(cmd, cfg.Profile)
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeModels(cfg.ModelCompleter, toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
+	installGroupedHelp(cmd)
 	cmd.AddCommand(CompletionCommand(cmd, cfg.Name))
 	return cmd
+}
+
+func applyProfileDefaults(cfg CommandConfig) CommandConfig {
+	defaults := cfg.Profile.Defaults
+	if defaults.MaxSteps > 0 {
+		cfg.DefaultMaxSteps = defaults.MaxSteps
+	}
+	if defaults.ToolTimeout > 0 {
+		cfg.DefaultToolTimeout = defaults.ToolTimeout
+	}
+	if defaults.Prompt != "" && cfg.Prompt == "" {
+		cfg.Prompt = defaults.Prompt
+	}
+	return cfg
+}
+
+func applyProfileInferenceDefaults(inference *agent.InferenceOptions, defaults Defaults) {
+	if inference == nil {
+		return
+	}
+	if defaults.Model != "" {
+		inference.Model = defaults.Model
+	}
+	if defaults.MaxTokens > 0 {
+		inference.MaxTokens = defaults.MaxTokens
+	}
+	if defaults.Thinking != "" {
+		inference.Thinking = defaults.Thinking
+	}
+	if defaults.Effort != "" {
+		inference.Effort = unified.ReasoningEffort(defaults.Effort)
+	}
+	if defaults.Temperature != nil {
+		inference.Temperature = *defaults.Temperature
+	}
+}
+
+func addCoreFlags(cmd *cobra.Command, cfg CommandConfig, agentName *string, workspace *string, systemPrompt *string) {
+	if !cfg.Profile.groupEnabled(GroupCore) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if (cfg.AgentFlag || cfg.ResourceArg) && !cfg.Profile.flagDisabled("agent") {
+		f.StringVar(agentName, "agent", *agentName, "Agent name to run")
+		names = append(names, "agent")
+	}
+	if !cfg.Profile.flagDisabled("workspace") {
+		f.StringVarP(workspace, "workspace", "w", "", "Working directory (default: $PWD)")
+		names = append(names, "workspace")
+	}
+	if !cfg.Profile.flagDisabled("system") {
+		f.StringVarP(systemPrompt, "system", "s", "", "Override the system prompt body")
+		names = append(names, "system")
+	}
+	annotateFlags(cmd, GroupCore, names...)
+}
+
+func addResourceFlags(cmd *cobra.Command, cfg CommandConfig, includeGlobal *bool) {
+	if !cfg.Profile.groupEnabled(GroupResources) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("include-global") {
+		f.BoolVar(includeGlobal, "include-global", false, "Load ~/.agents and ~/.claude resources")
+		names = append(names, "include-global")
+	}
+	annotateFlags(cmd, GroupResources, names...)
+}
+
+func addInferenceFlags(cmd *cobra.Command, cfg CommandConfig, inference *agent.InferenceOptions, thinkingFlag *string, effortFlag *string, sourceAPIFlag *string) {
+	if !cfg.Profile.groupEnabled(GroupInference) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("model") {
+		f.StringVarP(&inference.Model, "model", "m", inference.Model, "Model alias or full path")
+		names = append(names, "model")
+	}
+	if !cfg.Profile.flagDisabled("max-tokens") {
+		f.IntVar(&inference.MaxTokens, "max-tokens", inference.MaxTokens, "Maximum output tokens per LLM call")
+		names = append(names, "max-tokens")
+	}
+	if !cfg.Profile.flagDisabled("temperature") {
+		f.Float64Var(&inference.Temperature, "temperature", inference.Temperature, "Sampling temperature 0.0-2.0")
+		names = append(names, "temperature")
+	}
+	if !cfg.Profile.flagDisabled("thinking") {
+		f.StringVar(thinkingFlag, "thinking", *thinkingFlag, "Thinking mode: auto|on|off")
+		names = append(names, "thinking")
+	}
+	if !cfg.Profile.flagDisabled("effort") {
+		f.StringVar(effortFlag, "effort", *effortFlag, "Effort level: low|medium|high")
+		names = append(names, "effort")
+	}
+	if !cfg.Profile.flagDisabled("source-api") {
+		f.StringVar(sourceAPIFlag, "source-api", *sourceAPIFlag, "Source API: auto|openai.responses|openai.chat_completions|anthropic.messages")
+		names = append(names, "source-api")
+	}
+	annotateFlags(cmd, GroupInference, names...)
+}
+
+func addRuntimeFlags(cmd *cobra.Command, cfg CommandConfig, maxSteps *int, totalTimeout *time.Duration, toolTimeout *time.Duration) {
+	if !cfg.Profile.groupEnabled(GroupRuntime) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("max-steps") {
+		f.IntVar(maxSteps, "max-steps", *maxSteps, "Maximum agent loop iterations per turn")
+		names = append(names, "max-steps")
+	}
+	if !cfg.Profile.flagDisabled("timeout") {
+		f.DurationVar(totalTimeout, "timeout", 0, "Total runtime timeout for one-shot mode (0 = no limit)")
+		names = append(names, "timeout")
+	}
+	if !cfg.Profile.flagDisabled("tool-timeout") {
+		f.DurationVar(toolTimeout, "tool-timeout", *toolTimeout, "Per-tool call timeout")
+		names = append(names, "tool-timeout")
+	}
+	annotateFlags(cmd, GroupRuntime, names...)
+}
+
+func addSessionFlags(cmd *cobra.Command, cfg CommandConfig, session *string, continueLast *bool, sessionsDir *string) {
+	if !cfg.Profile.groupEnabled(GroupSession) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("session") {
+		f.StringVar(session, "session", "", "Resume a session by id or JSONL path")
+		names = append(names, "session")
+	}
+	if !cfg.Profile.flagDisabled("continue") {
+		f.BoolVar(continueLast, "continue", false, "Resume the most recently active session")
+		names = append(names, "continue")
+	}
+	if !cfg.Profile.flagDisabled("sessions-dir") {
+		f.StringVar(sessionsDir, "sessions-dir", "", "Session storage directory")
+		names = append(names, "sessions-dir")
+	}
+	annotateFlags(cmd, GroupSession, names...)
+}
+
+func addModelCompatibilityFlags(cmd *cobra.Command, cfg CommandConfig, useCaseFlag *string, approvedOnly *bool, allowDegraded *bool, allowUntested *bool, compatEvidence *string) {
+	if !cfg.Profile.groupEnabled(GroupModelCompatibility) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("model-use-case") {
+		f.StringVar(useCaseFlag, "model-use-case", *useCaseFlag, "Model compatibility use case: agentic_coding|summarization")
+		names = append(names, "model-use-case")
+	}
+	if !cfg.Profile.flagDisabled("model-approved-only") {
+		f.BoolVar(approvedOnly, "model-approved-only", *approvedOnly, "Require an approved model/provider route for the selected use case")
+		names = append(names, "model-approved-only")
+	}
+	if !cfg.Profile.flagDisabled("model-allow-degraded") {
+		f.BoolVar(allowDegraded, "model-allow-degraded", *allowDegraded, "Allow degraded model compatibility evidence for approved-only routing")
+		names = append(names, "model-allow-degraded")
+	}
+	if !cfg.Profile.flagDisabled("model-allow-untested") {
+		f.BoolVar(allowUntested, "model-allow-untested", *allowUntested, "Allow untested model compatibility evidence for approved-only routing")
+		names = append(names, "model-allow-untested")
+	}
+	if !cfg.Profile.flagDisabled("model-compat-evidence") {
+		f.StringVar(compatEvidence, "model-compat-evidence", *compatEvidence, "Model compatibility evidence JSON path")
+		names = append(names, "model-compat-evidence")
+	}
+	annotateFlags(cmd, GroupModelCompatibility, names...)
+}
+
+func addDebugFlags(cmd *cobra.Command, cfg CommandConfig, verbose *bool) {
+	if !cfg.Profile.groupEnabled(GroupDebug) {
+		return
+	}
+	f := cmd.Flags()
+	var names []string
+	if !cfg.Profile.flagDisabled("verbose") {
+		f.BoolVarP(verbose, "verbose", "v", false, "Show resolved provider/model diagnostics")
+		names = append(names, "verbose")
+	}
+	annotateFlags(cmd, GroupDebug, names...)
 }
 
 func CompletionCommand(root *cobra.Command, name string) *cobra.Command {

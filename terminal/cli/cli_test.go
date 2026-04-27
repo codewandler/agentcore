@@ -149,6 +149,136 @@ func TestCommandRunsWithEmbeddedResources(t *testing.T) {
 	require.Len(t, client.Requests(), 1)
 }
 
+func TestCommandParsesModelPolicyFlags(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	var out bytes.Buffer
+	cmd := NewCommand(CommandConfig{
+		Name:         "testagent",
+		Use:          "testagent [task]",
+		Resources:    EmbeddedResources(testBundle(), ".agents"),
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		Out:          &out,
+		Err:          &bytes.Buffer{},
+	})
+	cmd.SetArgs([]string{"--source-api", "auto", "--model-use-case", "agentic_coding", "hello"})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	require.Len(t, client.Requests(), 1)
+}
+
+func TestCommandRejectsOldModelPolicyFlagNames(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	cmd := NewCommand(CommandConfig{
+		Name:         "testagent",
+		Use:          "testagent [task]",
+		Resources:    EmbeddedResources(testBundle(), ".agents"),
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		Out:          &bytes.Buffer{},
+		Err:          &bytes.Buffer{},
+	})
+	cmd.SetArgs([]string{"--use-case", "agentic_coding", "hello"})
+
+	err := cmd.Execute()
+
+	require.Error(t, err)
+}
+
+func TestCommandRejectsUnknownSourceAPI(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("ok"))
+	cmd := NewCommand(CommandConfig{
+		Name:         "testagent",
+		Use:          "testagent [task]",
+		Resources:    EmbeddedResources(testBundle(), ".agents"),
+		AgentOptions: []agent.Option{agent.WithClient(client)},
+		Out:          &bytes.Buffer{},
+		Err:          &bytes.Buffer{},
+	})
+	cmd.SetArgs([]string{"--source-api", "bad", "hello"})
+
+	err := cmd.Execute()
+
+	require.Error(t, err)
+}
+
+func TestCommandHelpGroupsFlags(t *testing.T) {
+	cmd := NewCommand(CommandConfig{
+		Name:      "testagent",
+		Use:       "testagent [task]",
+		Resources: EmbeddedResources(testBundle(), ".agents"),
+		Out:       &bytes.Buffer{},
+		Err:       &bytes.Buffer{},
+	})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	text := out.String()
+	require.Contains(t, text, "Inference:")
+	require.Contains(t, text, "--model")
+	require.Contains(t, text, "Model Compatibility:")
+	require.Contains(t, text, "--model-use-case")
+	require.NotContains(t, text, "--use-case")
+}
+
+func TestCommandProfileCanDisableGroups(t *testing.T) {
+	cmd := NewCommand(CommandConfig{
+		Name:      "testagent",
+		Use:       "testagent [task]",
+		Resources: EmbeddedResources(testBundle(), ".agents"),
+		Profile:   Profile{Groups: Groups(GroupCore, GroupRuntime)},
+		Out:       &bytes.Buffer{},
+		Err:       &bytes.Buffer{},
+	})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	text := out.String()
+	require.Contains(t, text, "Core:")
+	require.Contains(t, text, "Runtime:")
+	require.NotContains(t, text, "Inference:")
+	require.NotContains(t, text, "--model")
+	require.NotContains(t, text, "Model Compatibility:")
+}
+
+func TestCommandProfileDefaultsSetFlagDefaults(t *testing.T) {
+	cmd := NewCommand(CommandConfig{
+		Name:      "testagent",
+		Use:       "testagent [task]",
+		Resources: EmbeddedResources(testBundle(), ".agents"),
+		Profile: Profile{Defaults: Defaults{
+			Model:       "custom/model",
+			MaxSteps:    42,
+			Prompt:      "custom> ",
+			ModelPolicy: agent.ModelPolicy{UseCase: agent.ModelUseCaseAgenticCoding},
+		}},
+		Out: &bytes.Buffer{},
+		Err: &bytes.Buffer{},
+	})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	err := cmd.Execute()
+
+	require.NoError(t, err)
+	text := out.String()
+	require.Contains(t, text, `--model string`)
+	require.Contains(t, text, `default "custom/model"`)
+	require.Contains(t, text, `--max-steps int`)
+	require.Contains(t, text, `default "42"`)
+	require.Contains(t, text, `--model-use-case string`)
+	require.Contains(t, text, `default "agentic_coding"`)
+}
+
 func TestResourceArgCommandDefaultsToCurrentDirectory(t *testing.T) {
 	client := runnertest.NewClient()
 	var out bytes.Buffer

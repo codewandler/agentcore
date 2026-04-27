@@ -23,6 +23,7 @@ import (
 	"github.com/codewandler/agentsdk/usage"
 	"github.com/codewandler/llmadapter/adapt"
 	"github.com/codewandler/llmadapter/adapterconfig"
+	"github.com/codewandler/llmadapter/compatibility"
 	"github.com/codewandler/llmadapter/unified"
 )
 
@@ -54,6 +55,9 @@ type Instance struct {
 	resolvedProvider    string
 	resolvedModel       string
 	sourceAPI           adapt.ApiKind
+	sourceAPIExplicit   bool
+	modelPolicy         ModelPolicy
+	modelCompatibility  modelCompatibilityState
 	runtime             *agentruntime.Engine
 	tracker             *usage.Tracker
 	toolset             *standard.Toolset
@@ -176,10 +180,11 @@ func (a *Instance) ParamsSummary() string {
 	if a == nil {
 		return ""
 	}
+	compatibility := a.modelCompatibilitySummary()
 	if a.resolvedProvider != "" || a.resolvedModel != "" {
-		return fmt.Sprintf("model: %s  resolved_instance: %s  resolved_model: %s  thinking: %s  effort: %s", a.inference.Model, a.resolvedProvider, a.resolvedModel, a.inference.Thinking, a.inference.Effort)
+		return strings.TrimSpace(fmt.Sprintf("model: %s  resolved_instance: %s  resolved_model: %s  thinking: %s  effort: %s%s", a.inference.Model, a.resolvedProvider, a.resolvedModel, a.inference.Thinking, a.inference.Effort, compatibility))
 	}
-	return fmt.Sprintf("model: %s  thinking: %s  effort: %s", a.inference.Model, a.inference.Thinking, a.inference.Effort)
+	return strings.TrimSpace(fmt.Sprintf("model: %s  thinking: %s  effort: %s%s", a.inference.Model, a.inference.Thinking, a.inference.Effort, compatibility))
 }
 
 func (a *Instance) Spec() Spec {
@@ -292,7 +297,7 @@ func (a *Instance) RunTurn(ctx context.Context, turnID int, task string) error {
 		return fmt.Errorf("agent: runtime is not initialized")
 	}
 	if a.verbose {
-		ui.PrintResolvedModel(a.Out(), fmt.Sprintf("input=%s  instance=%s  resolved=%s", a.inference.Model, a.resolvedProvider, a.resolvedModel))
+		ui.PrintResolvedModel(a.Out(), strings.TrimSpace(fmt.Sprintf("input=%s  instance=%s  resolved=%s%s", a.inference.Model, a.resolvedProvider, a.resolvedModel, a.modelCompatibilitySummary())))
 	}
 	handler := a.newEventHandler(turnID)
 	_, err := a.runtime.RunTurn(
@@ -314,12 +319,19 @@ func (a *Instance) RunTurn(ctx context.Context, turnID int, task string) error {
 
 func (a *Instance) initRuntime() error {
 	if a.client == nil {
-		result, err := agentruntime.AutoMuxClient(a.inference.Model, a.sourceAPI, a.autoMux)
+		result, err := agentruntime.AutoMuxClient(a.inference.Model, a.autoMuxSourceAPI(), a.autoMux)
 		if err != nil {
 			return err
 		}
 		a.client = result.Client
 		a.autoResult = result
+		if err := a.applyModelPolicy(); err != nil {
+			return err
+		}
+	} else if a.modelPolicy.Configured() {
+		if err := a.applyModelPolicyWithoutAutoResult(); err != nil {
+			return err
+		}
 	}
 	a.resolveRouteIdentity()
 	if err := a.initSession(context.Background()); err != nil {
@@ -331,6 +343,195 @@ func (a *Instance) initRuntime() error {
 	}
 	a.runtime = runtimeAgent
 	return nil
+}
+
+func (a *Instance) autoMuxSourceAPI() adapt.ApiKind {
+	if a == nil {
+		return adapt.ApiOpenAIResponses
+	}
+	if a.modelPolicy.Configured() {
+		if a.modelPolicy.SourceAPI != "" {
+			return a.modelPolicy.SourceAPI
+		}
+		if !a.sourceAPIExplicit {
+			return ""
+		}
+	}
+	return a.sourceAPI
+}
+
+func (a *Instance) policySourceAPI() adapt.ApiKind {
+	if a == nil {
+		return ""
+	}
+	if a.modelPolicy.SourceAPI != "" {
+		return a.modelPolicy.SourceAPI
+	}
+	if a.sourceAPIExplicit {
+		return a.sourceAPI
+	}
+	if a.modelPolicy.Configured() {
+		return ""
+	}
+	return a.sourceAPI
+}
+
+func (a *Instance) applyModelPolicyWithoutAutoResult() error {
+	useCase, err := a.modelPolicy.llmUseCase()
+	if err != nil {
+		return err
+	}
+	if useCase == "" {
+		return nil
+	}
+	if a.modelPolicy.ApprovedOnly {
+		return fmt.Errorf("agent: approved-only model policy requires auto mux routing")
+	}
+	a.modelCompatibility = modelCompatibilityState{
+		UseCase:    useCase,
+		Status:     compatibility.StatusUnavailable,
+		Diagnostic: "custom client has no llmadapter route config",
+	}
+	return nil
+}
+
+func (a *Instance) applyModelPolicy() error {
+	if a == nil || !a.modelPolicy.Configured() {
+		return nil
+	}
+	useCase, err := a.modelPolicy.llmUseCase()
+	if err != nil {
+		return err
+	}
+	if useCase == "" {
+		return nil
+	}
+	sourceAPI := a.policySourceAPI()
+	if a.modelPolicy.ApprovedOnly {
+		return a.applyApprovedOnlyModelPolicy(useCase, sourceAPI)
+	}
+	return a.applyEvaluationModelPolicy(useCase, sourceAPI)
+}
+
+func (a *Instance) applyApprovedOnlyModelPolicy(useCase compatibility.UseCase, sourceAPI adapt.ApiKind) error {
+	evidence, evidenceSource, err := LoadCompatibilityEvidence(a.modelPolicy)
+	if err != nil {
+		return err
+	}
+	selection, err := selectModelForPolicy(a.autoResult, a.inference.Model, sourceAPI, adapterconfig.UseCaseSelectionOptions{
+		UseCase:       useCase,
+		Evidence:      evidence,
+		AllowDegraded: a.modelPolicy.AllowDegraded,
+		AllowUntested: a.modelPolicy.AllowUntested,
+	})
+	if err != nil {
+		return err
+	}
+	pinnedConfig, err := pinnedConfigForSelection(a.autoResult.Config, selection, a.inference.Model)
+	if err != nil {
+		return err
+	}
+	client, err := adapterconfig.NewMuxClient(pinnedConfig, adapterconfig.WithSourceAPI(selection.Resolution.SourceAPI), adapterconfig.WithFallback(false))
+	if err != nil {
+		return err
+	}
+	a.client = client
+	a.autoResult.Config = pinnedConfig
+	a.autoResult.Client = client
+	a.sourceAPI = selection.Resolution.SourceAPI
+	a.sourceAPIExplicit = true
+	a.modelCompatibility = modelCompatibilityFromEvaluation(selection.Evaluation, evidenceSource, true)
+	a.modelCompatibility.SourceAPI = selection.Resolution.SourceAPI
+	a.modelCompatibility.ProviderAPI = selection.Resolution.ProviderAPI
+	return nil
+}
+
+func (a *Instance) applyEvaluationModelPolicy(useCase compatibility.UseCase, sourceAPI adapt.ApiKind) error {
+	evidenceDiagnostic := ""
+	if evidence, evidenceSource, err := LoadCompatibilityEvidence(a.modelPolicy); err == nil {
+		selection, err := selectModelForPolicy(a.autoResult, a.inference.Model, sourceAPI, adapterconfig.UseCaseSelectionOptions{
+			UseCase:       useCase,
+			Evidence:      evidence,
+			AllowDegraded: true,
+			AllowUntested: true,
+		})
+		if err == nil {
+			a.modelCompatibility = modelCompatibilityFromEvaluation(selection.Evaluation, evidenceSource, false)
+			a.modelCompatibility.SourceAPI = selection.Resolution.SourceAPI
+			a.modelCompatibility.ProviderAPI = selection.Resolution.ProviderAPI
+			return nil
+		}
+	} else {
+		evidenceDiagnostic = err.Error()
+	}
+	evaluations, err := adapterconfig.EvaluateCompatibilityCandidates(a.autoResult.Config, a.inference.Model, sourceAPI, useCase)
+	if err != nil {
+		a.modelCompatibility = modelCompatibilityState{
+			UseCase:    useCase,
+			Status:     compatibility.StatusUnavailable,
+			Diagnostic: err.Error(),
+		}
+		return nil
+	}
+	if len(evaluations) == 0 {
+		a.modelCompatibility = modelCompatibilityState{
+			UseCase:    useCase,
+			Status:     compatibility.StatusUnavailable,
+			Diagnostic: "no compatibility candidates",
+		}
+		return nil
+	}
+	a.modelCompatibility = modelCompatibilityFromEvaluation(evaluations[0], "", false)
+	a.modelCompatibility.Diagnostic = evidenceDiagnostic
+	return nil
+}
+
+func selectModelForPolicy(result adapterconfig.AutoResult, model string, sourceAPI adapt.ApiKind, opts adapterconfig.UseCaseSelectionOptions) (adapterconfig.UseCaseModelSelection, error) {
+	var lastErr error
+	for _, candidate := range modelPolicyLookupNames(model) {
+		selection, err := result.SelectModelForUseCase(candidate, sourceAPI, opts)
+		if err == nil {
+			return selection, nil
+		}
+		lastErr = err
+	}
+	return adapterconfig.UseCaseModelSelection{}, lastErr
+}
+
+func (a *Instance) modelCompatibilitySummary() string {
+	if a == nil || !a.modelCompatibility.configured() {
+		return ""
+	}
+	state := a.modelCompatibility
+	parts := []string{}
+	if state.SourceAPI != "" {
+		parts = append(parts, "source_api: "+string(state.SourceAPI))
+	}
+	if state.ProviderAPI != "" {
+		parts = append(parts, "provider_api: "+string(state.ProviderAPI))
+	}
+	if state.UseCase != "" {
+		parts = append(parts, "use_case: "+string(state.UseCase))
+	}
+	if state.Status != "" {
+		parts = append(parts, "compatibility: "+string(state.Status))
+	}
+	if missing := featureNames(state.MissingRequired); missing != "" {
+		parts = append(parts, "missing_required: "+missing)
+	}
+	if untested := featureNames(state.UntestedRequired); untested != "" {
+		parts = append(parts, "untested_required: "+untested)
+	}
+	if degraded := featureNames(state.DegradedPreferred); degraded != "" {
+		parts = append(parts, "degraded_preferred: "+degraded)
+	}
+	if state.Diagnostic != "" {
+		parts = append(parts, "reason: "+state.Diagnostic)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "  " + strings.Join(parts, "  ")
 }
 
 func (a *Instance) runtimeOptions() []agentruntime.Option {

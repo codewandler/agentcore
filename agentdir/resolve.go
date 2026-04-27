@@ -15,10 +15,11 @@ import (
 var manifestNames = []string{"app.manifest.json", "agentsdk.app.json"}
 
 type AppManifest struct {
-	DefaultAgent string            `json:"default_agent"`
-	Discovery    ManifestDiscovery `json:"discovery"`
-	Sources      []string          `json:"sources"`
-	Plugins      json.RawMessage   `json:"plugins,omitempty"`
+	DefaultAgent string              `json:"default_agent"`
+	Discovery    ManifestDiscovery   `json:"discovery"`
+	ModelPolicy  ManifestModelPolicy `json:"model_policy"`
+	Sources      []string            `json:"sources"`
+	Plugins      json.RawMessage     `json:"plugins,omitempty"`
 }
 
 type ManifestDiscovery struct {
@@ -36,10 +37,12 @@ type ResolveOptions struct {
 }
 
 type Resolution struct {
-	Bundle       resource.ContributionBundle
-	DefaultAgent string
-	Manifest     *AppManifest
-	Sources      []string
+	Bundle         resource.ContributionBundle
+	DefaultAgent   string
+	Manifest       *AppManifest
+	ModelPolicy    agent.ModelPolicy
+	HasModelPolicy bool
+	Sources        []string
 }
 
 // ResolveDir resolves a path as an app manifest, embedded plugin roots, or a
@@ -203,6 +206,12 @@ func (r *Resolution) UpdateAgentSpec(name string, update func(*agent.Spec)) erro
 
 func resolveManifest(dir string, manifestPath string, manifest AppManifest, opts ResolveOptions) (Resolution, error) {
 	out := Resolution{Manifest: &manifest, DefaultAgent: manifest.DefaultAgent, Sources: []string{manifestPath}}
+	if policy, ok, err := manifest.ModelPolicy.AgentPolicy(dir); err != nil {
+		return Resolution{}, err
+	} else if ok {
+		out.ModelPolicy = policy
+		out.HasModelPolicy = true
+	}
 	policy := opts.Policy
 	if manifest.Discovery.IncludeExternalEcosystems != nil {
 		policy.IncludeExternalEcosystems = *manifest.Discovery.IncludeExternalEcosystems

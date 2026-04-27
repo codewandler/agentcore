@@ -140,6 +140,42 @@ func TestAppProtectedBuiltinsCannotBeOverridden(t *testing.T) {
 	require.Contains(t, err.Error(), "already registered")
 }
 
+func TestAppHelpListsAgentsCommand(t *testing.T) {
+	app, err := New(WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	result, err := app.Commands().Execute(context.Background(), "/help")
+	require.NoError(t, err)
+	require.Contains(t, result.Text, "/agents")
+	require.Contains(t, result.Text, "Show available agents")
+}
+
+func TestAppAgentsBuiltinListsRegisteredAgents(t *testing.T) {
+	app, err := New(
+		WithAgentSpec(agent.Spec{Name: "reviewer", Description: "Reviews changes"}),
+		WithAgentSpec(agent.Spec{Name: "main", Description: "Default assistant"}),
+		WithDefaultAgent("main"),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+
+	result, err := app.Commands().Execute(context.Background(), "/agents")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "Agents:")
+	require.Contains(t, result.Text, "* main - Default assistant")
+	require.Contains(t, result.Text, "  reviewer - Reviews changes")
+}
+
+func TestAppAgentsBuiltinHandlesNoAgents(t *testing.T) {
+	app, err := New(WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	result, err := app.Commands().Execute(context.Background(), "/agents")
+	require.NoError(t, err)
+	require.Equal(t, "No agents registered.", result.Text)
+}
+
 func TestAppResourceBundleCannotOverrideProtectedBuiltins(t *testing.T) {
 	_, err := New(
 		WithResourceBundle(resource.ContributionBundle{

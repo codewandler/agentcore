@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codewandler/llmadapter/adapt"
+	"github.com/codewandler/llmadapter/adapterconfig"
+	"github.com/codewandler/llmadapter/compatibility"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,6 +23,10 @@ func TestRootCommandRegistersRun(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, discover)
 	require.Equal(t, "discover", discover.Name())
+	models, _, err := cmd.Find([]string{"models"})
+	require.NoError(t, err)
+	require.NotNil(t, models)
+	require.Equal(t, "models", models.Name())
 }
 
 func TestRunRejectsUnknownFlag(t *testing.T) {
@@ -102,6 +109,61 @@ func TestDiscoverTruncatesLongDescriptions(t *testing.T) {
 
 	require.Contains(t, out.String(), "...")
 	require.NotContains(t, out.String(), long)
+}
+
+func TestModelsPrintIncludesModelForCatalogRows(t *testing.T) {
+	var out bytes.Buffer
+	err := printApprovedModelSelections(&out, "", "test-evidence", []adapterconfig.UseCaseModelSelection{{
+		Resolution: adapterconfig.ModelResolutionCandidate{
+			PublicModel: "haiku",
+			SourceAPI:   adapt.ApiAnthropicMessages,
+			Provider:    "claude",
+			ProviderAPI: adapt.ApiAnthropicMessages,
+			NativeModel: "claude-haiku",
+		},
+		Evaluation: compatibility.Evaluation{Status: compatibility.StatusApproved},
+	}})
+
+	require.NoError(t, err)
+	text := out.String()
+	require.Contains(t, text, "Models: discovered from compatibility evidence")
+	require.Contains(t, text, "Evidence: test-evidence")
+	require.Contains(t, text, "approved  model=haiku")
+	require.Contains(t, text, "source_api=anthropic.messages")
+}
+
+func TestEvidenceModelsDeduplicatesAndSorts(t *testing.T) {
+	got := evidenceModels(adapterconfig.CompatibilityEvidence{Rows: []adapterconfig.CompatibilityRowEvidence{
+		{PublicModel: "sonnet"},
+		{PublicModel: "haiku"},
+		{PublicModel: "sonnet"},
+		{NativeModel: "gpt-5.4"},
+	}})
+
+	require.Equal(t, []string{"gpt-5.4", "haiku", "sonnet"}, got)
+}
+
+func TestModelsHelpUsesModelCompatibilityFlags(t *testing.T) {
+	cmd := rootCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"models", "--help"})
+
+	require.NoError(t, cmd.Execute())
+	text := out.String()
+	require.Contains(t, text, "Model Compatibility:")
+	require.Contains(t, text, "--model-use-case")
+	require.Contains(t, text, "--model-approved-only")
+	require.NotContains(t, text, "--use-case")
+	require.NotContains(t, text, "--approved-only")
+}
+
+func TestModelsRejectsOldModelCompatibilityFlagNames(t *testing.T) {
+	cmd := rootCmd()
+	cmd.SetArgs([]string{"models", "--use-case", "agentic_coding"})
+
+	require.Error(t, cmd.Execute())
 }
 
 func writeTestFile(t *testing.T, path string, content string) {
