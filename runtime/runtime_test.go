@@ -66,7 +66,7 @@ func TestRunTurnAppliesDefaultsAndCommits(t *testing.T) {
 	require.Len(t, client.requests[0].Messages, 1)
 	requireEventType[runner.RouteEvent](t, result.Events)
 
-	messages, err := agent.Session().Messages()
+	messages, err := agent.History().Messages()
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 }
@@ -179,13 +179,13 @@ func TestWithCacheDefaults(t *testing.T) {
 	require.Equal(t, "5m", client.requests[0].CacheTTL)
 }
 
-func TestSessionOptionsReturnsConversationDefaultsFromRuntimeOptions(t *testing.T) {
+func TestHistoryOptionsReturnsDefaultsFromRuntimeOptions(t *testing.T) {
 	echo := tool.New("echo", "echo text", func(_ tool.Ctx, p struct{}) (tool.Result, error) {
 		return tool.Text("ok"), nil
 	})
 	reasoning := unified.ReasoningConfig{Effort: unified.ReasoningEffortHigh}
-	session := conversation.New(SessionOptions(
-		WithSessionOptions(conversation.WithSessionID("sess_1")),
+	history := NewHistory(HistoryOptions(
+		WithHistoryOptions(WithHistorySessionID("sess_1")),
 		WithModel("model"),
 		WithMaxOutputTokens(100),
 		WithTemperature(0.3),
@@ -197,9 +197,9 @@ func TestSessionOptionsReturnsConversationDefaultsFromRuntimeOptions(t *testing.
 		WithReasoning(reasoning),
 	)...)
 
-	req, err := session.BuildRequest(conversation.NewRequest().User("hi").Build())
+	req, err := history.BuildRequestForProvider(conversation.NewRequest().User("hi").Build(), conversation.ProviderIdentity{})
 	require.NoError(t, err)
-	require.Equal(t, conversation.SessionID("sess_1"), session.SessionID())
+	require.Equal(t, "sess_1", history.SessionID())
 	require.Equal(t, "model", req.Model)
 	require.Equal(t, 100, *req.MaxOutputTokens)
 	require.Equal(t, 0.3, *req.Temperature)

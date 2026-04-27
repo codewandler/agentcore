@@ -8,7 +8,6 @@ import (
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
-	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/llmadapter/unified"
@@ -33,7 +32,8 @@ func TestCreateThreadEngineCreatesDurableEngine(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, thread.ID("thread_engine_create"), stored.ID)
 	require.Equal(t, "created", stored.Metadata["title"])
-	require.NotNil(t, engine.Session())
+	require.NotNil(t, engine.History())
+	require.Equal(t, "session_create", engine.History().SessionID())
 	require.NotNil(t, engine.ThreadRuntime())
 
 	_, err = engine.RunTurn(ctx, "hello")
@@ -43,8 +43,8 @@ func TestCreateThreadEngineCreatesDurableEngine(t *testing.T) {
 	after, err := store.Read(ctx, thread.ReadParams{ID: "thread_engine_create"})
 	require.NoError(t, err)
 	requireEventCountRuntime(t, after.Events, thread.EventThreadCreated, 1)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationUserMessage, 1)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationAssistantMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationUserMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationAssistantMessage, 1)
 }
 
 func TestOpenThreadEngineCreatesMissingThreadAndResumesExistingThread(t *testing.T) {
@@ -72,7 +72,7 @@ func TestOpenThreadEngineCreatesMissingThreadAndResumesExistingThread(t *testing
 	}, &fakeClient{}, registry, WithModel("model-open"))
 	require.NoError(t, err)
 	require.Equal(t, "open", stored.Metadata["title"])
-	messages, err := resumed.Session().Messages()
+	messages, err := resumed.History().Messages()
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 	requireTextMessage(t, messages[0], "first")
@@ -81,8 +81,8 @@ func TestOpenThreadEngineCreatesMissingThreadAndResumesExistingThread(t *testing
 	after, err := store.Read(ctx, thread.ReadParams{ID: "thread_engine_open"})
 	require.NoError(t, err)
 	requireEventCountRuntime(t, after.Events, thread.EventThreadCreated, 1)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationUserMessage, 1)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationAssistantMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationUserMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationAssistantMessage, 1)
 }
 
 func TestOpenThreadEngineUsesContextProvidersAndRestoresRecords(t *testing.T) {
@@ -224,7 +224,7 @@ func TestResumeThreadEngineCreatesSessionWhenConversationMissing(t *testing.T) {
 	engine, stored, err := ResumeThreadEngine(ctx, store, thread.ResumeParams{ID: live.ID()}, client, registry, WithModel("model-a"))
 	require.NoError(t, err)
 	require.Equal(t, live.ID(), stored.ID)
-	require.NotNil(t, engine.Session())
+	require.NotNil(t, engine.History())
 	require.NotNil(t, engine.ThreadRuntime())
 
 	_, err = engine.RunTurn(ctx, "hello")
@@ -234,12 +234,12 @@ func TestResumeThreadEngineCreatesSessionWhenConversationMissing(t *testing.T) {
 
 	after, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
 	require.NoError(t, err)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationUserMessage, 1)
-	requireEventCountRuntime(t, after.Events, conversation.EventConversationAssistantMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationUserMessage, 1)
+	requireEventCountRuntime(t, after.Events, eventConversationAssistantMessage, 1)
 
 	resumed, _, err := ResumeThreadEngine(ctx, store, thread.ResumeParams{ID: live.ID()}, &fakeClient{}, registry, WithModel("model-a"))
 	require.NoError(t, err)
-	messages, err := resumed.Session().Messages()
+	messages, err := resumed.History().Messages()
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 	requireTextMessage(t, messages[0], "hello")
@@ -268,8 +268,8 @@ func TestResumeThreadEngineRestoresConversationCapabilitiesAndContextRecords(t *
 	})
 	require.NoError(t, err)
 
-	session := conversation.New(conversation.WithStore(conversation.NewThreadEventStore(store, live)))
-	_, err = session.AddUser("previous")
+	history := NewHistory(WithHistoryLiveThread(live))
+	_, err = history.AddUser("previous")
 	require.NoError(t, err)
 
 	engine, _, err := ResumeThreadEngine(ctx, store, thread.ResumeParams{ID: live.ID()}, &fakeClient{}, registry)
@@ -278,7 +278,7 @@ func TestResumeThreadEngineRestoresConversationCapabilitiesAndContextRecords(t *
 	records := engine.ThreadRuntime().ContextManager().Records()
 	require.Contains(t, records, agentcontext.ProviderKey("capabilities"))
 	require.NotEmpty(t, records["capabilities"].Fragments)
-	messages, err := engine.Session().Messages()
+	messages, err := engine.History().Messages()
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	requireTextMessage(t, messages[0], "previous")

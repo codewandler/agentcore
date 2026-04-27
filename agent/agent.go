@@ -14,11 +14,12 @@ import (
 
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/conversation"
-	"github.com/codewandler/agentsdk/conversation/jsonlstore"
 	"github.com/codewandler/agentsdk/runner"
 	agentruntime "github.com/codewandler/agentsdk/runtime"
 	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/agentsdk/terminal/ui"
+	"github.com/codewandler/agentsdk/thread"
+	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/agentsdk/usage"
@@ -71,7 +72,7 @@ type Instance struct {
 	system              string
 	systemBuilder       func(workspace, prompt string) string
 	sessionID           string
-	session             *conversation.Session
+	history             *agentruntime.History
 	sessionStoreDir     string
 	resumeSession       string
 	sessionStorePath    string
@@ -289,7 +290,7 @@ func (a *Instance) Reset() {
 		}
 	}
 	if a.runtime != nil {
-		a.runtime.ResetSession(conversation.WithSessionID(conversation.SessionID(a.sessionID)))
+		a.runtime.ResetHistory(agentruntime.WithHistorySessionID(a.sessionID))
 	}
 }
 
@@ -544,8 +545,8 @@ func (a *Instance) modelCompatibilitySummary() string {
 
 func (a *Instance) runtimeOptions() []agentruntime.Option {
 	opts := a.baseRuntimeOptions(true)
-	if a.session != nil {
-		opts = append(opts, agentruntime.WithSession(a.session))
+	if a.history != nil {
+		opts = append(opts, agentruntime.WithHistory(a.history))
 	}
 	return opts
 }
@@ -579,7 +580,7 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 		}),
 	}
 	if includeSessionID {
-		opts = append([]agentruntime.Option{agentruntime.WithSessionOptions(conversation.WithSessionID(conversation.SessionID(a.sessionID)))}, opts...)
+		opts = append([]agentruntime.Option{agentruntime.WithHistoryOptions(agentruntime.WithHistorySessionID(a.sessionID))}, opts...)
 	}
 	if reasoning, ok := a.reasoningConfig(); ok {
 		opts = append(opts, agentruntime.WithReasoning(reasoning))
@@ -604,16 +605,27 @@ func (a *Instance) initSession(ctx context.Context) error {
 	if a.resumeSession == "" && a.sessionStoreDir == "" {
 		return nil
 	}
-	opts := a.conversationOptions(false)
 	if a.resumeSession != "" {
-		store := jsonlstore.Open(a.resumeSession)
-		session, err := conversation.Resume(ctx, store, "", opts...)
+		dir, id := splitThreadSessionRef(a.resumeSession)
+		if dir == "." && a.sessionStoreDir != "" && filepath.Ext(strings.TrimSpace(a.resumeSession)) == "" {
+			dir = a.sessionStoreDir
+		}
+		store := threadjsonlstore.Open(dir)
+		live, err := store.Resume(ctx, thread.ResumeParams{
+			ID:     thread.ID(id),
+			Source: thread.EventSource{Type: "session", SessionID: id},
+		})
 		if err != nil {
 			return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
 		}
-		a.session = session
-		a.sessionID = string(session.SessionID())
-		a.sessionStorePath = a.resumeSession
+		history, err := agentruntime.ResumeHistoryFromThread(ctx, store, live, append(a.historyOptions(false), agentruntime.WithHistorySessionID(id))...)
+		if err != nil {
+			return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
+		}
+		a.history = history
+		a.sessionID = id
+		a.sessionStoreDir = dir
+		a.sessionStorePath = filepath.Join(dir, id+".jsonl")
 		return nil
 	}
 	return a.startPersistentSession(time.Now())
@@ -621,23 +633,29 @@ func (a *Instance) initSession(ctx context.Context) error {
 
 func (a *Instance) startPersistentSession(now time.Time) error {
 	if a.sessionStoreDir == "" {
-		a.session = nil
+		a.history = nil
 		a.sessionStorePath = ""
 		return nil
 	}
-	path := filepath.Join(a.sessionStoreDir, fmt.Sprintf("%s-%s.jsonl", now.UTC().Format("20060102T150405Z"), a.sessionID))
-	store := jsonlstore.Open(path)
-	opts := append(a.conversationOptions(true),
-		conversation.WithStore(store),
-		conversation.WithConversationID(conversation.ConversationID("conv_"+a.sessionID)),
-	)
-	a.session = conversation.New(opts...)
-	a.sessionStorePath = path
+	if now.IsZero() {
+		now = time.Now()
+	}
+	store := threadjsonlstore.Open(a.sessionStoreDir)
+	live, err := store.Create(context.Background(), thread.CreateParams{
+		ID:     thread.ID(a.sessionID),
+		Now:    now,
+		Source: thread.EventSource{Type: "session", SessionID: a.sessionID},
+	})
+	if err != nil {
+		return err
+	}
+	a.history = agentruntime.NewHistory(append(a.historyOptions(true), agentruntime.WithHistoryLiveThread(live))...)
+	a.sessionStorePath = filepath.Join(a.sessionStoreDir, a.sessionID+".jsonl")
 	return nil
 }
 
-func (a *Instance) conversationOptions(includeSessionID bool) []conversation.Option {
-	return agentruntime.SessionOptions(a.baseRuntimeOptions(includeSessionID)...)
+func (a *Instance) historyOptions(includeSessionID bool) []agentruntime.HistoryOption {
+	return agentruntime.HistoryOptions(a.baseRuntimeOptions(includeSessionID)...)
 }
 
 func (a *Instance) reasoningConfig() (unified.ReasoningConfig, bool) {
@@ -718,4 +736,17 @@ func newSessionID() (string, error) {
 		out[i] = alphabet[int(v)%len(alphabet)]
 	}
 	return string(out), nil
+}
+
+func splitThreadSessionRef(ref string) (dir string, id string) {
+	cleaned := strings.TrimSpace(ref)
+	if cleaned == "" {
+		return ".", ""
+	}
+	if filepath.Ext(cleaned) == ".jsonl" || strings.Contains(cleaned, string(os.PathSeparator)) {
+		dir = filepath.Dir(cleaned)
+		id = strings.TrimSuffix(filepath.Base(cleaned), filepath.Ext(cleaned))
+		return dir, id
+	}
+	return ".", cleaned
 }

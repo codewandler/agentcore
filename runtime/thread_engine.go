@@ -7,7 +7,6 @@ import (
 
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capability"
-	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/llmadapter/unified"
 )
@@ -88,17 +87,13 @@ func newThreadEngine(ctx context.Context, store thread.Store, threadRuntime *Thr
 	if threadRuntime == nil || threadRuntime.Live() == nil {
 		return nil, fmt.Errorf("runtime: thread runtime is required")
 	}
-	eventStore := conversation.NewThreadEventStore(store, threadRuntime.Live())
-	sessionOptions := append(SessionOptions(opts...), conversation.WithStore(eventStore))
-	session, err := conversation.Resume(ctx, eventStore, "", sessionOptions...)
+	historyOptions := append(HistoryOptions(opts...), WithHistoryLiveThread(threadRuntime.Live()))
+	history, err := ResumeHistoryFromThread(ctx, store, threadRuntime.Live(), historyOptions...)
 	if err != nil {
-		if !errors.Is(err, conversation.ErrNoEvents) {
-			return nil, err
-		}
-		session = conversation.New(sessionOptions...)
+		return nil, err
 	}
 	engineOptions := append([]Option(nil), opts...)
-	engineOptions = append(engineOptions, clearThreadContextOptions(), WithSession(session), WithThreadRuntime(threadRuntime))
+	engineOptions = append(engineOptions, clearThreadContextOptions(), WithHistory(history), WithThreadRuntime(threadRuntime))
 	engine, err := New(client, engineOptions...)
 	if err != nil {
 		return nil, err

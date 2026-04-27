@@ -58,7 +58,7 @@ func TestThreadRuntimeInjectsPlannerToolsContextAndResumes(t *testing.T) {
 	requireNoMessageContaining(t, client.requests[0], "Runtime plan")
 	requireMessageContaining(t, client.requests[1], "Plan \"Runtime plan\" has 1 step(s).")
 	requireMessageContaining(t, client.requests[1], "title: Persist planner state")
-	sessionMessages, err := engine.Session().Messages()
+	sessionMessages, err := engine.History().Messages()
 	require.NoError(t, err)
 	requireNoStoredMessageContaining(t, sessionMessages, "Runtime plan")
 
@@ -77,7 +77,7 @@ func TestThreadRuntimeInjectsPlannerToolsContextAndResumes(t *testing.T) {
 		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
 	}}}
 	resumedEngine, err := New(resumedClient,
-		WithSession(conversation.New(conversation.WithSessionID("session_2"))),
+		WithHistory(NewHistory(WithHistorySessionID("session_2"))),
 		WithThreadRuntime(resumedRuntime),
 	)
 	require.NoError(t, err)
@@ -191,8 +191,8 @@ func TestThreadRuntimeReplaysCommittedContextRecordsOnResume(t *testing.T) {
 		{"action":"create_plan","plan":{"id":"plan_1","title":"Resume context"}},
 		{"action":"add_step","step":{"id":"step_1","title":"Do not resend","status":"pending"}}
 	]}`)
-	session := conversation.New()
-	commitNativeContinuation(t, session, "resp_existing")
+	history := NewHistory()
+	commitNativeContinuation(t, history, "resp_existing")
 	firstClient := &fakeClient{events: [][]unified.Event{{
 		unified.RouteEvent{
 			ProviderName:         "openai",
@@ -206,7 +206,7 @@ func TestThreadRuntimeReplaysCommittedContextRecordsOnResume(t *testing.T) {
 		unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 	}}}
 	firstEngine, err := New(firstClient,
-		WithSession(session),
+		WithHistory(history),
 		WithThreadRuntime(threadRuntime),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
 	)
@@ -222,7 +222,7 @@ func TestThreadRuntimeReplaysCommittedContextRecordsOnResume(t *testing.T) {
 		unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_2"},
 	}}}
 	resumedEngine, err := New(resumedClient,
-		WithSession(session),
+		WithHistory(history),
 		WithThreadRuntime(resumedRuntime),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
 	)
@@ -248,8 +248,8 @@ func TestThreadRuntimeRollsBackContextRenderWhenProviderRequestFails(t *testing.
 		{"action":"add_step","step":{"id":"step_1","title":"Retry render","status":"pending"}}
 	]}`)
 
-	session := conversation.New()
-	commitNativeContinuation(t, session, "resp_existing")
+	history := NewHistory()
+	commitNativeContinuation(t, history, "resp_existing")
 	client := &fakeClient{
 		errors: []error{errFakeRequest, nil},
 		events: [][]unified.Event{{
@@ -258,7 +258,7 @@ func TestThreadRuntimeRollsBackContextRenderWhenProviderRequestFails(t *testing.
 		}},
 	}
 	engine, err := New(client,
-		WithSession(session),
+		WithHistory(history),
 		WithThreadRuntime(threadRuntime),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
 	)
@@ -293,8 +293,8 @@ func TestThreadRuntimeSendsTombstoneForRemovedFragmentWithNativeContinuation(t *
 	_, err = threadRuntime.ContextManager().Build(ctx, agentcontextBuildRequest(live.ID(), live.BranchID()))
 	require.NoError(t, err)
 
-	session := conversation.New()
-	commitNativeContinuation(t, session, "resp_existing")
+	history := NewHistory()
+	commitNativeContinuation(t, history, "resp_existing")
 	client := &fakeClient{events: [][]unified.Event{
 		{
 			unified.ToolCallDoneEvent{Index: 0, ID: "call_plan", Name: "plan", Args: json.RawMessage(`{"actions":[{"action":"remove_step","step_id":"step_1"}]}`)},
@@ -306,7 +306,7 @@ func TestThreadRuntimeSendsTombstoneForRemovedFragmentWithNativeContinuation(t *
 		},
 	}}
 	engine, err := New(client,
-		WithSession(session),
+		WithHistory(history),
 		WithThreadRuntime(threadRuntime),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
 		WithMaxSteps(2),
@@ -431,20 +431,15 @@ func TestThreadRuntimeCompactsConversationAndCommitsContextRender(t *testing.T) 
 	require.NoError(t, err)
 	threadRuntime, err := NewThreadRuntime(live, registry, WithContextManager(contexts))
 	require.NoError(t, err)
-	threadEvents := conversation.NewThreadEventStore(store, live)
-	session := conversation.New(
-		conversation.WithConversationID("conversation_compaction"),
-		conversation.WithSessionID("session_compaction"),
-		conversation.WithStore(threadEvents),
-	)
-	oldOne, err := session.AddUser("old one")
+	history := NewHistory(WithHistorySessionID("session_compaction"), WithHistoryLiveThread(live))
+	oldOne, err := history.AddUser("old one")
 	require.NoError(t, err)
-	oldTwo, err := session.AddUser("old two")
+	oldTwo, err := history.AddUser("old two")
 	require.NoError(t, err)
-	keep, err := session.AddUser("keep")
+	keep, err := history.AddUser("keep")
 	require.NoError(t, err)
 
-	compaction, err := threadRuntime.Compact(ctx, session, "summary of old messages", oldOne, oldTwo)
+	compaction, err := threadRuntime.Compact(ctx, history, "summary of old messages", oldOne, oldTwo)
 	require.NoError(t, err)
 	require.NotEmpty(t, compaction)
 	require.Len(t, recorder.requests, 1)
@@ -453,25 +448,25 @@ func TestThreadRuntimeCompactsConversationAndCommitsContextRender(t *testing.T) 
 	require.Equal(t, string(live.ID()), recorder.requests[0].ThreadID)
 	require.Equal(t, string(live.BranchID()), recorder.requests[0].BranchID)
 
-	messages, err := session.Messages()
+	messages, err := history.Messages()
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 	requireTextMessage(t, messages[0], "keep")
 	requireTextMessage(t, messages[1], "summary of old messages")
-	_, ok := session.Tree().Node(oldOne)
+	_, ok := history.Tree().Node(oldOne)
 	require.True(t, ok)
-	_, ok = session.Tree().Node(oldTwo)
+	_, ok = history.Tree().Node(oldTwo)
 	require.True(t, ok)
-	_, ok = session.Tree().Node(keep)
+	_, ok = history.Tree().Node(keep)
 	require.True(t, ok)
 
 	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
 	require.NoError(t, err)
-	requireEventCountRuntime(t, stored.Events, conversation.EventConversationUserMessage, 3)
-	requireEventCountRuntime(t, stored.Events, conversation.EventConversationCompaction, 1)
+	requireEventCountRuntime(t, stored.Events, eventConversationUserMessage, 3)
+	requireEventCountRuntime(t, stored.Events, eventConversationCompaction, 1)
 	requireEventCountRuntime(t, stored.Events, EventContextRenderCommitted, 1)
 
-	resumedSession, err := conversation.Resume(ctx, threadEvents, "conversation_compaction")
+	resumedSession, err := ResumeHistoryFromThread(ctx, store, live, WithHistorySessionID("session_compaction"))
 	require.NoError(t, err)
 	resumedMessages, err := resumedSession.Messages()
 	require.NoError(t, err)
@@ -498,13 +493,10 @@ func TestEngineCompactUsesThreadRuntimeWhenConfigured(t *testing.T) {
 	require.NoError(t, err)
 	threadRuntime, err := NewThreadRuntime(live, registry)
 	require.NoError(t, err)
-	session := conversation.New(
-		conversation.WithConversationID("conversation_engine_compaction"),
-		conversation.WithStore(conversation.NewThreadEventStore(store, live)),
-	)
-	old, err := session.AddUser("old")
+	history := NewHistory(WithHistoryLiveThread(live))
+	old, err := history.AddUser("old")
 	require.NoError(t, err)
-	engine, err := New(&fakeClient{}, WithSession(session), WithThreadRuntime(threadRuntime))
+	engine, err := New(&fakeClient{}, WithHistory(history), WithThreadRuntime(threadRuntime))
 	require.NoError(t, err)
 
 	_, err = engine.Compact(ctx, "summary", old)
@@ -512,8 +504,8 @@ func TestEngineCompactUsesThreadRuntimeWhenConfigured(t *testing.T) {
 
 	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
 	require.NoError(t, err)
-	requireEventCountRuntime(t, stored.Events, conversation.EventConversationUserMessage, 1)
-	requireEventCountRuntime(t, stored.Events, conversation.EventConversationCompaction, 1)
+	requireEventCountRuntime(t, stored.Events, eventConversationUserMessage, 1)
+	requireEventCountRuntime(t, stored.Events, eventConversationCompaction, 1)
 	requireEventCountRuntime(t, stored.Events, EventContextRenderCommitted, 1)
 }
 
@@ -558,7 +550,7 @@ func requireRuntimeTool(t *testing.T, runtime *ThreadRuntime, name string) tool.
 	return nil
 }
 
-func commitNativeContinuation(t *testing.T, session *conversation.Session, responseID string) {
+func commitNativeContinuation(t *testing.T, history *History, responseID string) {
 	t.Helper()
 	fragment := conversation.NewTurnFragment()
 	fragment.AddRequestMessages(unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "previous"}}})
@@ -573,7 +565,7 @@ func commitNativeContinuation(t *testing.T, session *conversation.Session, respo
 	continuation.Transport = unified.TransportHTTPSSE
 	fragment.AddContinuation(continuation)
 	fragment.Complete(unified.FinishReasonStop)
-	_, err := session.CommitFragment(fragment)
+	_, err := history.CommitFragment(fragment)
 	require.NoError(t, err)
 }
 

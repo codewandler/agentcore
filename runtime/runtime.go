@@ -13,12 +13,11 @@ import (
 	"github.com/codewandler/llmadapter/unified"
 )
 
-// Engine is the low-level execution engine for model/tool turns over a
-// conversation session.
+// Engine is the low-level execution engine for model/tool turns over history.
 type Engine struct {
 	client           unified.Client
-	session          *conversation.Session
-	sessionOptions   []conversation.Option
+	history          *History
+	historyOptions   []HistoryOption
 	request          conversation.Request
 	tools            []tool.Tool
 	maxSteps         int
@@ -52,8 +51,8 @@ func New(client unified.Client, opts ...Option) (*Engine, error) {
 	if err := engine.applyThreadContextOptions(); err != nil {
 		return nil, err
 	}
-	if engine.session == nil {
-		engine.session = conversation.New(engine.sessionOptions...)
+	if engine.history == nil {
+		engine.history = NewHistory(engine.historyOptions...)
 	}
 	return engine, nil
 }
@@ -66,7 +65,7 @@ func Must(client unified.Client, opts ...Option) *Engine {
 	return engine
 }
 
-func SessionOptions(opts ...Option) []conversation.Option {
+func HistoryOptions(opts ...Option) []HistoryOption {
 	engine := &Engine{
 		maxSteps: 8,
 		request:  conversation.Request{Stream: true},
@@ -76,14 +75,14 @@ func SessionOptions(opts ...Option) []conversation.Option {
 			opt(engine)
 		}
 	}
-	return append([]conversation.Option(nil), engine.sessionOptions...)
+	return append([]HistoryOption(nil), engine.historyOptions...)
 }
 
-func (e *Engine) Session() *conversation.Session {
+func (e *Engine) History() *History {
 	if e == nil {
 		return nil
 	}
-	return e.session
+	return e.history
 }
 
 func (e *Engine) ThreadRuntime() *ThreadRuntime {
@@ -138,27 +137,27 @@ func (e *Engine) applyThreadContextOptions() error {
 	return e.threadContexts.Register(e.contextProviders...)
 }
 
-func (e *Engine) ResetSession(opts ...conversation.Option) *conversation.Session {
+func (e *Engine) ResetHistory(opts ...HistoryOption) *History {
 	if e == nil {
 		return nil
 	}
-	sessionOptions := append([]conversation.Option(nil), e.sessionOptions...)
-	sessionOptions = append(sessionOptions, opts...)
-	e.session = conversation.New(sessionOptions...)
-	return e.session
+	historyOptions := append([]HistoryOption(nil), e.historyOptions...)
+	historyOptions = append(historyOptions, opts...)
+	e.history = NewHistory(historyOptions...)
+	return e.history
 }
 
 func (e *Engine) Compact(ctx context.Context, summary string, replaces ...conversation.NodeID) (conversation.NodeID, error) {
 	if e == nil {
 		return "", fmt.Errorf("runtime: engine is nil")
 	}
-	if e.session == nil {
-		return "", fmt.Errorf("runtime: session is required")
+	if e.history == nil {
+		return "", fmt.Errorf("runtime: history is required")
 	}
 	if e.threadRuntime != nil {
-		return e.threadRuntime.Compact(ctx, e.session, summary, replaces...)
+		return e.threadRuntime.Compact(ctx, e.history, summary, replaces...)
 	}
-	return e.session.CompactContext(ctx, summary, replaces...)
+	return e.history.CompactContext(ctx, summary, replaces...)
 }
 
 func (e *Engine) RunTurn(ctx context.Context, user string, opts ...TurnOption) (runner.Result, error) {
@@ -192,7 +191,7 @@ func (e *Engine) RunTurn(ctx context.Context, user string, opts ...TurnOption) (
 	} else if e.threadContexts != nil {
 		cfg.addContextManager(e.threadContexts)
 	}
-	return runner.RunTurn(ctx, e.session, e.client, cfg.Request, cfg.runnerOptions()...)
+	return runner.RunTurn(ctx, e.history, e.client, cfg.Request, cfg.runnerOptions()...)
 }
 
 func (e *Engine) turnConfig() TurnConfig {

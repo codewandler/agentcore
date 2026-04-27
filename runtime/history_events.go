@@ -1,121 +1,134 @@
-package conversation
+package runtime
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
+	"github.com/codewandler/agentsdk/conversation"
+	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/llmadapter/unified"
 )
 
-type StructuralEventKind string
-
 const (
-	StructuralConversationCreated StructuralEventKind = "conversation_created"
-	StructuralBranchCreated       StructuralEventKind = "branch_created"
-	StructuralNodeAppended        StructuralEventKind = "node_appended"
-	StructuralHeadMoved           StructuralEventKind = "head_moved"
+	eventConversationUserMessage      thread.EventKind = "conversation.user_message"
+	eventConversationAssistantMessage thread.EventKind = "conversation.assistant_message"
+	eventConversationToolResult       thread.EventKind = "conversation.tool_result"
+	eventConversationMessage          thread.EventKind = "conversation.message"
+	eventConversationCompaction       thread.EventKind = "conversation.compaction"
+	eventConversationAnnotation       thread.EventKind = "conversation.annotation"
 )
 
-type StructuralEvent struct {
-	Kind           StructuralEventKind `json:"kind"`
-	ConversationID ConversationID      `json:"conversation_id,omitempty"`
-	SessionID      SessionID           `json:"session_id,omitempty"`
-	BranchID       BranchID            `json:"branch_id,omitempty"`
-	NodeID         NodeID              `json:"node_id,omitempty"`
-	ParentNodeID   NodeID              `json:"parent_node_id,omitempty"`
-	FromBranchID   BranchID            `json:"from_branch_id,omitempty"`
-	At             time.Time           `json:"at"`
+func threadEventFromPayload(payload conversation.Payload, event thread.Event) (thread.Event, error) {
+	kind, raw, err := marshalThreadPayload(payload)
+	if err != nil {
+		return thread.Event{}, err
+	}
+	event.Kind = kind
+	event.Payload = raw
+	return event, nil
 }
 
-type Event struct {
-	Kind           StructuralEventKind `json:"kind"`
-	ConversationID ConversationID      `json:"conversation_id,omitempty"`
-	SessionID      SessionID           `json:"session_id,omitempty"`
-	BranchID       BranchID            `json:"branch_id,omitempty"`
-	NodeID         NodeID              `json:"node_id,omitempty"`
-	ParentNodeID   NodeID              `json:"parent_node_id,omitempty"`
-	FromBranchID   BranchID            `json:"from_branch_id,omitempty"`
-	Payload        Payload             `json:"-"`
-	At             time.Time           `json:"at"`
-}
-
-type EventStore interface {
-	AppendEvents(ctx context.Context, events ...Event) error
-	LoadEvents(ctx context.Context, conversationID ConversationID) ([]Event, error)
-}
-
-type MemoryStore struct {
-	events []Event
-}
-
-func NewMemoryStore() *MemoryStore { return &MemoryStore{} }
-
-func (s *MemoryStore) AppendEvents(_ context.Context, events ...Event) error {
-	s.events = append(s.events, events...)
-	return nil
-}
-
-func (s *MemoryStore) LoadEvents(_ context.Context, conversationID ConversationID) ([]Event, error) {
-	out := make([]Event, 0, len(s.events))
-	for _, event := range s.events {
-		if conversationID == "" || event.ConversationID == conversationID {
-			out = append(out, event)
+func payloadFromThreadEvent(event thread.Event) (conversation.Payload, bool, error) {
+	switch event.Kind {
+	case eventConversationUserMessage, eventConversationToolResult, eventConversationMessage:
+		payload, err := unmarshalMessagePayload(event.Payload)
+		if err != nil {
+			return nil, false, err
 		}
+		return payload, true, nil
+	case eventConversationAssistantMessage:
+		payload, err := unmarshalAssistantTurnPayload(event.Payload)
+		if err != nil {
+			if messagePayload, messageErr := unmarshalMessagePayload(event.Payload); messageErr == nil {
+				return messagePayload, true, nil
+			}
+			return nil, false, err
+		}
+		return payload, true, nil
+	case eventConversationCompaction:
+		payload, err := unmarshalCompactionPayload(event.Payload)
+		if err != nil {
+			return nil, false, err
+		}
+		return payload, true, nil
+	case eventConversationAnnotation:
+		payload, err := unmarshalAnnotationPayload(event.Payload)
+		if err != nil {
+			return nil, false, err
+		}
+		return payload, true, nil
+	default:
+		return nil, false, nil
 	}
-	return out, nil
 }
 
-func MarshalPayload(payload Payload) (PayloadKind, json.RawMessage, error) {
-	if payload == nil {
-		return "", nil, fmt.Errorf("conversation: payload is required")
+func marshalThreadPayload(payload conversation.Payload) (thread.EventKind, json.RawMessage, error) {
+	switch payload := payload.(type) {
+	case conversation.MessageEvent:
+		return marshalMessagePayload(payload)
+	case *conversation.MessageEvent:
+		if payload == nil {
+			return "", nil, fmt.Errorf("runtime: message payload is nil")
+		}
+		return marshalMessagePayload(*payload)
+	case conversation.AssistantTurnEvent:
+		wire, err := payloadToWire(payload)
+		if err != nil {
+			return "", nil, err
+		}
+		raw, err := json.Marshal(wire)
+		return eventConversationAssistantMessage, raw, err
+	case *conversation.AssistantTurnEvent:
+		if payload == nil {
+			return "", nil, fmt.Errorf("runtime: assistant turn payload is nil")
+		}
+		wire, err := payloadToWire(payload)
+		if err != nil {
+			return "", nil, err
+		}
+		raw, err := json.Marshal(wire)
+		return eventConversationAssistantMessage, raw, err
+	case conversation.CompactionEvent:
+		raw, err := json.Marshal(payload)
+		return eventConversationCompaction, raw, err
+	case *conversation.CompactionEvent:
+		if payload == nil {
+			return "", nil, fmt.Errorf("runtime: compaction payload is nil")
+		}
+		raw, err := json.Marshal(payload)
+		return eventConversationCompaction, raw, err
+	case conversation.AnnotationEvent:
+		raw, err := json.Marshal(payload)
+		return eventConversationAnnotation, raw, err
+	case *conversation.AnnotationEvent:
+		if payload == nil {
+			return "", nil, fmt.Errorf("runtime: annotation payload is nil")
+		}
+		raw, err := json.Marshal(payload)
+		return eventConversationAnnotation, raw, err
+	default:
+		return "", nil, fmt.Errorf("runtime: unsupported history payload %T", payload)
 	}
-	kind := payload.Kind()
+}
+
+func marshalMessagePayload(payload conversation.MessageEvent) (thread.EventKind, json.RawMessage, error) {
 	wire, err := payloadToWire(payload)
 	if err != nil {
 		return "", nil, err
 	}
-	b, err := json.Marshal(wire)
+	raw, err := json.Marshal(wire)
 	if err != nil {
 		return "", nil, err
 	}
-	return kind, b, nil
-}
-
-func UnmarshalPayload(kind PayloadKind, b []byte) (Payload, error) {
-	switch kind {
-	case PayloadMessage:
-		var payload wireMessageEvent
-		if err := json.Unmarshal(b, &payload); err != nil {
-			return nil, err
-		}
-		return MessageEvent{Message: payload.Message.unified()}, nil
-	case PayloadAssistantTurn:
-		var payload wireAssistantTurnEvent
-		if err := json.Unmarshal(b, &payload); err != nil {
-			return nil, err
-		}
-		return AssistantTurnEvent{
-			Message:       payload.Message.unified(),
-			FinishReason:  payload.FinishReason,
-			Usage:         payload.Usage,
-			Continuations: payload.Continuations,
-		}, nil
-	case PayloadCompaction:
-		var payload CompactionEvent
-		if err := json.Unmarshal(b, &payload); err != nil {
-			return nil, err
-		}
-		return payload, nil
-	case PayloadAnnotation:
-		var payload AnnotationEvent
-		if err := json.Unmarshal(b, &payload); err != nil {
-			return nil, err
-		}
-		return payload, nil
+	switch payload.Message.Role {
+	case unified.RoleUser:
+		return eventConversationUserMessage, raw, nil
+	case unified.RoleTool:
+		return eventConversationToolResult, raw, nil
+	case unified.RoleAssistant:
+		return eventConversationAssistantMessage, raw, nil
 	default:
-		return nil, fmt.Errorf("conversation: unsupported payload kind %q", kind)
+		return eventConversationMessage, raw, nil
 	}
 }
 
@@ -124,10 +137,10 @@ type wireMessageEvent struct {
 }
 
 type wireAssistantTurnEvent struct {
-	Message       wireMessage            `json:"message"`
-	FinishReason  unified.FinishReason   `json:"finish_reason,omitempty"`
-	Usage         unified.Usage          `json:"usage,omitempty"`
-	Continuations []ProviderContinuation `json:"continuations,omitempty"`
+	Message       wireMessage                         `json:"message"`
+	FinishReason  unified.FinishReason                `json:"finish_reason,omitempty"`
+	Usage         unified.Usage                       `json:"usage,omitempty"`
+	Continuations []conversation.ProviderContinuation `json:"continuations,omitempty"`
 }
 
 type wireMessage struct {
@@ -158,24 +171,61 @@ type wireContentPart struct {
 	MIMEType     string                `json:"mime_type,omitempty"`
 }
 
-func payloadToWire(payload Payload) (any, error) {
+func unmarshalMessagePayload(b []byte) (conversation.MessageEvent, error) {
+	var payload wireMessageEvent
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return conversation.MessageEvent{}, err
+	}
+	return conversation.MessageEvent{Message: payload.Message.unified()}, nil
+}
+
+func unmarshalAssistantTurnPayload(b []byte) (conversation.AssistantTurnEvent, error) {
+	var payload wireAssistantTurnEvent
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return conversation.AssistantTurnEvent{}, err
+	}
+	return conversation.AssistantTurnEvent{
+		Message:       payload.Message.unified(),
+		FinishReason:  payload.FinishReason,
+		Usage:         payload.Usage,
+		Continuations: payload.Continuations,
+	}, nil
+}
+
+func unmarshalCompactionPayload(b []byte) (conversation.CompactionEvent, error) {
+	var payload conversation.CompactionEvent
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return conversation.CompactionEvent{}, err
+	}
+	return payload, nil
+}
+
+func unmarshalAnnotationPayload(b []byte) (conversation.AnnotationEvent, error) {
+	var payload conversation.AnnotationEvent
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return conversation.AnnotationEvent{}, err
+	}
+	return payload, nil
+}
+
+func payloadToWire(payload conversation.Payload) (any, error) {
 	switch payload := payload.(type) {
-	case MessageEvent:
+	case conversation.MessageEvent:
 		msg, err := messageToWire(payload.Message)
 		if err != nil {
 			return nil, err
 		}
 		return wireMessageEvent{Message: msg}, nil
-	case *MessageEvent:
+	case *conversation.MessageEvent:
 		if payload == nil {
-			return nil, fmt.Errorf("conversation: message payload is nil")
+			return nil, fmt.Errorf("runtime: message payload is nil")
 		}
 		msg, err := messageToWire(payload.Message)
 		if err != nil {
 			return nil, err
 		}
 		return wireMessageEvent{Message: msg}, nil
-	case AssistantTurnEvent:
+	case conversation.AssistantTurnEvent:
 		msg, err := messageToWire(payload.Message)
 		if err != nil {
 			return nil, err
@@ -186,9 +236,9 @@ func payloadToWire(payload Payload) (any, error) {
 			Usage:         payload.Usage,
 			Continuations: payload.Continuations,
 		}, nil
-	case *AssistantTurnEvent:
+	case *conversation.AssistantTurnEvent:
 		if payload == nil {
-			return nil, fmt.Errorf("conversation: assistant turn payload is nil")
+			return nil, fmt.Errorf("runtime: assistant turn payload is nil")
 		}
 		msg, err := messageToWire(payload.Message)
 		if err != nil {
@@ -273,7 +323,7 @@ func contentPartToWire(part unified.ContentPart) (wireContentPart, error) {
 		return wireContentPart{Type: unified.ContentKindText, Text: part.Text, CacheControl: part.CacheControl}, nil
 	case *unified.TextPart:
 		if part == nil {
-			return wireContentPart{}, fmt.Errorf("conversation: text content part is nil")
+			return wireContentPart{}, fmt.Errorf("runtime: text content part is nil")
 		}
 		return wireContentPart{Type: unified.ContentKindText, Text: part.Text, CacheControl: part.CacheControl}, nil
 	case unified.ImagePart:
@@ -289,7 +339,7 @@ func contentPartToWire(part unified.ContentPart) (wireContentPart, error) {
 	case unified.RefusalPart:
 		return wireContentPart{Type: unified.ContentKindRefusal, Text: part.Text}, nil
 	default:
-		return wireContentPart{}, fmt.Errorf("conversation: unsupported content part type %T", part)
+		return wireContentPart{}, fmt.Errorf("runtime: unsupported content part type %T", part)
 	}
 }
 

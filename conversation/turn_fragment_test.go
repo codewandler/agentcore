@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCommitFragmentAppendsAtomicallyAfterCompletion(t *testing.T) {
-	sess := New()
+func TestTurnFragmentPayloadsAfterCompletion(t *testing.T) {
 	fragment := NewTurnFragment()
 	fragment.AddRequestMessages(unified.Message{
 		Role:    unified.RoleUser,
@@ -29,35 +28,33 @@ func TestCommitFragmentAppendsAtomicallyAfterCompletion(t *testing.T) {
 	))
 	fragment.Complete(unified.FinishReasonStop)
 
-	ids, err := sess.CommitFragment(fragment)
+	payloads, err := fragment.Payloads()
 	require.NoError(t, err)
-	require.Len(t, ids, 2)
+	require.Len(t, payloads, 2)
 
-	messages, err := sess.Messages()
+	tree := NewTree()
+	_, err = tree.AppendMany(MainBranch, payloads...)
+	require.NoError(t, err)
+	messages, err := ProjectMessages(tree, MainBranch)
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 	require.Equal(t, unified.RoleUser, messages[0].Role)
 	require.Equal(t, unified.RoleAssistant, messages[1].Role)
 
-	continuation, ok, err := ContinuationAtHead(sess.Tree(), sess.Branch(), ProviderIdentity{ProviderName: "openrouter"})
+	continuation, ok, err := ContinuationAtHead(tree, MainBranch, ProviderIdentity{ProviderName: "openrouter"})
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "resp_123", continuation.ResponseID)
 }
 
-func TestCommitFragmentRejectsIncompleteOrFailedFragments(t *testing.T) {
-	sess := New()
+func TestTurnFragmentRejectsIncompleteOrFailedFragments(t *testing.T) {
 	fragment := NewTurnFragment()
 	fragment.AddRequestMessages(unified.Message{Role: unified.RoleUser})
 
-	_, err := sess.CommitFragment(fragment)
+	_, err := fragment.Payloads()
 	require.Error(t, err)
 
 	fragment.Fail(errors.New("stream failed"))
-	_, err = sess.CommitFragment(fragment)
+	_, err = fragment.Payloads()
 	require.Error(t, err)
-
-	messages, err := sess.Messages()
-	require.NoError(t, err)
-	require.Empty(t, messages)
 }

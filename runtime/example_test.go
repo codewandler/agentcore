@@ -3,14 +3,11 @@ package runtime_test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
-	"github.com/codewandler/agentsdk/conversation"
-	"github.com/codewandler/agentsdk/conversation/jsonlstore"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/runtime"
 	"github.com/codewandler/agentsdk/thread"
@@ -63,23 +60,18 @@ func ExampleNew() {
 	// Output: ok
 }
 
-func ExampleSessionOptions() {
+func ExampleHistoryOptions() {
 	toolset := standard.DefaultToolset()
-	store := jsonlstore.Open(filepath.Join("sessions", "example-session.jsonl"))
-	opts := runtime.SessionOptions(
-		runtime.WithSessionOptions(
-			conversation.WithSessionID("example-session"),
-			conversation.WithConversationID("example-conversation"),
-			conversation.WithStore(store),
-		),
+	opts := runtime.HistoryOptions(
+		runtime.WithHistoryOptions(runtime.WithHistorySessionID("example-session")),
 		runtime.WithModel("default"),
 		runtime.WithTools(toolset.ActiveTools()),
 		runtime.WithCachePolicy(unified.CachePolicyOn),
 		runtime.WithCacheKey("example-session"),
 	)
-	session := conversation.New(opts...)
+	history := runtime.NewHistory(opts...)
 
-	fmt.Println(session.SessionID())
+	fmt.Println(history.SessionID())
 	// Output: example-session
 }
 

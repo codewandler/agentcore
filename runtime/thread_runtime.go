@@ -260,14 +260,14 @@ func (r *ThreadRuntime) PrepareRequest(ctx context.Context, meta runner.RequestP
 	}, nil
 }
 
-func (r *ThreadRuntime) Compact(ctx context.Context, session *conversation.Session, summary string, replaces ...conversation.NodeID) (conversation.NodeID, error) {
+func (r *ThreadRuntime) Compact(ctx context.Context, history *History, summary string, replaces ...conversation.NodeID) (conversation.NodeID, error) {
 	if r == nil || r.live == nil || r.contexts == nil {
 		return "", fmt.Errorf("runtime: thread runtime is nil")
 	}
-	if session == nil {
-		return "", fmt.Errorf("runtime: conversation session is required")
+	if history == nil {
+		return "", fmt.Errorf("runtime: history is required")
 	}
-	id, err := session.CompactContext(ctx, summary, replaces...)
+	id, err := history.CompactContext(ctx, summary, replaces...)
 	if err != nil {
 		return "", err
 	}

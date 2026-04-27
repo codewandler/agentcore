@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 )
 
-type ConversationID string
-type SessionID string
 type BranchID string
 type NodeID string
 
@@ -18,7 +16,5 @@ func newID(prefix string) string {
 	return prefix + hex.EncodeToString(b[:])
 }
 
-func NewConversationID() ConversationID { return ConversationID(newID("conv_")) }
-func NewSessionID() SessionID           { return SessionID(newID("sess_")) }
-func NewBranchID() BranchID             { return BranchID(newID("branch_")) }
-func NewNodeID() NodeID                 { return NodeID(newID("node_")) }
+func NewBranchID() BranchID { return BranchID(newID("branch_")) }
+func NewNodeID() NodeID     { return NodeID(newID("node_")) }

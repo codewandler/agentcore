@@ -94,6 +94,34 @@ func TestAgentPersistsAndResumesSession(t *testing.T) {
 	requireMessageText(t, secondClient.RequestAt(0).Messages[4], "second task")
 }
 
+func TestAgentResumesSessionByIDFromStoreDir(t *testing.T) {
+	dir := t.TempDir()
+	firstClient := runnertest.NewClient(runnertest.TextStream("first response", "resp_text"))
+	first, err := New(
+		WithClient(firstClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, first.RunTurn(context.Background(), 1, "first task"))
+
+	secondClient := runnertest.NewClient(runnertest.TextStream("second response", "resp_text2"))
+	second, err := New(
+		WithClient(secondClient),
+		WithWorkspace(t.TempDir()),
+		WithSessionStoreDir(dir),
+		WithResumeSession(first.SessionID()),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+	require.Equal(t, first.SessionID(), second.SessionID())
+	require.NoError(t, second.RunTurn(context.Background(), 1, "second task"))
+	require.Len(t, secondClient.RequestAt(0).Messages, 5)
+	requireMessageText(t, secondClient.RequestAt(0).Messages[0], "first task")
+	requireMessageText(t, secondClient.RequestAt(0).Messages[4], "second task")
+}
+
 func TestAgentUsesNativeContinuationWhenAvailable(t *testing.T) {
 	dir := t.TempDir()
 	providerIdentity := conversation.ProviderIdentity{

@@ -102,11 +102,11 @@ func defaultProject(input ProjectionInput) (ProjectionResult, error) {
 	extensions := cloneExtensions(input.Extensions)
 	items := append([]Item(nil), input.Items...)
 	if len(items) == 0 && len(input.Messages) > 0 {
-		items = itemsFromMessages(input.Messages)
+		items = ItemsFromMessages(input.Messages)
 	}
 	pendingItems := append([]Item(nil), input.PendingItems...)
 	if len(pendingItems) == 0 && len(input.PendingMessages) > 0 {
-		pendingItems = itemsFromMessages(input.PendingMessages)
+		pendingItems = ItemsFromMessages(input.PendingMessages)
 	}
 	pendingMessages := MessagesFromItems(pendingItems)
 	if input.AllowNativeContinuation && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
@@ -129,7 +129,7 @@ func defaultProject(input ProjectionInput) (ProjectionResult, error) {
 	return ProjectionResult{Messages: messages, Extensions: extensions}, nil
 }
 
-func itemsFromMessages(messages []unified.Message) []Item {
+func ItemsFromMessages(messages []unified.Message) []Item {
 	items := make([]Item, 0, len(messages))
 	for _, message := range messages {
 		items = append(items, Item{Kind: ItemMessage, Message: message})

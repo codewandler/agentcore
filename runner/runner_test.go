@@ -22,7 +22,7 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 		},
 	)
-	sess := conversation.New()
+	sess := newTestHistory("")
 
 	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build(),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "test", APIKind: "responses"}),
@@ -55,7 +55,7 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 
 func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("next", "resp_2"))
-	sess := conversation.New()
+	sess := newTestHistory("")
 	fragment := conversation.NewTurnFragment()
 	fragment.AddRequestMessages(unified.Message{
 		Role:    unified.RoleUser,
@@ -99,7 +99,7 @@ func TestRunTurnKeepsCodexProjectionAsReplay(t *testing.T) {
 		},
 		runnertest.TextStream("next", "resp_next"),
 	)
-	sess := conversation.New(conversation.WithConversationID("thread_codex"))
+	sess := newTestHistory("thread_codex")
 
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build(),
 		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "codex_responses", APIKind: "codex.responses", NativeModel: "gpt-test"}),
@@ -120,7 +120,7 @@ func TestRunTurnKeepsCodexProjectionAsReplay(t *testing.T) {
 
 func TestRunTurnPreservesReasoningSignatureForReplay(t *testing.T) {
 	client := runnertest.NewClient(runnertest.ReasoningTextStream("think", "sig", "hello"))
-	sess := conversation.New()
+	sess := newTestHistory("")
 
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestRunTurnExecutesToolAndCommitsWholeTranscript(t *testing.T) {
 	}) (tool.Result, error) {
 		return tool.Text(p.Text), nil
 	})
-	sess := conversation.New(conversation.WithTools(tool.UnifiedToolsFrom([]tool.Tool{echo})))
+	sess := newTestHistory("")
 
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("use echo").Build(), WithTools([]tool.Tool{echo}))
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestRunTurnAccumulatesToolArgsDeltas(t *testing.T) {
 		return tool.Text(p.Text), nil
 	})
 
-	result, err := RunTurn(context.Background(), conversation.New(), client, conversation.NewRequest().User("use echo").Build(),
+	result, err := RunTurn(context.Background(), newTestHistory(""), client, conversation.NewRequest().User("use echo").Build(),
 		WithTools([]tool.Tool{echo}),
 		WithMaxSteps(1),
 	)
@@ -197,7 +197,7 @@ func TestRunTurnToolTimeoutEmitsTimedOutResult(t *testing.T) {
 		return nil, ctx.Err()
 	})
 
-	result, err := RunTurn(context.Background(), conversation.New(), client, conversation.NewRequest().User("use slow").Build(),
+	result, err := RunTurn(context.Background(), newTestHistory(""), client, conversation.NewRequest().User("use slow").Build(),
 		WithTools([]tool.Tool{slow}),
 		WithToolTimeout(time.Millisecond),
 		WithMaxSteps(1),
@@ -220,7 +220,7 @@ func TestRunTurnCancellationEmitsCanceledForRemainingToolCalls(t *testing.T) {
 		return toolResult(call, "should not run", false)
 	})
 
-	result, err := RunTurn(ctx, conversation.New(), client, conversation.NewRequest().User("use tools").Build(), WithToolExecutor(executor))
+	result, err := RunTurn(ctx, newTestHistory(""), client, conversation.NewRequest().User("use tools").Build(), WithToolExecutor(executor))
 	require.ErrorIs(t, err, context.Canceled)
 	var outputs []string
 	for _, event := range result.Events {
@@ -240,7 +240,7 @@ func TestRunTurnPassesThroughWarningsAndRawEvents(t *testing.T) {
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
 		},
 	)
-	result, err := RunTurn(context.Background(), conversation.New(), client, conversation.NewRequest().User("hi").Build())
+	result, err := RunTurn(context.Background(), newTestHistory(""), client, conversation.NewRequest().User("hi").Build())
 	require.NoError(t, err)
 	requireEventType[WarningEvent](t, result.Events)
 	requireEventType[RawEvent](t, result.Events)
@@ -248,7 +248,7 @@ func TestRunTurnPassesThroughWarningsAndRawEvents(t *testing.T) {
 
 func TestRunTurnProviderErrorDoesNotCommit(t *testing.T) {
 	client := runnertest.NewClient(runnertest.ErrorStream(errors.New("boom")))
-	sess := conversation.New()
+	sess := newTestHistory("")
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
 	require.ErrorContains(t, err, "boom")
 	messages, msgErr := sess.Messages()
@@ -258,7 +258,7 @@ func TestRunTurnProviderErrorDoesNotCommit(t *testing.T) {
 
 func TestRunTurnIncompleteStreamDoesNotCommit(t *testing.T) {
 	client := runnertest.NewClient(runnertest.IncompleteTextStream("partial"))
-	sess := conversation.New()
+	sess := newTestHistory("")
 	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build())
 	require.ErrorContains(t, err, "without completed")
 	messages, msgErr := sess.Messages()
@@ -288,6 +288,72 @@ func requireEventType[T Event](t *testing.T, events []Event) T {
 	var zero T
 	require.Failf(t, "missing event type", "%T", zero)
 	return zero
+}
+
+type testHistory struct {
+	sessionID string
+	branch    conversation.BranchID
+	tree      *conversation.Tree
+}
+
+func newTestHistory(sessionID string) *testHistory {
+	if sessionID == "" {
+		sessionID = "test_session"
+	}
+	return &testHistory{
+		sessionID: sessionID,
+		branch:    conversation.MainBranch,
+		tree:      conversation.NewTree(),
+	}
+}
+
+func (h *testHistory) SessionID() string             { return h.sessionID }
+func (h *testHistory) Branch() conversation.BranchID { return h.branch }
+func (h *testHistory) Tree() *conversation.Tree      { return h.tree }
+
+func (h *testHistory) Messages() ([]unified.Message, error) {
+	return conversation.ProjectMessages(h.tree, h.branch)
+}
+
+func (h *testHistory) BuildRequestForProvider(req conversation.Request, identity conversation.ProviderIdentity) (unified.Request, error) {
+	items, err := conversation.ProjectItems(h.tree, h.branch)
+	if err != nil {
+		return unified.Request{}, err
+	}
+	pending := append([]unified.Message(nil), req.Messages...)
+	projection, err := conversation.DefaultProjectionPolicy().Project(conversation.ProjectionInput{
+		Tree:                    h.tree,
+		Branch:                  h.branch,
+		ProviderIdentity:        identity,
+		Items:                   items,
+		PendingItems:            conversation.ItemsFromMessages(pending),
+		PendingMessages:         pending,
+		Extensions:              req.Extensions,
+		AllowNativeContinuation: true,
+	})
+	if err != nil {
+		return unified.Request{}, err
+	}
+	out := unified.Request{
+		Model:      req.Model,
+		Messages:   projection.Messages,
+		Stream:     req.Stream,
+		Extensions: projection.Extensions,
+	}
+	if conversation.IsCodexResponsesIdentity(identity) {
+		if err := conversation.AddCodexSessionHints(&out, identity, string(h.sessionID), h.tree, h.branch); err != nil {
+			return unified.Request{}, err
+		}
+	}
+	return out, nil
+}
+
+func (h *testHistory) CommitFragment(fragment *conversation.TurnFragment) ([]conversation.NodeID, error) {
+	payloads, err := fragment.Payloads()
+	if err != nil {
+		return nil, err
+	}
+	return h.tree.AppendMany(h.branch, payloads...)
 }
 
 func routeWithContinuation(providerName string, api string, family string, publicModel string, nativeModel string, consumer unified.ContinuationMode) unified.RouteEvent {

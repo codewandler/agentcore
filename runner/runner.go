@@ -19,9 +19,17 @@ type Result struct {
 	Steps  int
 }
 
-func RunTurn(ctx context.Context, session *conversation.Session, client unified.Client, req conversation.Request, opts ...Option) (Result, error) {
-	if session == nil {
-		return Result{}, fmt.Errorf("runner: session is required")
+type History interface {
+	SessionID() string
+	Tree() *conversation.Tree
+	Branch() conversation.BranchID
+	BuildRequestForProvider(conversation.Request, conversation.ProviderIdentity) (unified.Request, error)
+	CommitFragment(*conversation.TurnFragment) ([]conversation.NodeID, error)
+}
+
+func RunTurn(ctx context.Context, history History, client unified.Client, req conversation.Request, opts ...Option) (Result, error) {
+	if history == nil {
+		return Result{}, fmt.Errorf("runner: history is required")
 	}
 	if client == nil {
 		return Result{}, fmt.Errorf("runner: client is required")
@@ -30,7 +38,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 	if options.ToolCtx == nil {
 		options.ToolCtx = &basicToolCtx{
 			Context:   ctx,
-			sessionID: string(session.SessionID()),
+			sessionID: history.SessionID(),
 			extra:     map[string]any{},
 		}
 	}
@@ -57,7 +65,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 		stepReq.Messages = append([]unified.Message(nil), transcript...)
 		var prepared PreparedRequest
 		if options.RequestPreparer != nil {
-			nativeContinuation, err := nativeContinuationAvailable(session, currentProviderIdentity)
+			nativeContinuation, err := nativeContinuationAvailable(history, currentProviderIdentity)
 			if err != nil {
 				fragment.Fail(err)
 				emit(ErrorEvent{Err: err})
@@ -75,7 +83,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			}
 			stepReq = prepared.Request
 		}
-		wireReq, err := session.BuildRequestForProvider(stepReq, currentProviderIdentity)
+		wireReq, err := history.BuildRequestForProvider(stepReq, currentProviderIdentity)
 		if err != nil {
 			rollbackPreparedRequest(ctx, prepared)
 			fragment.Fail(err)
@@ -130,7 +138,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			fragment.SetAssistantMessage(assistant)
 			fragment.SetUsage(usage)
 			fragment.Complete(finishReason)
-			if _, err := session.CommitFragment(fragment); err != nil {
+			if _, err := history.CommitFragment(fragment); err != nil {
 				emit(ErrorEvent{Err: err})
 				return result, err
 			}
@@ -170,11 +178,11 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 	return result, err
 }
 
-func nativeContinuationAvailable(session *conversation.Session, identity conversation.ProviderIdentity) (bool, error) {
-	if session == nil {
+func nativeContinuationAvailable(history History, identity conversation.ProviderIdentity) (bool, error) {
+	if history == nil {
 		return false, nil
 	}
-	continuation, ok, err := conversation.ContinuationAtBranchHead(session.Tree(), session.Branch(), identity)
+	continuation, ok, err := conversation.ContinuationAtBranchHead(history.Tree(), history.Branch(), identity)
 	if err != nil {
 		return false, err
 	}

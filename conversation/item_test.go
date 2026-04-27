@@ -7,18 +7,15 @@ import (
 )
 
 func TestProjectItemsNormalizesMessageAndAssistantTurns(t *testing.T) {
-	session := New()
-	if _, err := session.AppendMessage(unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "hi"}}}); err != nil {
+	tree := NewTree()
+	if _, err := tree.Append(MainBranch, MessageEvent{Message: unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "hi"}}}}); err != nil {
 		t.Fatal(err)
 	}
-	fragment := NewTurnFragment()
-	fragment.SetAssistantMessage(unified.Message{Role: unified.RoleAssistant, Content: []unified.ContentPart{unified.TextPart{Text: "hello"}}})
-	fragment.Complete(unified.FinishReasonStop)
-	if _, err := session.CommitFragment(fragment); err != nil {
+	if _, err := tree.Append(MainBranch, AssistantTurnEvent{Message: unified.Message{Role: unified.RoleAssistant, Content: []unified.ContentPart{unified.TextPart{Text: "hello"}}}, FinishReason: unified.FinishReasonStop}); err != nil {
 		t.Fatal(err)
 	}
 
-	items, err := ProjectItems(session.Tree(), session.Branch())
+	items, err := ProjectItems(tree, MainBranch)
 	if err != nil {
 		t.Fatal(err)
 	}

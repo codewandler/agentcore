@@ -14,43 +14,43 @@ import (
 
 type Option func(*Engine)
 
-func WithSession(session *conversation.Session) Option {
-	return func(e *Engine) { e.session = session }
+func WithHistory(history *History) Option {
+	return func(e *Engine) { e.history = history }
 }
 
-func WithSessionOptions(opts ...conversation.Option) Option {
-	return func(e *Engine) { e.sessionOptions = append(e.sessionOptions, opts...) }
+func WithHistoryOptions(opts ...HistoryOption) Option {
+	return func(e *Engine) { e.historyOptions = append(e.historyOptions, opts...) }
 }
 
 func WithModel(model string) Option {
 	return func(e *Engine) {
 		e.request.Model = model
-		e.sessionOptions = append(e.sessionOptions, conversation.WithModel(model))
+		e.historyOptions = append(e.historyOptions, WithHistoryModel(model))
 	}
 }
 
 func WithMaxOutputTokens(max int) Option {
 	return func(e *Engine) {
 		e.request.MaxOutputTokens = &max
-		e.sessionOptions = append(e.sessionOptions, conversation.WithMaxOutputTokens(max))
+		e.historyOptions = append(e.historyOptions, WithHistoryMaxOutputTokens(max))
 	}
 }
 
 func WithTemperature(value float64) Option {
 	return func(e *Engine) {
 		e.request.Temperature = &value
-		e.sessionOptions = append(e.sessionOptions, conversation.WithTemperature(value))
+		e.historyOptions = append(e.historyOptions, WithHistoryTemperature(value))
 	}
 }
 
 func WithSystem(text string) Option {
-	return func(e *Engine) { e.sessionOptions = append(e.sessionOptions, conversation.WithSystem(text)) }
+	return func(e *Engine) { e.historyOptions = append(e.historyOptions, WithHistorySystem(text)) }
 }
 
 func WithReasoning(reasoning unified.ReasoningConfig) Option {
 	return func(e *Engine) {
 		e.request.Reasoning = &reasoning
-		e.sessionOptions = append(e.sessionOptions, conversation.WithReasoning(reasoning))
+		e.historyOptions = append(e.historyOptions, WithHistoryReasoning(reasoning))
 	}
 }
 
@@ -59,41 +59,41 @@ func WithTools(tools []tool.Tool) Option {
 		e.tools = append([]tool.Tool(nil), tools...)
 		unifiedTools := tool.UnifiedToolsFrom(tools)
 		e.request.Tools = unifiedTools
-		e.sessionOptions = append(e.sessionOptions, conversation.WithTools(unifiedTools))
+		e.historyOptions = append(e.historyOptions, WithHistoryTools(unifiedTools))
 	}
 }
 
 func WithToolChoice(choice unified.ToolChoice) Option {
 	return func(e *Engine) {
 		e.request.ToolChoice = &choice
-		e.sessionOptions = append(e.sessionOptions, conversation.WithToolChoice(choice))
+		e.historyOptions = append(e.historyOptions, WithHistoryToolChoice(choice))
 	}
 }
 
 func WithCachePolicy(policy unified.CachePolicy) Option {
 	return func(e *Engine) {
 		e.request.CachePolicy = policy
-		e.sessionOptions = append(e.sessionOptions, conversation.WithCachePolicy(policy))
+		e.historyOptions = append(e.historyOptions, WithHistoryCachePolicy(policy))
 	}
 }
 
 func WithCacheKey(key string) Option {
 	return func(e *Engine) {
 		e.request.CacheKey = key
-		e.sessionOptions = append(e.sessionOptions, conversation.WithCacheKey(key))
+		e.historyOptions = append(e.historyOptions, WithHistoryCacheKey(key))
 	}
 }
 
 func WithCacheTTL(ttl string) Option {
 	return func(e *Engine) {
 		e.request.CacheTTL = ttl
-		e.sessionOptions = append(e.sessionOptions, conversation.WithCacheTTL(ttl))
+		e.historyOptions = append(e.historyOptions, WithHistoryCacheTTL(ttl))
 	}
 }
 
 func WithProjectionPolicy(policy conversation.ProjectionPolicy) Option {
 	return func(e *Engine) {
-		e.sessionOptions = append(e.sessionOptions, conversation.WithProjectionPolicy(policy))
+		e.historyOptions = append(e.historyOptions, WithHistoryProjectionPolicy(policy))
 	}
 }
 
