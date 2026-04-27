@@ -77,20 +77,6 @@ func WithCachePolicy(policy unified.CachePolicy) Option {
 	}
 }
 
-func WithCacheKey(key string) Option {
-	return func(e *Engine) {
-		e.request.CacheKey = key
-		e.historyOptions = append(e.historyOptions, WithHistoryCacheKey(key))
-	}
-}
-
-func WithCacheTTL(ttl string) Option {
-	return func(e *Engine) {
-		e.request.CacheTTL = ttl
-		e.historyOptions = append(e.historyOptions, WithHistoryCacheTTL(ttl))
-	}
-}
-
 func WithProjectionPolicy(policy conversation.ProjectionPolicy) Option {
 	return func(e *Engine) {
 		e.historyOptions = append(e.historyOptions, WithHistoryProjectionPolicy(policy))
@@ -170,6 +156,13 @@ func WithEventHandler(handler runner.EventHandler) Option {
 	return func(e *Engine) { e.onEvent = handler }
 }
 
+// WithRequestObserver installs a hook invoked with each wire-level
+// unified.Request before it is dispatched to the model client. The observer
+// runs every turn — useful for logging, debugging, and golden-file capture.
+func WithRequestObserver(observer runner.RequestObserver) Option {
+	return func(e *Engine) { e.onRequest = observer }
+}
+
 type TurnOption func(*TurnConfig)
 
 type TurnConfig struct {
@@ -183,6 +176,7 @@ type TurnConfig struct {
 	ProviderIdentity conversation.ProviderIdentity
 	RequestPreparer  runner.RequestPreparer
 	OnEvent          runner.EventHandler
+	OnRequest        runner.RequestObserver
 }
 
 func WithTurnRequest(req conversation.Request) TurnOption {
@@ -206,6 +200,10 @@ func WithTurnToolContextFactory(factory func(context.Context) tool.Ctx) TurnOpti
 
 func WithTurnEventHandler(handler runner.EventHandler) TurnOption {
 	return func(c *TurnConfig) { c.OnEvent = handler }
+}
+
+func WithTurnRequestObserver(observer runner.RequestObserver) TurnOption {
+	return func(c *TurnConfig) { c.OnRequest = observer }
 }
 
 func WithTurnProviderIdentity(identity conversation.ProviderIdentity) TurnOption {

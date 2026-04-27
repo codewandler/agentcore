@@ -111,11 +111,12 @@ func (d *StepDisplay) writeRenderedMarkdown(markdown string) {
 	if rendered == "" {
 		return
 	}
-	if d.rendered {
+	if d.rendered && (d.atLineStart || strings.HasSuffix(markdown, "\n")) {
 		fmt.Fprint(d.w, "\n\n")
 	}
 	fmt.Fprint(d.w, rendered)
 	d.rendered = true
+	d.atLineStart = strings.HasSuffix(rendered, "\n")
 }
 
 func (d *StepDisplay) writeTextChunk(chunk string) {
@@ -128,19 +129,26 @@ func (d *StepDisplay) writeTextChunk(chunk string) {
 			chunk = d.writeFenceCandidate(chunk)
 			continue
 		}
-		if d.buffer.Pending() != "" || (d.atLineStart && shouldBufferMarkdownLineStart(chunk)) {
-			_, _ = d.buffer.WriteString(chunk)
-			if d.buffer.Pending() == "" {
-				d.atLineStart = strings.HasSuffix(chunk, "\n")
-			}
-			return
-		}
+
 		n := len(chunk)
 		if idx := strings.IndexByte(chunk, '\n'); idx >= 0 {
 			n = idx + 1
 		}
 		part := chunk[:n]
-		d.writeFastPathWithInline(part)
+		if d.buffer.Pending() != "" || (d.atLineStart && shouldBufferMarkdownLineStart(part)) || shouldBufferInlineMarkdown(part) {
+			if d.inlineBuf != "" {
+				fmt.Fprint(d.w, d.inlineBuf)
+				d.inlineBuf = ""
+			}
+			_, _ = d.buffer.WriteString(part)
+			if d.buffer.Pending() == "" {
+				d.atLineStart = strings.HasSuffix(part, "\n")
+			}
+			chunk = chunk[n:]
+			continue
+		}
+		fmt.Fprint(d.w, part)
+		d.rendered = true
 		d.atLineStart = strings.HasSuffix(part, "\n")
 		chunk = chunk[n:]
 	}
@@ -319,6 +327,86 @@ func shouldBufferMarkdownLineStart(s string) bool {
 	default:
 		return startsOrderedList(trimmed)
 	}
+}
+
+func shouldBufferInlineMarkdown(s string) bool {
+	if s == "" {
+		return false
+	}
+	return hasPotentialInlineCode(s) ||
+		hasPotentialInlineEmphasis(s) ||
+		strings.Contains(s, "](") ||
+		strings.Contains(s, "~~") ||
+		hasPotentialInlineHTMLOrAutolink(s)
+}
+
+func hasPotentialInlineCode(s string) bool {
+	return strings.Contains(s, "`")
+}
+
+func hasPotentialInlineEmphasis(s string) bool {
+	for i := 0; i < len(s); i++ {
+		marker := s[i]
+		if marker != '*' && marker != '_' {
+			continue
+		}
+		run := 1
+		for i+run < len(s) && s[i+run] == marker {
+			run++
+		}
+		prev := byte(0)
+		if i > 0 {
+			prev = s[i-1]
+		}
+		next := byte(0)
+		if i+run < len(s) {
+			next = s[i+run]
+		}
+		if canBeMarkdownDelimiter(prev, next) {
+			return true
+		}
+		i += run - 1
+	}
+	return false
+}
+
+func canBeMarkdownDelimiter(prev, next byte) bool {
+	if next == 0 || isASCIISpace(next) {
+		return false
+	}
+	if isASCIIAlnum(prev) && isASCIIPunctuation(next) {
+		return false
+	}
+	return true
+}
+
+func hasPotentialInlineHTMLOrAutolink(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '<' || i+1 >= len(s) {
+			continue
+		}
+		next := s[i+1]
+		if isASCIIAlpha(next) || next == '/' || next == '!' || next == '?' {
+			return true
+		}
+	}
+	return false
+}
+
+func isASCIISpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func isASCIIAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isASCIIAlnum(b byte) bool {
+	return isASCIIAlpha(b) || (b >= '0' && b <= '9')
+}
+
+func isASCIIPunctuation(b byte) bool {
+	return (b >= '!' && b <= '/') || (b >= ':' && b <= '@') || (b >= '[' && b <= '`') || (b >= '{' && b <= '~')
 }
 
 func startsOrderedList(s string) bool {

@@ -19,7 +19,13 @@ type Options struct {
 	ProviderIdentity conversation.ProviderIdentity
 	RequestPreparer  RequestPreparer
 	OnEvent          EventHandler
+	OnRequest        RequestObserver
 }
+
+// RequestObserver is invoked with each wire-level unified.Request right
+// before it is dispatched to the model client. Observers are read-only
+// inspection hooks; they must not mutate the request.
+type RequestObserver func(context.Context, unified.Request)
 
 type Option func(*Options)
 
@@ -97,6 +103,12 @@ func WithRequestPreparer(preparer RequestPreparer) Option {
 func WithEventHandler(handler EventHandler) Option {
 	return func(o *Options) {
 		o.OnEvent = handler
+	}
+}
+
+func WithRequestObserver(observer RequestObserver) Option {
+	return func(o *Options) {
+		o.OnRequest = observer
 	}
 }
 

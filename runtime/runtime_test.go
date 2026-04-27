@@ -167,16 +167,12 @@ func TestWithCacheDefaults(t *testing.T) {
 	client := &fakeClient{}
 	agent, err := New(client,
 		WithCachePolicy(unified.CachePolicyOff),
-		WithCacheKey("cache-key"),
-		WithCacheTTL("5m"),
 	)
 	require.NoError(t, err)
 
 	_, err = agent.RunTurn(context.Background(), "hi")
 	require.NoError(t, err)
 	require.Equal(t, unified.CachePolicyOff, client.requests[0].CachePolicy)
-	require.Equal(t, "cache-key", client.requests[0].CacheKey)
-	require.Equal(t, "5m", client.requests[0].CacheTTL)
 }
 
 func TestHistoryOptionsReturnsDefaultsFromRuntimeOptions(t *testing.T) {
@@ -193,7 +189,6 @@ func TestHistoryOptionsReturnsDefaultsFromRuntimeOptions(t *testing.T) {
 		WithTools([]tool.Tool{echo}),
 		WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
 		WithCachePolicy(unified.CachePolicyOn),
-		WithCacheKey("cache-key"),
 		WithReasoning(reasoning),
 	)...)
 
@@ -209,7 +204,6 @@ func TestHistoryOptionsReturnsDefaultsFromRuntimeOptions(t *testing.T) {
 	require.Len(t, req.Tools, 1)
 	require.Equal(t, unified.ToolChoiceAuto, req.ToolChoice.Mode)
 	require.Equal(t, unified.CachePolicyOn, req.CachePolicy)
-	require.Equal(t, "cache-key", req.CacheKey)
 	require.Equal(t, unified.ReasoningEffortHigh, req.Reasoning.Effort)
 }
 

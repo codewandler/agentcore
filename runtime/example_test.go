@@ -35,7 +35,6 @@ func ExampleNew() {
 		runtime.WithTools(toolset.ActiveTools()),
 		runtime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
 		runtime.WithCachePolicy(unified.CachePolicyOn),
-		runtime.WithCacheKey("example-session"),
 		runtime.WithMaxSteps(8),
 		runtime.WithToolContextFactory(func(ctx context.Context) tool.Ctx {
 			return runtime.NewToolContext(ctx,
@@ -67,7 +66,6 @@ func ExampleHistoryOptions() {
 		runtime.WithModel("default"),
 		runtime.WithTools(toolset.ActiveTools()),
 		runtime.WithCachePolicy(unified.CachePolicyOn),
-		runtime.WithCacheKey("example-session"),
 	)
 	history := runtime.NewHistory(opts...)
 
@@ -103,7 +101,6 @@ func ExampleOpenThreadEngine() {
 			contextproviders.Environment(contextproviders.WithWorkDir(".")),
 			contextproviders.Time(time.Minute),
 		),
-		runtime.WithCacheKey("example-session"),
 	)
 	if err != nil {
 		panic(err)

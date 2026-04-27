@@ -32,6 +32,7 @@ type Engine struct {
 	contextProviders []agentcontext.Provider
 	capabilitySpecs  []capability.AttachSpec
 	onEvent          runner.EventHandler
+	onRequest        runner.RequestObserver
 }
 
 func New(client unified.Client, opts ...Option) (*Engine, error) {
@@ -210,6 +211,7 @@ func (e *Engine) turnConfig() TurnConfig {
 		ProviderIdentity: e.providerIdentity,
 		RequestPreparer:  e.requestPreparer,
 		OnEvent:          e.onEvent,
+		OnRequest:        e.onRequest,
 	}
 }
 
@@ -222,6 +224,7 @@ func (c TurnConfig) runnerOptions() []runner.Option {
 		runner.WithProviderIdentity(c.ProviderIdentity),
 		runner.WithRequestPreparer(c.RequestPreparer),
 		runner.WithEventHandler(c.OnEvent),
+		runner.WithRequestObserver(c.OnRequest),
 	}
 	if c.ToolExecutor != nil {
 		opts = append(opts, runner.WithToolExecutor(c.ToolExecutor))

@@ -23,13 +23,12 @@ const (
 	testModel    = "model"
 )
 
-func TestAgentRunTurnUsesCacheKeyAndRecordsRequest(t *testing.T) {
+func TestAgentRunTurnUsesDefaultCachePolicy(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("response", "resp1"))
 	a, err := New(
 		WithClient(client),
 		WithWorkspace(t.TempDir()),
 		WithSystem("system"),
-		WithCacheKeyPrefix("test:"),
 		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
 	)
 	require.NoError(t, err)
@@ -37,7 +36,6 @@ func TestAgentRunTurnUsesCacheKeyAndRecordsRequest(t *testing.T) {
 	require.NoError(t, a.RunTurn(context.Background(), 1, "hello"))
 	require.Len(t, client.Requests(), 1)
 	require.Equal(t, unified.CachePolicyOn, client.RequestAt(0).CachePolicy)
-	require.Equal(t, "test:"+a.SessionID(), client.RequestAt(0).CacheKey)
 	requireMessageText(t, client.RequestAt(0).Messages[len(client.RequestAt(0).Messages)-1], "hello")
 	requireRequestContainsText(t, client.RequestAt(0), "working_directory:")
 }
@@ -139,8 +137,10 @@ func TestAgentPersistsAndResumesSession(t *testing.T) {
 	require.NoError(t, second.RunTurn(context.Background(), 1, "second task"))
 	require.Len(t, secondClient.Requests(), 1)
 	require.Len(t, secondClient.RequestAt(0).Messages, 5)
-	requireMessageText(t, secondClient.RequestAt(0).Messages[0], "first task")
-	requireMessageText(t, secondClient.RequestAt(0).Messages[1], "first response")
+	requireRequestContainsText(t, secondClient.RequestAt(0), "working_directory:")
+	requireRequestContainsText(t, secondClient.RequestAt(0), "current_time:")
+	requireMessageText(t, secondClient.RequestAt(0).Messages[2], "first task")
+	requireMessageText(t, secondClient.RequestAt(0).Messages[3], "first response")
 	requireRequestContainsText(t, secondClient.RequestAt(0), "working_directory:")
 	requireRequestContainsText(t, secondClient.RequestAt(0), "current_time:")
 	requireMessageText(t, secondClient.RequestAt(0).Messages[4], "second task")
@@ -170,7 +170,7 @@ func TestAgentResumesSessionByIDFromStoreDir(t *testing.T) {
 	require.Equal(t, first.SessionID(), second.SessionID())
 	require.NoError(t, second.RunTurn(context.Background(), 1, "second task"))
 	require.Len(t, secondClient.RequestAt(0).Messages, 5)
-	requireMessageText(t, secondClient.RequestAt(0).Messages[0], "first task")
+	requireRequestContainsText(t, secondClient.RequestAt(0), "working_directory:")
 	requireMessageText(t, secondClient.RequestAt(0).Messages[4], "second task")
 }
 

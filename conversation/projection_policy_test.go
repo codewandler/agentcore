@@ -43,6 +43,71 @@ func TestProjectionKeepsPendingContextOutsideCompaction(t *testing.T) {
 	requireTextPart(t, projection.Messages[1], "latest context")
 }
 
+func TestProjectionPlacesPrefixItemsBeforeHistoryAndPendingMessages(t *testing.T) {
+	tree := NewTree()
+	if _, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "history")}); err != nil {
+		t.Fatal(err)
+	}
+
+	projection, err := DefaultProjectionPolicy().Project(ProjectionInput{
+		Tree:         tree,
+		Branch:       MainBranch,
+		PrefixItems:  []Item{{Kind: ItemContextFragment, Message: textMessage(unified.RoleUser, "prefix")}},
+		Items:        []Item{{Kind: ItemMessage, Message: textMessage(unified.RoleUser, "history")}},
+		PendingItems: ItemsFromMessages([]unified.Message{textMessage(unified.RoleUser, "next")}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(projection.Messages), 3; got != want {
+		t.Fatalf("messages = %d, want %d: %#v", got, want, projection.Messages)
+	}
+	requireTextPart(t, projection.Messages[0], "prefix")
+	requireTextPart(t, projection.Messages[1], "history")
+	requireTextPart(t, projection.Messages[2], "next")
+}
+
+func TestProjectionKeepsPrefixItemsWhenUsingNativeContinuation(t *testing.T) {
+	tree := NewTree()
+	user, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "history")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assistant, err := tree.Append(MainBranch, AssistantTurnEvent{
+		Message: textMessage(unified.RoleAssistant, "answer"),
+		Continuations: []ProviderContinuation{{
+			ProviderName:         "openai",
+			APIKind:              "openai.responses",
+			NativeModel:          "gpt-test",
+			ResponseID:           "resp_1",
+			ConsumerContinuation: unified.ContinuationPreviousResponseID,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tree.Append(MainBranch, CompactionEvent{Summary: "summary", Replaces: []NodeID{user, assistant}}); err != nil {
+		t.Fatal(err)
+	}
+
+	projection, err := DefaultProjectionPolicy().Project(ProjectionInput{
+		Tree:                    tree,
+		Branch:                  MainBranch,
+		ProviderIdentity:        ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
+		PrefixItems:             []Item{{Kind: ItemContextFragment, Message: textMessage(unified.RoleUser, "prefix")}},
+		PendingItems:            ItemsFromMessages([]unified.Message{textMessage(unified.RoleUser, "again")}),
+		AllowNativeContinuation: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(projection.Messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d: %#v", got, want, projection.Messages)
+	}
+	requireTextPart(t, projection.Messages[0], "prefix")
+	requireTextPart(t, projection.Messages[1], "again")
+}
+
 func TestProjectionDoesNotUseNativeContinuationAfterCompactionHead(t *testing.T) {
 	tree := NewTree()
 	user, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "old")})

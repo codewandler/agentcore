@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,8 +15,11 @@ import (
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/resource"
+	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/terminal/repl"
 	"github.com/codewandler/agentsdk/terminal/ui"
+	"github.com/codewandler/llmadapter/unified"
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -41,8 +45,8 @@ type Config struct {
 	SystemOverride   string
 	ToolTimeout      time.Duration
 	TotalTimeout     time.Duration
-	CacheKeyPrefix   string
 	Verbose          bool
+	DebugMessage     bool
 	Prompt           string
 
 	AgentOptions    []agent.Option
@@ -54,7 +58,21 @@ type Config struct {
 	Err io.Writer
 }
 
-func Run(ctx context.Context, cfg Config) error {
+// Loaded captures everything the CLI sets up before sending a task or
+// rendering a request, so callers (run, render) can share the load path.
+type Loaded struct {
+	App       *app.App
+	Agent     *agent.Instance
+	Workspace string
+	In        io.Reader
+	Out       io.Writer
+	Err       io.Writer
+}
+
+// Load resolves resources, instantiates the default agent, and returns the
+// app + agent without executing any task or REPL. It is the shared prelude
+// used by Run and the render command.
+func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -74,7 +92,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if workspace == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		workspace = wd
 	}
@@ -83,14 +101,14 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	sessionsDir, err := resolveSessionsDir(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resumePath, err := ResolveSessionPath(sessionsDir, cfg.Session, cfg.ContinueLast)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if cfg.Resources == nil {
-		return fmt.Errorf("cli: resources are required")
+		return nil, fmt.Errorf("cli: resources are required")
 	}
 	policy := cfg.DiscoveryPolicy
 	if policy.TrustStoreDir == "" {
@@ -98,7 +116,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	resolved, err := cfg.Resources.Resolve(policy)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(resolved.Bundle.AgentSpecs) == 0 && strings.TrimSpace(cfg.AgentName) == "" {
 		spec := agent.DefaultSpec()
@@ -107,7 +125,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	name, err := resolved.ResolveDefaultAgent(cfg.AgentName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := resolved.UpdateAgentSpec(name, func(spec *agent.Spec) {
 		if cfg.ApplyInference {
@@ -120,7 +138,7 @@ func Run(ctx context.Context, cfg Config) error {
 			spec.System = cfg.SystemOverride
 		}
 	}); err != nil {
-		return err
+		return nil, err
 	}
 	modelPolicy := cfg.ModelPolicy
 	applyModelPolicy := cfg.ApplyModelPolicy
@@ -135,7 +153,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.ApplySourceAPI && applyModelPolicy {
 		sourceAPI, err := agent.ParseSourceAPI(cfg.SourceAPI)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		modelPolicy.SourceAPI = sourceAPI
 	}
@@ -156,20 +174,17 @@ func Run(ctx context.Context, cfg Config) error {
 	if sessionsDir != "" {
 		appOpts = append(appOpts, app.WithAgentSessionStoreDir(sessionsDir))
 	}
-	if cfg.CacheKeyPrefix != "" {
-		appOpts = append(appOpts, app.WithAgentCacheKeyPrefix(cfg.CacheKeyPrefix))
-	}
 	appOpts = append(appOpts, cfg.AppOptions...)
 	application, err := app.New(appOpts...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	instOpts := append([]agent.Option(nil), cfg.AgentOptions...)
 	if cfg.ApplySourceAPI {
 		sourceAPI, err := agent.ParseSourceAPI(cfg.SourceAPI)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		instOpts = append(instOpts, agent.WithSourceAPI(sourceAPI))
 	}
@@ -179,9 +194,35 @@ func Run(ctx context.Context, cfg Config) error {
 	if resumePath != "" {
 		instOpts = append(instOpts, agent.WithResumeSession(resumePath))
 	}
-	if _, err := application.InstantiateDefaultAgent(instOpts...); err != nil {
+	if cfg.DebugMessage {
+		instOpts = append(instOpts, agent.WithRequestObserver(debugMessageObserver(out)))
+	}
+	inst, err := application.InstantiateDefaultAgent(instOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return &Loaded{
+		App:       application,
+		Agent:     inst,
+		Workspace: workspace,
+		In:        in,
+		Out:       out,
+		Err:       errOut,
+	}, nil
+}
+
+func Run(ctx context.Context, cfg Config) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	loaded, err := Load(ctx, cfg)
+	if err != nil {
 		return err
 	}
+	in := loaded.In
+	out := loaded.Out
+	errOut := loaded.Err
+	application := loaded.App
 
 	if strings.TrimSpace(cfg.Task) != "" {
 		runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt)
@@ -208,6 +249,21 @@ func Run(ctx context.Context, cfg Config) error {
 	return repl.Run(ctx, application, in, repl.WithPrompt(prompt))
 }
 
+// debugMessageObserver returns a RequestObserver that prints each outgoing
+// request's messages slice as YAML, separated by document markers so
+// successive turns can be distinguished.
+func debugMessageObserver(out io.Writer) runner.RequestObserver {
+	return func(_ context.Context, req unified.Request) {
+		payload, err := marshalMessagesYAML(req.Messages)
+		if err != nil {
+			fmt.Fprintf(out, "# debug-message: marshal error: %v\n", err)
+			return
+		}
+		fmt.Fprintln(out, "---")
+		_, _ = out.Write(payload)
+	}
+}
+
 func overlayModelPolicy(base agent.ModelPolicy, override agent.ModelPolicy) agent.ModelPolicy {
 	out := base
 	if override.UseCase != "" {
@@ -229,6 +285,21 @@ func overlayModelPolicy(base agent.ModelPolicy, override agent.ModelPolicy) agen
 		out.EvidencePath = override.EvidencePath
 	}
 	return out
+}
+
+// marshalMessagesYAML serializes the messages slice as YAML, routing through
+// JSON so the snake_case names and omitempty semantics from unified's `json`
+// tags are honored.
+func marshalMessagesYAML(messages []unified.Message) ([]byte, error) {
+	raw, err := json.Marshal(messages)
+	if err != nil {
+		return nil, err
+	}
+	var shaped any
+	if err := yaml.Unmarshal(raw, &shaped); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(shaped)
 }
 
 func resolveSessionsDir(cfg Config) (string, error) {

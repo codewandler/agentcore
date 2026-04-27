@@ -23,22 +23,22 @@ import (
 // App is the user-facing composition root. It owns command dispatch and one or
 // more running agent instances.
 type App struct {
-	out          io.Writer
-	commands     *command.Registry
-	agents       map[string]*agent.Instance
-	specs        map[string]agent.Spec
-	specCommands map[string][]string
-	protected    map[string]bool
-	diagnostics  []resource.Diagnostic
-	defaultAgent string
+	out                 io.Writer
+	commands            *command.Registry
+	agents              map[string]*agent.Instance
+	specs               map[string]agent.Spec
+	specCommands        map[string][]string
+	protected           map[string]bool
+	diagnostics         []resource.Diagnostic
+	defaultAgent        string
 	plugins             map[string]Plugin
 	contextProviders    []agentcontext.Provider
 	agentContextPlugins []AgentContextPlugin
-	skillSources       []skill.Source
-	agentOptions       []agent.Option
-	tools        *tool.Catalog
-	defaultTools []tool.Tool
-	turnID       int
+	skillSources        []skill.Source
+	agentOptions        []agent.Option
+	tools               *tool.Catalog
+	defaultTools        []tool.Tool
+	turnID              int
 }
 
 type Option func(*config)
@@ -198,10 +198,6 @@ func WithAgentToolTimeout(timeout time.Duration) Option {
 
 func WithAgentSessionStoreDir(dir string) Option {
 	return WithAgentOptions(agent.WithSessionStoreDir(dir))
-}
-
-func WithAgentCacheKeyPrefix(prefix string) Option {
-	return WithAgentOptions(agent.WithCacheKeyPrefix(prefix))
 }
 
 func WithAgentVerbose(verbose bool) Option {

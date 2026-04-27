@@ -434,6 +434,7 @@ func (h *testHistory) BuildRequestForProvider(req conversation.Request, identity
 		Tree:                    h.tree,
 		Branch:                  h.branch,
 		ProviderIdentity:        identity,
+		PrefixItems:             req.PrefixItems,
 		Items:                   items,
 		PendingItems:            conversation.ItemsFromMessages(pending),
 		Extensions:              req.Extensions,

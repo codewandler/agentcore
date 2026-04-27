@@ -152,10 +152,6 @@ func WithResumeSession(path string) Option {
 	return func(a *Instance) { a.resumeSession = path }
 }
 
-func WithCacheKeyPrefix(prefix string) Option {
-	return func(a *Instance) { a.cacheKeyPrefix = prefix }
-}
-
 func WithVerbose(verbose bool) Option {
 	return func(a *Instance) { a.verbose = verbose }
 }
@@ -189,6 +185,13 @@ func WithTools(tools []tool.Tool) Option {
 
 func WithEventHandlerFactory(factory func(*Instance, int) runner.EventHandler) Option {
 	return func(a *Instance) { a.eventHandlerFactory = factory }
+}
+
+// WithRequestObserver installs a hook called with each wire-level
+// unified.Request right before it is dispatched to the model client.
+// Useful for debug logging of every turn's outgoing payload.
+func WithRequestObserver(observer runner.RequestObserver) Option {
+	return func(a *Instance) { a.requestObserver = observer }
 }
 
 func WithToolContextFactory(factory func(context.Context) tool.Ctx) Option {

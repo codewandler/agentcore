@@ -16,13 +16,12 @@ type Request struct {
 	Instructions    []unified.Instruction
 	Tools           []unified.Tool
 	ToolChoice      *unified.ToolChoice
+	PrefixItems     []Item
 	Messages        []unified.Message
 	Items           []Item
 	Stream          bool
 	User            string
 	CachePolicy     unified.CachePolicy
-	CacheKey        string
-	CacheTTL        string
 	Extensions      unified.Extensions
 }
 
@@ -81,6 +80,14 @@ func (b *Builder) ToolChoice(choice unified.ToolChoice) *Builder {
 	b.req.ToolChoice = &choice
 	return b
 }
+func (b *Builder) PrefixItem(item Item) *Builder {
+	b.req.PrefixItems = append(b.req.PrefixItems, item)
+	return b
+}
+func (b *Builder) PrefixItems(items ...Item) *Builder {
+	b.req.PrefixItems = append(b.req.PrefixItems, items...)
+	return b
+}
 func (b *Builder) Message(msg unified.Message) *Builder {
 	b.req.Messages = append(b.req.Messages, msg)
 	return b
@@ -105,8 +112,6 @@ func (b *Builder) CachePolicy(policy unified.CachePolicy) *Builder {
 	b.req.CachePolicy = policy
 	return b
 }
-func (b *Builder) CacheKey(key string) *Builder { b.req.CacheKey = key; return b }
-func (b *Builder) CacheTTL(ttl string) *Builder { b.req.CacheTTL = ttl; return b }
 func (b *Builder) Extension(key string, value any) *Builder {
 	_ = b.req.Extensions.Set(key, value)
 	return b

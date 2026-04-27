@@ -257,11 +257,12 @@ func TestStepDisplay(t *testing.T) {
 		assert.Contains(t, buf.String(), "`not a fence")
 	})
 
-	t.Run("inline code on fast path is colored", func(t *testing.T) {
+	t.Run("inline code is rendered through markdown renderer", func(t *testing.T) {
 		var buf strings.Builder
-		sd := NewStepDisplayWithRenderer(&buf, plain)
+		sd := NewStepDisplay(&buf)
 
 		sd.WriteText("Use the `config.SetTimeout` method.")
+		sd.End()
 
 		out := buf.String()
 		assert.Contains(t, out, "Use the ")
@@ -271,39 +272,99 @@ func TestStepDisplay(t *testing.T) {
 
 	t.Run("inline code across chunks is colored", func(t *testing.T) {
 		var buf strings.Builder
-		sd := NewStepDisplayWithRenderer(&buf, plain)
+		sd := NewStepDisplay(&buf)
 
 		sd.WriteText("Call `foo")
 		sd.WriteText("Bar` now")
+		sd.End()
 
 		out := buf.String()
 		assert.Contains(t, out, CodePink+"fooBar"+Reset)
 	})
 
-	t.Run("triple backtick inline code colored", func(t *testing.T) {
+	t.Run("triple backtick inline code is rendered through markdown renderer", func(t *testing.T) {
 		var buf strings.Builder
-		sd := NewStepDisplayWithRenderer(&buf, plain)
+		sd := NewStepDisplay(&buf)
 
 		// Closing run must be exactly 3 backticks (same as opening)
 		sd.WriteText("Use ```code `nested` ``` here")
+		sd.End()
 
 		out := buf.String()
 		assert.Contains(t, out, CodePink+"code `nested`"+Reset)
 		assert.Contains(t, out, " here")
 	})
 
-	t.Run("inline emphasis on fast path is styled", func(t *testing.T) {
+	t.Run("inline emphasis is rendered through markdown renderer", func(t *testing.T) {
 		var buf strings.Builder
-		sd := NewStepDisplayWithRenderer(&buf, plain)
+		sd := NewStepDisplay(&buf)
 
 		sd.WriteText("Use *italic* and **bold** and ***both***")
+		sd.End()
 
 		out := buf.String()
 		assert.Contains(t, out, Italic+"italic"+Reset)
 		assert.Contains(t, out, Bold+"bold"+Reset)
-		assert.Contains(t, out, Bold+Italic+"both"+Reset)
+		assert.Contains(t, out, Italic+Bold+"both"+Reset)
 	})
 
+	t.Run("inline emphasis adjacent to punctuation renders cleanly", func(t *testing.T) {
+		var buf strings.Builder
+		sd := NewStepDisplay(&buf)
+
+		sd.WriteText("format **foo**, then \"")
+		sd.WriteText("**Hello**:\"")
+		sd.End()
+
+		out := buf.String()
+		plainOut := ansiOnlyLineRE.ReplaceAllString(out, "")
+		assert.Contains(t, plainOut, "format foo, then \"Hello:\"")
+		assert.NotContains(t, plainOut, "**foo**")
+		assert.NotContains(t, plainOut, "**Hello**")
+		assert.Contains(t, out, Bold+"foo"+Reset+",")
+		assert.Contains(t, out, "\""+Bold+"Hello"+Reset+":\"")
+	})
+
+	t.Run("split inline emphasis adjacent to comma waits for markdown flush", func(t *testing.T) {
+		var buf strings.Builder
+		sd := NewStepDisplay(&buf)
+
+		sd.WriteText("format **fo")
+		assert.Empty(t, buf.String())
+		sd.WriteText("o**, next")
+		sd.End()
+
+		out := buf.String()
+		plainOut := ansiOnlyLineRE.ReplaceAllString(out, "")
+		assert.Contains(t, plainOut, "format foo, next")
+		assert.NotContains(t, plainOut, "**")
+		assert.Contains(t, out, Bold+"foo"+Reset+",")
+	})
+
+	t.Run("inline markdown-looking prose calls configured markdown renderer", func(t *testing.T) {
+		var buf strings.Builder
+		var rendered []string
+		sd := NewStepDisplayWithRenderer(&buf, func(s string) string {
+			rendered = append(rendered, s)
+			return "rendered:" + s
+		})
+
+		sd.WriteText("format **foo**, next")
+		assert.Empty(t, buf.String())
+		sd.End()
+
+		assert.Equal(t, []string{"format **foo**, next"}, rendered)
+		assert.Contains(t, buf.String(), "rendered:format **foo**, next")
+	})
+
+	t.Run("plain prose with math-like punctuation streams immediately", func(t *testing.T) {
+		var buf strings.Builder
+		sd := NewStepDisplay(&buf)
+
+		sd.WriteText("2 * 3 = 6 and x < y")
+
+		assert.Contains(t, buf.String(), "2 * 3 = 6 and x < y")
+	})
 	t.Run("tool call flushes pending markdown", func(t *testing.T) {
 		var buf strings.Builder
 		sd := NewStepDisplayWithRenderer(&buf, plain)

@@ -56,49 +56,49 @@ type Spec struct {
 // Instance is a running session-backed agent built from a Spec and runtime
 // options.
 type Instance struct {
-	client               unified.Client
-	autoMux              func(adapterconfig.AutoOptions) (adapterconfig.AutoResult, error)
-	autoResult           adapterconfig.AutoResult
-	providerIdentity     conversation.ProviderIdentity
-	resolvedProvider     string
-	resolvedModel        string
-	sourceAPI            adapt.ApiKind
-	sourceAPIExplicit    bool
-	modelPolicy          ModelPolicy
-	modelCompatibility   modelCompatibilityState
-	runtime              *agentruntime.Engine
-	tracker              *usage.Tracker
-	toolset              *standard.Toolset
-	inference            InferenceOptions
-	maxSteps             int
-	out                  io.Writer
-	terminalUI           bool
-	workspace            string
-	toolTimeout          time.Duration
-	system               string
-	systemBuilder        func(workspace, prompt string) string
-	sessionID            string
-	history              *agentruntime.History
-	sessionStoreDir      string
-	resumeSession        string
-	sessionStorePath     string
-	cacheKeyPrefix       string
-	verbose              bool
-	initErrs             []error
-	eventHandlerFactory  func(*Instance, int) runner.EventHandler
-	toolCtxFactory       func(context.Context) tool.Ctx
-	specName             string
-	specDescription      string
-	specTools            []string
-	specSkills           []string
-	specSkillSources     []skill.Source
-	specCommands         []string
-	specInstructionPaths []string
-	specResourceID       string
-	specResourceFrom     string
-	skillRepo            *skill.Repository
-	skillState           *skill.ActivationState
-	materializedSystem   string
+	client                   unified.Client
+	autoMux                  func(adapterconfig.AutoOptions) (adapterconfig.AutoResult, error)
+	autoResult               adapterconfig.AutoResult
+	providerIdentity         conversation.ProviderIdentity
+	resolvedProvider         string
+	resolvedModel            string
+	sourceAPI                adapt.ApiKind
+	sourceAPIExplicit        bool
+	modelPolicy              ModelPolicy
+	modelCompatibility       modelCompatibilityState
+	runtime                  *agentruntime.Engine
+	tracker                  *usage.Tracker
+	toolset                  *standard.Toolset
+	inference                InferenceOptions
+	maxSteps                 int
+	out                      io.Writer
+	terminalUI               bool
+	workspace                string
+	toolTimeout              time.Duration
+	system                   string
+	systemBuilder            func(workspace, prompt string) string
+	sessionID                string
+	history                  *agentruntime.History
+	sessionStoreDir          string
+	resumeSession            string
+	sessionStorePath         string
+	verbose                  bool
+	initErrs                 []error
+	eventHandlerFactory      func(*Instance, int) runner.EventHandler
+	requestObserver          runner.RequestObserver
+	toolCtxFactory           func(context.Context) tool.Ctx
+	specName                 string
+	specDescription          string
+	specTools                []string
+	specSkills               []string
+	specSkillSources         []skill.Source
+	specCommands             []string
+	specInstructionPaths     []string
+	specResourceID           string
+	specResourceFrom         string
+	skillRepo                *skill.Repository
+	skillState               *skill.ActivationState
+	materializedSystem       string
 	capabilitySpecs          []capability.AttachSpec
 	capabilityRegistry       capability.Registry
 	threadRuntime            *agentruntime.ThreadRuntime
@@ -112,14 +112,13 @@ func New(opts ...Option) (*Instance, error) {
 		return nil, err
 	}
 	a := &Instance{
-		inference:      DefaultInferenceOptions(),
-		maxSteps:       30,
-		out:            io.Discard,
-		toolTimeout:    30 * time.Second,
-		sessionID:      sessionID,
-		sourceAPI:      adapt.ApiOpenAIResponses,
-		cacheKeyPrefix: "agentsdk:",
-		systemBuilder:  func(_ string, prompt string) string { return prompt },
+		inference:     DefaultInferenceOptions(),
+		maxSteps:      30,
+		out:           io.Discard,
+		toolTimeout:   30 * time.Second,
+		sessionID:     sessionID,
+		sourceAPI:     adapt.ApiOpenAIResponses,
+		systemBuilder: func(_ string, prompt string) string { return prompt },
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -679,7 +678,6 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 		agentruntime.WithTools(a.toolset.ActiveTools()),
 		agentruntime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
 		agentruntime.WithCachePolicy(unified.CachePolicyOn),
-		agentruntime.WithCacheKey(a.cacheKey()),
 		agentruntime.WithMaxSteps(a.maxSteps),
 		agentruntime.WithToolTimeout(a.toolTimeout),
 		agentruntime.WithProviderIdentity(a.providerIdentity),
@@ -706,6 +704,9 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 	}
 	if reasoning, ok := a.reasoningConfig(); ok {
 		opts = append(opts, agentruntime.WithReasoning(reasoning))
+	}
+	if a.requestObserver != nil {
+		opts = append(opts, agentruntime.WithRequestObserver(a.requestObserver))
 	}
 	return opts
 }
@@ -1002,13 +1003,6 @@ func (a *Instance) reasoningConfig() (unified.ReasoningConfig, bool) {
 	default:
 		return unified.ReasoningConfig{Effort: a.inference.Effort, Expose: true}, true
 	}
-}
-
-func (a *Instance) cacheKey() string {
-	if a.sessionID == "" {
-		return ""
-	}
-	return a.cacheKeyPrefix + a.sessionID
 }
 
 func (a *Instance) newEventHandler(turnID int) runner.EventHandler {

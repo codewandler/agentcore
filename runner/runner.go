@@ -113,6 +113,9 @@ func RunTurn(ctx context.Context, history History, client unified.Client, req co
 			emit(ErrorEvent{Err: err})
 			return result, err
 		}
+		if options.OnRequest != nil {
+			options.OnRequest(ctx, wireReq)
+		}
 		emit(StepStartEvent{Step: result.Steps, MaxSteps: options.MaxSteps, Model: wireReq.Model})
 		events, err := client.Request(ctx, wireReq)
 		if err != nil {

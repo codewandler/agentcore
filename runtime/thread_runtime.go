@@ -259,6 +259,9 @@ func (r *ThreadRuntime) PrepareRequest(ctx context.Context, meta runner.RequestP
 	if len(injection.Instructions) > 0 {
 		out.Instructions = append(append([]unified.Instruction(nil), injection.Instructions...), req.Instructions...)
 	}
+	if len(injection.PrefixItems) > 0 {
+		out.PrefixItems = append(append([]conversation.Item(nil), injection.PrefixItems...), req.PrefixItems...)
+	}
 	if len(injection.Items) > 0 {
 		out.Items = append(append([]conversation.Item(nil), injection.Items...), req.Items...)
 	}
@@ -541,6 +544,9 @@ func standaloneContextPreparer(manager *agentcontext.Manager) runner.RequestPrep
 		if len(injection.Instructions) > 0 {
 			out.Instructions = append(append([]unified.Instruction(nil), injection.Instructions...), req.Instructions...)
 		}
+		if len(injection.PrefixItems) > 0 {
+			out.PrefixItems = append(append([]conversation.Item(nil), injection.PrefixItems...), req.PrefixItems...)
+		}
 		if len(injection.Items) > 0 {
 			out.Items = append(append([]conversation.Item(nil), injection.Items...), req.Items...)
 		}
@@ -660,6 +666,7 @@ func chainRequestPreparers(first runner.RequestPreparer, second runner.RequestPr
 
 type contextInjection struct {
 	Instructions []unified.Instruction
+	PrefixItems  []conversation.Item
 	Items        []conversation.Item
 }
 
@@ -679,9 +686,6 @@ func (i contextInjection) appendFragments(fragments []agentcontext.ContextFragme
 			continue
 		}
 		part := unified.TextPart{Text: content}
-		if cache := cacheControlForContextFragment(fragment); cache != nil {
-			part.CacheControl = cache
-		}
 		if fragment.Authority == agentcontext.AuthorityDeveloper || fragment.Role == unified.RoleSystem {
 			kind := unified.InstructionDeveloper
 			if fragment.Role == unified.RoleSystem {
@@ -702,7 +706,7 @@ func (i contextInjection) appendFragments(fragments []agentcontext.ContextFragme
 		if role == "" || role == unified.RoleTool {
 			role = unified.RoleUser
 		}
-		i.Items = append(i.Items, conversation.Item{
+		i.PrefixItems = append(i.PrefixItems, conversation.Item{
 			Kind: conversation.ItemContextFragment,
 			Message: unified.Message{
 				Role:    role,
@@ -716,17 +720,6 @@ func (i contextInjection) appendFragments(fragments []agentcontext.ContextFragme
 		})
 	}
 	return i
-}
-
-func cacheControlForContextFragment(fragment agentcontext.ContextFragment) *unified.CacheControl {
-	switch fragment.CachePolicy.Scope {
-	case "", agentcontext.CacheNone:
-		return nil
-	}
-	if !fragment.CachePolicy.Stable {
-		return &unified.CacheControl{Type: unified.CacheControlEphemeral}
-	}
-	return nil
 }
 
 func contextRemovalItems(removed []agentcontext.FragmentRemoved) []conversation.Item {

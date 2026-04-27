@@ -38,8 +38,6 @@ type historyDefaults struct {
 	toolChoice      *unified.ToolChoice
 	user            string
 	cachePolicy     unified.CachePolicy
-	cacheKey        string
-	cacheTTL        string
 	projection      conversation.ProjectionPolicy
 }
 
@@ -153,14 +151,6 @@ func WithHistoryCachePolicy(policy unified.CachePolicy) HistoryOption {
 	return func(h *History) { h.defaults.cachePolicy = policy }
 }
 
-func WithHistoryCacheKey(key string) HistoryOption {
-	return func(h *History) { h.defaults.cacheKey = key }
-}
-
-func WithHistoryCacheTTL(ttl string) HistoryOption {
-	return func(h *History) { h.defaults.cacheTTL = ttl }
-}
-
 func WithHistoryProjectionPolicy(policy conversation.ProjectionPolicy) HistoryOption {
 	return func(h *History) { h.defaults.projection = policy }
 }
@@ -220,6 +210,7 @@ func (h *History) buildRequest(req conversation.Request, identity conversation.P
 	if err != nil {
 		return unified.Request{}, err
 	}
+	prefixItems := append([]conversation.Item(nil), req.PrefixItems...)
 	pendingMessages := append([]unified.Message(nil), req.Messages...)
 	pendingItems := append([]conversation.Item(nil), req.Items...)
 	pendingItems = append(pendingItems, conversation.ItemsFromMessages(pendingMessages)...)
@@ -227,6 +218,7 @@ func (h *History) buildRequest(req conversation.Request, identity conversation.P
 		Tree:                    h.tree,
 		Branch:                  h.branch,
 		ProviderIdentity:        identity,
+		PrefixItems:             prefixItems,
 		Items:                   items,
 		PendingItems:            pendingItems,
 		Extensions:              req.Extensions,
@@ -253,8 +245,6 @@ func (h *History) buildRequest(req conversation.Request, identity conversation.P
 		Stream:          req.Stream,
 		User:            firstNonEmpty(req.User, h.defaults.user),
 		CachePolicy:     firstCachePolicy(req.CachePolicy, h.defaults.cachePolicy),
-		CacheKey:        firstNonEmpty(req.CacheKey, h.defaults.cacheKey),
-		CacheTTL:        firstNonEmpty(req.CacheTTL, h.defaults.cacheTTL),
 		Extensions:      projection.Extensions,
 	}
 	if len(req.Stop) > 0 {

@@ -30,7 +30,6 @@ type CommandConfig struct {
 
 	DefaultAgent       string
 	DefaultSessionsDir string
-	CacheKeyPrefix     string
 	Prompt             string
 	DiscoveryPolicy    resource.DiscoveryPolicy
 
@@ -77,6 +76,7 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 		continueLast   bool
 		sessionsDir    string
 		verbose        bool
+		debugMessage   bool
 		includeGlobal  bool
 		sourceAPIFlag  = cfg.Profile.Defaults.SourceAPI
 		useCaseFlag    string
@@ -175,8 +175,8 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 				SystemOverride:     systemPrompt,
 				ToolTimeout:        toolTimeout,
 				TotalTimeout:       totalTimeout,
-				CacheKeyPrefix:     cfg.CacheKeyPrefix,
 				Verbose:            verbose,
+				DebugMessage:       debugMessage,
 				Prompt:             cfg.Prompt,
 				AgentOptions:       append([]agent.Option(nil), cfg.AgentOptions...),
 				AppOptions:         append([]app.Option(nil), cfg.AppOptions...),
@@ -195,7 +195,7 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 	addRuntimeFlags(cmd, cfg, &maxSteps, &totalTimeout, &toolTimeout)
 	addSessionFlags(cmd, cfg, &session, &continueLast, &sessionsDir)
 	addModelCompatibilityFlags(cmd, cfg, &useCaseFlag, &approvedOnly, &allowDegraded, &allowUntested, &compatEvidence)
-	addDebugFlags(cmd, cfg, &verbose)
+	addDebugFlags(cmd, cfg, &verbose, &debugMessage)
 	applyProfileFlagVisibility(cmd, cfg.Profile)
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return completeModels(cfg.ModelCompleter, toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -378,7 +378,7 @@ func addModelCompatibilityFlags(cmd *cobra.Command, cfg CommandConfig, useCaseFl
 	annotateFlags(cmd, GroupModelCompatibility, names...)
 }
 
-func addDebugFlags(cmd *cobra.Command, cfg CommandConfig, verbose *bool) {
+func addDebugFlags(cmd *cobra.Command, cfg CommandConfig, verbose *bool, debugMessage *bool) {
 	if !cfg.Profile.groupEnabled(GroupDebug) {
 		return
 	}
@@ -387,6 +387,10 @@ func addDebugFlags(cmd *cobra.Command, cfg CommandConfig, verbose *bool) {
 	if !cfg.Profile.flagDisabled("verbose") {
 		f.BoolVarP(verbose, "verbose", "v", false, "Show resolved provider/model diagnostics")
 		names = append(names, "verbose")
+	}
+	if !cfg.Profile.flagDisabled("debug-message") {
+		f.BoolVar(debugMessage, "debug-message", false, "Render the messages that would be sent and exit without calling the model")
+		names = append(names, "debug-message")
 	}
 	annotateFlags(cmd, GroupDebug, names...)
 }
