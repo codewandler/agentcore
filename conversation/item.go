@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/codewandler/llmadapter/unified"
 )
@@ -44,8 +45,11 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 		return nil, err
 	}
 	items := make([]Item, 0, len(path))
+	indexByNode := make(map[NodeID]int, len(path))
 	replaced := make(map[NodeID]struct{})
-	for _, node := range path {
+	var compactions []compactionPlacement
+	for index, node := range path {
+		indexByNode[node.ID] = index
 		item := Item{
 			NodeID:       node.ID,
 			ParentNodeID: node.Parent,
@@ -79,9 +83,7 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 			compaction := payload
 			item.Compaction = &compaction
 			item.Message = compactionMessage(compaction)
-			for _, id := range payload.Replaces {
-				replaced[id] = struct{}{}
-			}
+			compactions = append(compactions, placeCompaction(item, payload.Replaces, index, indexByNode, replaced))
 		case *CompactionEvent:
 			if payload == nil {
 				continue
@@ -89,9 +91,7 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 			item.Kind = ItemCompaction
 			item.Compaction = payload
 			item.Message = compactionMessage(*payload)
-			for _, id := range payload.Replaces {
-				replaced[id] = struct{}{}
-			}
+			compactions = append(compactions, placeCompaction(item, payload.Replaces, index, indexByNode, replaced))
 		case AnnotationEvent, *AnnotationEvent:
 			item.Kind = ItemAnnotation
 		default:
@@ -100,16 +100,53 @@ func ProjectItems(tree *Tree, branch BranchID) ([]Item, error) {
 		items = append(items, item)
 	}
 	if len(replaced) > 0 {
+		sort.SliceStable(compactions, func(i, j int) bool {
+			return compactions[i].Index < compactions[j].Index
+		})
 		out := make([]Item, 0, len(items))
-		for _, item := range items {
+		compactionIndex := 0
+		for index, item := range items {
+			for compactionIndex < len(compactions) && compactions[compactionIndex].Index == index {
+				out = append(out, compactions[compactionIndex].Item)
+				compactionIndex++
+			}
+			if item.Kind == ItemCompaction {
+				continue
+			}
 			if _, ok := replaced[item.NodeID]; ok {
 				continue
 			}
 			out = append(out, item)
 		}
+		for compactionIndex < len(compactions) {
+			out = append(out, compactions[compactionIndex].Item)
+			compactionIndex++
+		}
 		items = out
 	}
 	return items, nil
+}
+
+type compactionPlacement struct {
+	Index int
+	Item  Item
+}
+
+func placeCompaction(item Item, replaces []NodeID, fallback int, indexByNode map[NodeID]int, replaced map[NodeID]struct{}) compactionPlacement {
+	index := fallback
+	found := false
+	for _, id := range replaces {
+		replaced[id] = struct{}{}
+		nodeIndex, ok := indexByNode[id]
+		if !ok {
+			continue
+		}
+		if !found || nodeIndex < index {
+			index = nodeIndex
+			found = true
+		}
+	}
+	return compactionPlacement{Index: index, Item: item}
 }
 
 func MessagesFromItems(items []Item) []unified.Message {

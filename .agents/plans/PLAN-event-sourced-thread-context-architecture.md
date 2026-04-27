@@ -62,16 +62,20 @@ The second cleanup pass has also landed:
 - Tool call/result recovery now drops duplicate tool calls/results during
   projection and persists a recovered, paired tool transcript when a turn aborts
   after tool execution because of cancellation or max-step exhaustion.
+- Compaction is now real projection behavior: summaries are projected at the
+  compacted window position, replaced nodes stay in the tree/thread log,
+  compaction is branch-local, pending context fragments remain outside the
+  compacted window, and native continuation is not reused after compaction
+  becomes the branch head.
 
 Remaining larger architecture work is intentionally outside this first
 implementation slice:
 
 1. Add stricter recovery events/diagnostics for malformed provider streams that
    fail before a complete assistant tool-call message is available.
-2. Add compaction event projection beyond the current runtime helper.
-3. Add indexing/repair for JSONL thread metadata if/when listing/search needs
+2. Add indexing/repair for JSONL thread metadata if/when listing/search needs
    outgrow replaying JSONL.
-4. Decide whether all durable non-capability event kinds need a shared typed
+3. Decide whether all durable non-capability event kinds need a shared typed
    registry, or whether schema validation should remain owned by the projections
    that consume those events.
 

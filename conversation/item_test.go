@@ -165,3 +165,78 @@ func TestExpandItemsDerivesToolReasoningAndContinuationItems(t *testing.T) {
 		t.Fatalf("derived items missing: reasoning=%v toolCall=%v continuation=%v items=%#v", sawReasoning, sawToolCall, sawContinuation, items)
 	}
 }
+
+func TestProjectItemsPlacesCompactionAtReplacementWindow(t *testing.T) {
+	tree := NewTree()
+	oldOne, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "old one")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTwo, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleAssistant, "old two")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "keep")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tree.Append(MainBranch, CompactionEvent{Summary: "summary", Replaces: []NodeID{oldOne, oldTwo}}); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := ProjectMessages(tree, MainBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := len(messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d: %#v", got, want, messages)
+	}
+	requireTextPart(t, messages[0], "summary")
+	requireTextPart(t, messages[1], "keep")
+	for _, id := range []NodeID{oldOne, oldTwo, keep} {
+		if _, ok := tree.Node(id); !ok {
+			t.Fatalf("original node %q missing from tree", id)
+		}
+	}
+}
+
+func TestProjectItemsCompactionIsBranchLocal(t *testing.T) {
+	tree := NewTree()
+	old, err := tree.Append(MainBranch, MessageEvent{Message: textMessage(unified.RoleUser, "old")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.Fork(MainBranch, "alt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tree.Append(MainBranch, CompactionEvent{Summary: "summary", Replaces: []NodeID{old}}); err != nil {
+		t.Fatal(err)
+	}
+
+	mainMessages, err := ProjectMessages(tree, MainBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireTextPart(t, mainMessages[0], "summary")
+
+	altMessages, err := ProjectMessages(tree, "alt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireTextPart(t, altMessages[0], "old")
+}
+
+func textMessage(role unified.Role, text string) unified.Message {
+	return unified.Message{Role: role, Content: []unified.ContentPart{unified.TextPart{Text: text}}}
+}
+
+func requireTextPart(t *testing.T, message unified.Message, want string) {
+	t.Helper()
+	if len(message.Content) != 1 {
+		t.Fatalf("content = %#v, want one text part", message.Content)
+	}
+	text, ok := message.Content[0].(unified.TextPart)
+	if !ok || text.Text != want {
+		t.Fatalf("text = %#v, want %q", message.Content[0], want)
+	}
+}
