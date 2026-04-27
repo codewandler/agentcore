@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/llmadapter/unified"
 )
+
+const EventContextRenderCommitted thread.EventKind = "harness.context_render_committed"
 
 type ThreadRuntime struct {
 	live         thread.Live
@@ -96,6 +99,9 @@ func ResumeThreadRuntime(ctx context.Context, store thread.Store, params thread.
 	if err := runtime.Replay(ctx, events); err != nil {
 		return nil, thread.Stored{}, err
 	}
+	if err := runtime.ReplayContextRenders(events); err != nil {
+		return nil, thread.Stored{}, err
+	}
 	return runtime, stored, nil
 }
 
@@ -127,11 +133,63 @@ func (r *ThreadRuntime) AttachCapability(ctx context.Context, spec capability.At
 	return r.capabilities.Attach(ctx, spec)
 }
 
+func (r *ThreadRuntime) EnsureCapabilities(ctx context.Context, specs ...capability.AttachSpec) error {
+	if r == nil || r.capabilities == nil {
+		return fmt.Errorf("runtime: thread runtime is nil")
+	}
+	for _, spec := range specs {
+		spec = r.normalizeCapabilitySpec(spec)
+		if spec.InstanceID == "" {
+			return fmt.Errorf("runtime: capability instance id is required")
+		}
+		if _, ok := r.capabilities.Capability(spec.InstanceID); ok {
+			continue
+		}
+		if _, err := r.capabilities.Attach(ctx, spec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ThreadRuntime) normalizeCapabilitySpec(spec capability.AttachSpec) capability.AttachSpec {
+	if spec.ThreadID == "" && r.live != nil {
+		spec.ThreadID = r.live.ID()
+	}
+	if spec.BranchID == "" && r.live != nil {
+		spec.BranchID = r.live.BranchID()
+	}
+	return spec
+}
+
 func (r *ThreadRuntime) Replay(ctx context.Context, events []thread.Event) error {
 	if r == nil || r.capabilities == nil {
 		return fmt.Errorf("runtime: thread runtime is nil")
 	}
 	return r.capabilities.Replay(ctx, events)
+}
+
+func (r *ThreadRuntime) ReplayContextRenders(events []thread.Event) error {
+	if r == nil || r.contexts == nil {
+		return fmt.Errorf("runtime: thread runtime is nil")
+	}
+	var latest contextRenderCommitted
+	var ok bool
+	for _, event := range events {
+		if event.Kind != EventContextRenderCommitted {
+			continue
+		}
+		var payload contextRenderCommitted
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return err
+		}
+		latest = payload
+		ok = true
+	}
+	if ok {
+		r.contexts.SetRecords(latest.Records)
+	}
+	return nil
 }
 
 func (r *ThreadRuntime) Tools() []tool.Tool {
@@ -168,13 +226,35 @@ func (r *ThreadRuntime) PrepareRequest(ctx context.Context, meta runner.RequestP
 	}
 	return runner.PreparedRequest{
 		Request: out,
-		Commit: func(context.Context) error {
+		Commit: func(ctx context.Context) error {
+			if err := r.appendContextRenderCommitted(ctx, render); err != nil {
+				return err
+			}
 			return render.Commit()
 		},
 		Rollback: func(context.Context) {
 			render.Rollback()
 		},
 	}, nil
+}
+
+type contextRenderCommitted struct {
+	Records map[agentcontext.ProviderKey]agentcontext.ProviderRenderRecord `json:"records"`
+}
+
+func (r *ThreadRuntime) appendContextRenderCommitted(ctx context.Context, render *agentcontext.PreparedRender) error {
+	if r == nil || r.live == nil || render == nil {
+		return nil
+	}
+	payload, err := json.Marshal(contextRenderCommitted{Records: render.Records()})
+	if err != nil {
+		return err
+	}
+	return r.live.Append(ctx, thread.Event{
+		Kind:    EventContextRenderCommitted,
+		Payload: payload,
+		Source:  r.source,
+	})
 }
 
 func (c *TurnConfig) addThreadRuntime(runtime *ThreadRuntime) error {

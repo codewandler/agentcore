@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/tool"
@@ -27,6 +28,7 @@ type Engine struct {
 	providerIdentity conversation.ProviderIdentity
 	requestPreparer  runner.RequestPreparer
 	threadRuntime    *ThreadRuntime
+	capabilitySpecs  []capability.AttachSpec
 	onEvent          runner.EventHandler
 }
 
@@ -108,6 +110,11 @@ func (e *Engine) RunTurn(ctx context.Context, user string, opts ...TurnOption) (
 		cfg.ToolCtx = cfg.ToolCtxFactory(ctx)
 	}
 	if e.threadRuntime != nil {
+		if len(e.capabilitySpecs) > 0 {
+			if err := e.threadRuntime.EnsureCapabilities(ctx, e.capabilitySpecs...); err != nil {
+				return runner.Result{}, err
+			}
+		}
 		if err := cfg.addThreadRuntime(e.threadRuntime); err != nil {
 			return runner.Result{}, err
 		}

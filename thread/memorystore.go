@@ -30,6 +30,94 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{threads: make(map[ID]*memoryThread)}
 }
 
+func (s *MemoryStore) Import(ctx context.Context, events ...Event) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.threads == nil {
+		s.threads = make(map[ID]*memoryThread)
+	}
+	for _, event := range events {
+		if event.ThreadID == "" {
+			return fmt.Errorf("thread: imported event has no thread id")
+		}
+		if event.Kind == "" {
+			return fmt.Errorf("thread: imported event kind is required")
+		}
+		branchID := event.BranchID
+		if branchID == "" {
+			branchID = MainBranch
+			event.BranchID = branchID
+		}
+		stored, ok := s.threads[event.ThreadID]
+		if !ok {
+			stored = &memoryThread{
+				id:        event.ThreadID,
+				branchID:  branchID,
+				branches:  map[BranchID]Branch{branchID: {ID: branchID, CreatedAt: event.At}},
+				metadata:  map[string]string{},
+				createdAt: event.At,
+				updatedAt: event.At,
+				nextSeq:   1,
+			}
+			s.threads[event.ThreadID] = stored
+		}
+		if stored.branches == nil {
+			stored.branches = map[BranchID]Branch{}
+		}
+		if _, ok := stored.branches[branchID]; !ok {
+			stored.branches[branchID] = Branch{ID: branchID, CreatedAt: event.At}
+		}
+		if event.Kind == EventThreadCreated {
+			if event.At.Before(stored.createdAt) || stored.createdAt.IsZero() {
+				stored.createdAt = event.At
+			}
+			stored.branchID = branchID
+			var payload struct {
+				Metadata map[string]string `json:"metadata,omitempty"`
+			}
+			if len(event.Payload) > 0 && json.Unmarshal(event.Payload, &payload) == nil && payload.Metadata != nil {
+				stored.metadata = cloneMetadata(payload.Metadata)
+			}
+		}
+		if event.Kind == EventBranchCreated {
+			var payload struct {
+				FromBranchID BranchID `json:"from_branch_id"`
+				ToBranchID   BranchID `json:"to_branch_id"`
+				ForkSeq      int64    `json:"fork_seq"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				return err
+			}
+			if payload.ToBranchID == "" {
+				payload.ToBranchID = branchID
+			}
+			stored.branches[payload.ToBranchID] = Branch{
+				ID:        payload.ToBranchID,
+				Parent:    payload.FromBranchID,
+				ForkSeq:   payload.ForkSeq,
+				CreatedAt: event.At,
+			}
+		}
+		if event.Kind == EventThreadArchived {
+			stored.archived = true
+		}
+		if event.Kind == EventThreadUnarchived {
+			stored.archived = false
+		}
+		stored.events = append(stored.events, cloneEvent(event))
+		if event.Seq >= stored.nextSeq {
+			stored.nextSeq = event.Seq + 1
+		}
+		if event.At.After(stored.updatedAt) || stored.updatedAt.IsZero() {
+			stored.updatedAt = event.At
+		}
+	}
+	return nil
+}
+
 func (s *MemoryStore) Create(ctx context.Context, params CreateParams) (Live, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -301,5 +389,15 @@ func (l *memoryLive) Discard(context.Context) error {
 	defer l.store.mu.Unlock()
 	delete(l.store.threads, l.threadID)
 	l.closed = true
+	return nil
+}
+
+func (s *MemoryStore) DiscardThread(ctx context.Context, id ID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.threads, id)
 	return nil
 }

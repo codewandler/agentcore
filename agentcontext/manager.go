@@ -68,6 +68,16 @@ func (m *Manager) Records() map[ProviderKey]ProviderRenderRecord {
 	return out
 }
 
+func (m *Manager) SetRecords(records map[ProviderKey]ProviderRenderRecord) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.records = make(map[ProviderKey]ProviderRenderRecord, len(records))
+	for key, record := range records {
+		m.records[key] = cloneRecord(record)
+	}
+	m.version++
+}
+
 type BuildRequest struct {
 	ThreadID     string
 	BranchID     string
@@ -205,6 +215,17 @@ func (r *PreparedRender) Commit() error {
 	r.manager.version++
 	r.done = true
 	return nil
+}
+
+func (r *PreparedRender) Records() map[ProviderKey]ProviderRenderRecord {
+	if r == nil {
+		return nil
+	}
+	out := make(map[ProviderKey]ProviderRenderRecord, len(r.records))
+	for key, record := range r.records {
+		out[key] = cloneRecord(record)
+	}
+	return out
 }
 
 func (r *PreparedRender) Rollback() {

@@ -90,6 +90,36 @@ func TestThreadRuntimeInjectsPlannerToolsContextAndResumes(t *testing.T) {
 	requireMessageContaining(t, resumedClient.requests[0], "title: Persist planner state")
 }
 
+func TestThreadRuntimeAutoAttachesConfiguredCapabilities(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_auto_capability"})
+	require.NoError(t, err)
+	registry, err := capability.NewRegistry(planner.Factory{})
+	require.NoError(t, err)
+	threadRuntime, err := NewThreadRuntime(live, registry)
+	require.NoError(t, err)
+	client := &fakeClient{}
+	engine, err := New(client,
+		WithThreadRuntime(threadRuntime),
+		WithCapabilities(capability.AttachSpec{CapabilityName: planner.CapabilityName, InstanceID: "planner_1"}),
+	)
+	require.NoError(t, err)
+
+	_, err = engine.RunTurn(ctx, "hi")
+	require.NoError(t, err)
+	requireToolSpec(t, client.requests[0], "plan")
+	stored, err := store.Read(ctx, thread.ReadParams{ID: live.ID()})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, stored.Events, capability.EventAttached, 1)
+
+	_, err = engine.RunTurn(ctx, "again")
+	require.NoError(t, err)
+	stored, err = store.Read(ctx, thread.ReadParams{ID: live.ID()})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, stored.Events, capability.EventAttached, 1)
+}
+
 func TestThreadRuntimeSendsContextDiffOnlyForNativeContinuation(t *testing.T) {
 	ctx := context.Background()
 	store := thread.NewMemoryStore()
@@ -144,6 +174,62 @@ func TestThreadRuntimeSendsContextDiffOnlyForNativeContinuation(t *testing.T) {
 	require.Len(t, client.requests, 3)
 	requireNoMessageContaining(t, client.requests[2], "Native context")
 	require.True(t, client.requests[2].Extensions.Has(unified.ExtOpenAIPreviousResponseID))
+}
+
+func TestThreadRuntimeReplaysCommittedContextRecordsOnResume(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_context_resume"})
+	require.NoError(t, err)
+	registry, err := capability.NewRegistry(planner.Factory{})
+	require.NoError(t, err)
+	threadRuntime, err := NewThreadRuntime(live, registry)
+	require.NoError(t, err)
+	_, err = threadRuntime.AttachCapability(ctx, capability.AttachSpec{CapabilityName: planner.CapabilityName, InstanceID: "planner_1"})
+	require.NoError(t, err)
+	applyPlanActions(t, ctx, threadRuntime, `{"actions":[
+		{"action":"create_plan","plan":{"id":"plan_1","title":"Resume context"}},
+		{"action":"add_step","step":{"id":"step_1","title":"Do not resend","status":"pending"}}
+	]}`)
+	session := conversation.New()
+	commitNativeContinuation(t, session, "resp_existing")
+	firstClient := &fakeClient{events: [][]unified.Event{{
+		unified.RouteEvent{
+			ProviderName:         "openai",
+			TargetAPI:            "openai.responses",
+			NativeModel:          "gpt-test",
+			ConsumerContinuation: unified.ContinuationPreviousResponseID,
+			InternalContinuation: unified.ContinuationPreviousResponseID,
+			Transport:            unified.TransportHTTPSSE,
+		},
+		unified.TextDeltaEvent{Text: "ok"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
+	}}}
+	firstEngine, err := New(firstClient,
+		WithSession(session),
+		WithThreadRuntime(threadRuntime),
+		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
+	)
+	require.NoError(t, err)
+	_, err = firstEngine.RunTurn(ctx, "render context once")
+	require.NoError(t, err)
+	requireMessageContaining(t, firstClient.requests[0], "Resume context")
+
+	resumedRuntime, _, err := ResumeThreadRuntime(ctx, store, thread.ResumeParams{ID: live.ID()}, registry)
+	require.NoError(t, err)
+	resumedClient := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "ok"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_2"},
+	}}}
+	resumedEngine, err := New(resumedClient,
+		WithSession(session),
+		WithThreadRuntime(resumedRuntime),
+		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"}),
+	)
+	require.NoError(t, err)
+	_, err = resumedEngine.RunTurn(ctx, "after resume")
+	require.NoError(t, err)
+	requireNoMessageContaining(t, resumedClient.requests[0], "Resume context")
 }
 
 func TestThreadRuntimeRollsBackContextRenderWhenProviderRequestFails(t *testing.T) {
