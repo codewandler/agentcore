@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/runner"
@@ -28,6 +29,8 @@ type Engine struct {
 	providerIdentity conversation.ProviderIdentity
 	requestPreparer  runner.RequestPreparer
 	threadRuntime    *ThreadRuntime
+	threadContexts   *agentcontext.Manager
+	contextProviders []agentcontext.Provider
 	capabilitySpecs  []capability.AttachSpec
 	onEvent          runner.EventHandler
 }
@@ -45,6 +48,9 @@ func New(client unified.Client, opts ...Option) (*Engine, error) {
 		if opt != nil {
 			opt(engine)
 		}
+	}
+	if err := engine.applyThreadContextOptions(); err != nil {
+		return nil, err
 	}
 	if engine.session == nil {
 		engine.session = conversation.New(engine.sessionOptions...)
@@ -85,6 +91,23 @@ func (e *Engine) ThreadRuntime() *ThreadRuntime {
 		return nil
 	}
 	return e.threadRuntime
+}
+
+func (e *Engine) applyThreadContextOptions() error {
+	if e == nil || e.threadRuntime == nil {
+		return nil
+	}
+	if e.threadContexts != nil && e.threadContexts != e.threadRuntime.ContextManager() {
+		return fmt.Errorf("runtime: thread context manager cannot replace an existing thread runtime context manager")
+	}
+	if len(e.contextProviders) == 0 {
+		return nil
+	}
+	manager := e.threadRuntime.ContextManager()
+	if manager == nil {
+		return fmt.Errorf("runtime: thread runtime has no context manager")
+	}
+	return manager.Register(e.contextProviders...)
 }
 
 func (e *Engine) ResetSession(opts ...conversation.Option) *conversation.Session {

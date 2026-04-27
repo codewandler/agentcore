@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/runner"
@@ -142,6 +143,16 @@ func WithRequestPreparer(preparer runner.RequestPreparer) Option {
 
 func WithThreadRuntime(runtime *ThreadRuntime) Option {
 	return func(e *Engine) { e.threadRuntime = runtime }
+}
+
+func WithThreadContextManager(manager *agentcontext.Manager) Option {
+	return func(e *Engine) { e.threadContexts = manager }
+}
+
+func WithContextProviders(providers ...agentcontext.Provider) Option {
+	return func(e *Engine) {
+		e.contextProviders = append(e.contextProviders, providers...)
+	}
 }
 
 func WithCapabilities(specs ...capability.AttachSpec) Option {

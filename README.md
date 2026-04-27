@@ -124,6 +124,8 @@ agent, stored, err := runtime.OpenThreadEngine(ctx,
         CapabilityName: planner.CapabilityName,
         InstanceID:     "planner_1",
     }),
+    // Add custom context providers here, for example env/time/git status.
+    // runtime.WithContextProviders(envProvider),
     runtime.WithCachePolicy(unified.CachePolicyOn),
     runtime.WithCacheKey("session-id"),
 )

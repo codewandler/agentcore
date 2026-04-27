@@ -83,6 +83,102 @@ func TestOpenThreadEngineCreatesMissingThreadAndResumesExistingThread(t *testing
 	requireEventCountRuntime(t, after.Events, conversation.EventConversationStored, 2)
 }
 
+func TestOpenThreadEngineUsesContextProvidersAndRestoresRecords(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	provider := runtimeContextProvider{
+		key: "env",
+		fragments: []agentcontext.ContextFragment{{
+			Key:       "env/pwd",
+			Content:   "pwd: /repo",
+			Authority: agentcontext.AuthorityUser,
+		}},
+	}
+	client := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "ok"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+	}}}
+
+	engine, _, err := OpenThreadEngine(ctx, store, thread.CreateParams{ID: "thread_engine_context_provider"}, client, registry,
+		WithContextProviders(provider),
+	)
+	require.NoError(t, err)
+	_, err = engine.RunTurn(ctx, "hello")
+	require.NoError(t, err)
+	requireMessageContaining(t, client.requests[0], "pwd: /repo")
+
+	stored, err := store.Read(ctx, thread.ReadParams{ID: "thread_engine_context_provider"})
+	require.NoError(t, err)
+	requireEventCountRuntime(t, stored.Events, EventContextRenderCommitted, 1)
+
+	resumed, _, err := ResumeThreadEngine(ctx, store, thread.ResumeParams{ID: "thread_engine_context_provider"}, &fakeClient{}, registry,
+		WithContextProviders(provider),
+	)
+	require.NoError(t, err)
+	records := resumed.ThreadRuntime().ContextManager().Records()
+	require.Contains(t, records, agentcontext.ProviderKey("env"))
+	require.NotEmpty(t, records["env"].Fragments)
+}
+
+func TestCreateThreadEngineUsesProvidedContextManager(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	manager, err := agentcontext.NewManager(runtimeContextProvider{
+		key: "policy",
+		fragments: []agentcontext.ContextFragment{{
+			Key:       "policy/rule",
+			Content:   "custom policy context",
+			Authority: agentcontext.AuthorityDeveloper,
+		}},
+	})
+	require.NoError(t, err)
+	client := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "ok"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+	}}}
+
+	engine, _, err := CreateThreadEngine(ctx, store, thread.CreateParams{ID: "thread_engine_context_manager"}, client, registry,
+		WithThreadContextManager(manager),
+	)
+	require.NoError(t, err)
+	_, err = engine.RunTurn(ctx, "hello")
+	require.NoError(t, err)
+	requireInstructionContaining(t, client.requests[0], "custom policy context")
+}
+
+func TestNewRegistersContextProvidersOnExistingThreadRuntime(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_existing_runtime_context"})
+	require.NoError(t, err)
+	registry, err := capability.NewRegistry()
+	require.NoError(t, err)
+	threadRuntime, err := NewThreadRuntime(live, registry)
+	require.NoError(t, err)
+	provider := runtimeContextProvider{
+		key: "env",
+		fragments: []agentcontext.ContextFragment{{
+			Key:       "env/shell",
+			Content:   "shell: bash",
+			Authority: agentcontext.AuthorityUser,
+		}},
+	}
+	client := &fakeClient{events: [][]unified.Event{{
+		unified.TextDeltaEvent{Text: "ok"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop},
+	}}}
+
+	engine, err := New(client, WithThreadRuntime(threadRuntime), WithContextProviders(provider))
+	require.NoError(t, err)
+	_, err = engine.RunTurn(ctx, "hello")
+	require.NoError(t, err)
+	requireMessageContaining(t, client.requests[0], "shell: bash")
+}
+
 func TestOpenThreadEngineReturnsMissingBranchErrorForExistingThread(t *testing.T) {
 	ctx := context.Background()
 	store := thread.NewMemoryStore()

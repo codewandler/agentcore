@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/conversation"
 	"github.com/codewandler/agentsdk/thread"
@@ -19,7 +20,10 @@ func CreateThreadEngine(ctx context.Context, store thread.Store, params thread.C
 	if err != nil {
 		return nil, thread.Stored{}, err
 	}
-	runtimeOpts := threadRuntimeSourceOptions(params.Source)
+	runtimeOpts, err := threadRuntimeOptionsFromEngineOptions(params.Source, opts...)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
 	threadRuntime, err := NewThreadRuntime(live, registry, runtimeOpts...)
 	if err != nil {
 		return nil, thread.Stored{}, err
@@ -59,7 +63,11 @@ func ResumeThreadEngine(ctx context.Context, store thread.Store, params thread.R
 	if err := validateThreadEngineInputs(store, client, registry); err != nil {
 		return nil, thread.Stored{}, err
 	}
-	threadRuntime, stored, err := ResumeThreadRuntime(ctx, store, params, registry)
+	runtimeOpts, err := threadRuntimeOptionsFromEngineOptions(thread.EventSource{}, opts...)
+	if err != nil {
+		return nil, thread.Stored{}, err
+	}
+	threadRuntime, stored, err := ResumeThreadRuntime(ctx, store, params, registry, runtimeOpts...)
 	if err != nil {
 		return nil, thread.Stored{}, err
 	}
@@ -84,7 +92,7 @@ func newThreadEngine(ctx context.Context, store thread.Store, threadRuntime *Thr
 		session = conversation.New(sessionOptions...)
 	}
 	engineOptions := append([]Option(nil), opts...)
-	engineOptions = append(engineOptions, WithSession(session), WithThreadRuntime(threadRuntime))
+	engineOptions = append(engineOptions, clearThreadContextOptions(), WithSession(session), WithThreadRuntime(threadRuntime))
 	engine, err := New(client, engineOptions...)
 	if err != nil {
 		return nil, err
@@ -103,6 +111,39 @@ func validateThreadEngineInputs(store thread.Store, client unified.Client, regis
 		return fmt.Errorf("runtime: capability registry is required")
 	}
 	return nil
+}
+
+func clearThreadContextOptions() Option {
+	return func(e *Engine) {
+		e.threadContexts = nil
+		e.contextProviders = nil
+	}
+}
+
+func threadRuntimeOptionsFromEngineOptions(source thread.EventSource, opts ...Option) ([]ThreadRuntimeOption, error) {
+	engine := &Engine{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(engine)
+		}
+	}
+	runtimeOpts := threadRuntimeSourceOptions(source)
+	manager := engine.threadContexts
+	if len(engine.contextProviders) > 0 {
+		if manager == nil {
+			var err error
+			manager, err = agentcontext.NewManager(engine.contextProviders...)
+			if err != nil {
+				return nil, err
+			}
+		} else if err := manager.Register(engine.contextProviders...); err != nil {
+			return nil, err
+		}
+	}
+	if manager != nil {
+		runtimeOpts = append(runtimeOpts, WithContextManager(manager))
+	}
+	return runtimeOpts, nil
 }
 
 func threadRuntimeSourceOptions(source thread.EventSource) []ThreadRuntimeOption {
