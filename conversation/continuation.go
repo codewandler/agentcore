@@ -15,12 +15,15 @@ type ProviderIdentity struct {
 }
 
 type ProviderContinuation struct {
-	ProviderName string             `json:"provider_name,omitempty"`
-	APIKind      string             `json:"api_kind,omitempty"`
-	APIFamily    string             `json:"api_family,omitempty"`
-	NativeModel  string             `json:"native_model,omitempty"`
-	ResponseID   string             `json:"response_id,omitempty"`
-	Extensions   unified.Extensions `json:"extensions,omitempty"`
+	ProviderName         string                   `json:"provider_name,omitempty"`
+	APIKind              string                   `json:"api_kind,omitempty"`
+	APIFamily            string                   `json:"api_family,omitempty"`
+	NativeModel          string                   `json:"native_model,omitempty"`
+	ResponseID           string                   `json:"response_id,omitempty"`
+	ConsumerContinuation unified.ContinuationMode `json:"consumer_continuation,omitempty"`
+	InternalContinuation unified.ContinuationMode `json:"internal_continuation,omitempty"`
+	Transport            unified.TransportKind    `json:"transport,omitempty"`
+	Extensions           unified.Extensions       `json:"extensions,omitempty"`
 }
 
 func NewProviderContinuation(identity ProviderIdentity, responseID string, extensions unified.Extensions) ProviderContinuation {
@@ -32,6 +35,14 @@ func NewProviderContinuation(identity ProviderIdentity, responseID string, exten
 		ResponseID:   responseID,
 		Extensions:   extensions,
 	}
+}
+
+func NewProviderContinuationFromRoute(identity ProviderIdentity, responseID string, route unified.RouteEvent, execution unified.ProviderExecutionEvent, extensions unified.Extensions) ProviderContinuation {
+	continuation := NewProviderContinuation(identity, responseID, extensions)
+	continuation.ConsumerContinuation = route.ConsumerContinuation
+	continuation.InternalContinuation = firstContinuationMode(execution.InternalContinuation, route.InternalContinuation)
+	continuation.Transport = firstTransportKind(execution.Transport, route.Transport)
+	return continuation
 }
 
 func (c ProviderContinuation) Matches(identity ProviderIdentity) bool {
@@ -48,6 +59,10 @@ func (c ProviderContinuation) Matches(identity ProviderIdentity) bool {
 		return false
 	}
 	return true
+}
+
+func (c ProviderContinuation) SupportsPublicPreviousResponseID() bool {
+	return c.ConsumerContinuation == unified.ContinuationPreviousResponseID
 }
 
 func ContinuationAtHead(tree *Tree, branch BranchID, identity ProviderIdentity) (ProviderContinuation, bool, error) {
@@ -102,10 +117,6 @@ func ContinuationAtBranchHead(tree *Tree, branch BranchID, identity ProviderIden
 	return ProviderContinuation{}, false, nil
 }
 
-func SupportsPreviousResponseID(identity ProviderIdentity) bool {
-	return isOpenAIResponsesKind(identity.APIKind, identity.ProviderName) || isOpenAIResponsesKind(identity.APIFamily, identity.ProviderName)
-}
-
 func isResponsesKind(kind string) bool {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	return kind == "responses" || strings.HasSuffix(kind, ".responses") || strings.Contains(kind, "responses")
@@ -127,4 +138,18 @@ func apiKindMatches(a, b string) bool {
 	a = strings.ToLower(strings.TrimSpace(a))
 	b = strings.ToLower(strings.TrimSpace(b))
 	return a == b || (isResponsesKind(a) && isResponsesKind(b))
+}
+
+func firstContinuationMode(a, b unified.ContinuationMode) unified.ContinuationMode {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func firstTransportKind(a, b unified.TransportKind) unified.TransportKind {
+	if a != "" {
+		return a
+	}
+	return b
 }

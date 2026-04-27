@@ -16,7 +16,8 @@ import (
 func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	client := runnertest.NewClient(
 		[]unified.Event{
-			runnertest.Route("openai", "openai.responses", "openai.responses", "public", "gpt-test"),
+			routeWithContinuation("openai", "openai.responses", "openai.responses", "public", "gpt-test", unified.ContinuationPreviousResponseID),
+			unified.ProviderExecutionEvent{InternalContinuation: unified.ContinuationPreviousResponseID, Transport: unified.TransportHTTPSSE},
 			unified.TextDeltaEvent{Text: "hello"},
 			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_1"},
 		},
@@ -46,6 +47,10 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "resp_1", continuation.ResponseID)
 	require.Equal(t, "gpt-test", continuation.NativeModel)
+	require.Equal(t, unified.ContinuationPreviousResponseID, continuation.ConsumerContinuation)
+	require.Equal(t, unified.TransportHTTPSSE, continuation.Transport)
+	execution := requireEventType[ProviderExecutionEvent](t, result.Events)
+	require.Equal(t, unified.TransportHTTPSSE, execution.Execution.Transport)
 }
 
 func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
@@ -60,11 +65,14 @@ func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 		Role:    unified.RoleAssistant,
 		Content: []unified.ContentPart{unified.TextPart{Text: "hi"}},
 	})
-	fragment.AddContinuation(conversation.NewProviderContinuation(
+	continuation := conversation.NewProviderContinuation(
 		conversation.ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
 		"resp_1",
 		unified.Extensions{},
-	))
+	)
+	continuation.ConsumerContinuation = unified.ContinuationPreviousResponseID
+	continuation.InternalContinuation = unified.ContinuationPreviousResponseID
+	fragment.AddContinuation(continuation)
 	fragment.Complete(unified.FinishReasonStop)
 	_, err := sess.CommitFragment(fragment)
 	require.NoError(t, err)
@@ -79,6 +87,35 @@ func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "resp_1", previousResponseID)
+}
+
+func TestRunTurnKeepsCodexProjectionAsReplay(t *testing.T) {
+	client := runnertest.NewClient(
+		[]unified.Event{
+			routeWithContinuation("codex_responses", "codex.responses", "codex.responses", "public", "gpt-test", unified.ContinuationReplay),
+			unified.ProviderExecutionEvent{InternalContinuation: unified.ContinuationPreviousResponseID, Transport: unified.TransportWebSocket},
+			unified.TextDeltaEvent{Text: "hello"},
+			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_codex"},
+		},
+		runnertest.TextStream("next", "resp_next"),
+	)
+	sess := conversation.New(conversation.WithConversationID("thread_codex"))
+
+	_, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("hi").Build(),
+		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "codex_responses", APIKind: "codex.responses", NativeModel: "gpt-test"}),
+	)
+	require.NoError(t, err)
+	_, err = RunTurn(context.Background(), sess, client, conversation.NewRequest().User("again").Build(),
+		WithProviderIdentity(conversation.ProviderIdentity{ProviderName: "codex_responses", APIKind: "codex.responses", NativeModel: "gpt-test"}),
+	)
+	require.NoError(t, err)
+	require.Len(t, client.Requests(), 2)
+	require.Greater(t, len(client.RequestAt(1).Messages), 1)
+	require.False(t, client.RequestAt(1).Extensions.Has(unified.ExtOpenAIPreviousResponseID))
+	codex, warnings := unified.CodexExtensionsFrom(client.RequestAt(1).Extensions)
+	require.Empty(t, warnings)
+	require.Equal(t, unified.InteractionSession, codex.InteractionMode)
+	require.Equal(t, "thread_codex", codex.SessionID)
 }
 
 func TestRunTurnPreservesReasoningSignatureForReplay(t *testing.T) {
@@ -251,4 +288,12 @@ func requireEventType[T Event](t *testing.T, events []Event) T {
 	var zero T
 	require.Failf(t, "missing event type", "%T", zero)
 	return zero
+}
+
+func routeWithContinuation(providerName string, api string, family string, publicModel string, nativeModel string, consumer unified.ContinuationMode) unified.RouteEvent {
+	route := runnertest.Route(providerName, api, family, publicModel, nativeModel)
+	route.ConsumerContinuation = consumer
+	route.InternalContinuation = consumer
+	route.Transport = unified.TransportHTTPSSE
+	return route
 }

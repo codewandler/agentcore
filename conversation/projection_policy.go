@@ -99,12 +99,12 @@ func estimateContentChars(part unified.ContentPart) int {
 func defaultProject(input ProjectionInput) (ProjectionResult, error) {
 	extensions := cloneExtensions(input.Extensions)
 	pendingMessages := append([]unified.Message(nil), input.PendingMessages...)
-	if input.AllowNativeContinuation && SupportsPreviousResponseID(input.ProviderIdentity) && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
+	if input.AllowNativeContinuation && !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
 		continuation, ok, err := ContinuationAtBranchHead(input.Tree, input.Branch, input.ProviderIdentity)
 		if err != nil {
 			return ProjectionResult{}, err
 		}
-		if ok {
+		if ok && continuation.SupportsPublicPreviousResponseID() {
 			extensions = mergeExtensions(continuation.Extensions, input.Extensions)
 			if !extensions.Has(unified.ExtOpenAIPreviousResponseID) {
 				if err := extensions.Set(unified.ExtOpenAIPreviousResponseID, continuation.ResponseID); err != nil {

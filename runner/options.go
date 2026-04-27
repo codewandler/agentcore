@@ -16,10 +16,13 @@ type Options struct {
 	ToolTimeout      time.Duration
 	ToolExecutor     ToolExecutor
 	ProviderIdentity conversation.ProviderIdentity
+	RequestPreparer  RequestPreparer
 	OnEvent          EventHandler
 }
 
 type Option func(*Options)
+
+type RequestPreparer func(context.Context, int, conversation.Request) (conversation.Request, error)
 
 type ToolExecutor interface {
 	ExecuteTool(ctx context.Context, call unified.ToolCall) unified.ToolResult
@@ -68,6 +71,12 @@ func WithToolExecutor(executor ToolExecutor) Option {
 func WithProviderIdentity(identity conversation.ProviderIdentity) Option {
 	return func(o *Options) {
 		o.ProviderIdentity = identity
+	}
+}
+
+func WithRequestPreparer(preparer RequestPreparer) Option {
+	return func(o *Options) {
+		o.RequestPreparer = preparer
 	}
 }
 

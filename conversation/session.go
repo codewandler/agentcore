@@ -342,6 +342,11 @@ func (s *Session) buildRequest(req Request, identity ProviderIdentity, useNative
 	if req.ToolChoice != nil {
 		out.ToolChoice = req.ToolChoice
 	}
+	if isCodexResponsesIdentity(identity) {
+		if err := s.addCodexSessionHints(&out, identity); err != nil {
+			return unified.Request{}, err
+		}
+	}
 	return out, nil
 }
 

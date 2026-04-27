@@ -55,6 +55,15 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 		result.Steps++
 		stepReq := req
 		stepReq.Messages = append([]unified.Message(nil), transcript...)
+		if options.RequestPreparer != nil {
+			prepared, err := options.RequestPreparer(ctx, result.Steps, stepReq)
+			if err != nil {
+				fragment.Fail(err)
+				emit(ErrorEvent{Err: err})
+				return result, err
+			}
+			stepReq = prepared
+		}
 		wireReq, err := session.BuildRequestForProvider(stepReq, currentProviderIdentity)
 		if err != nil {
 			fragment.Fail(err)
@@ -69,7 +78,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			return result, err
 		}
 
-		assistant, finishReason, usage, toolCalls, messageID, providerIdentity, err := consumeEvents(ctx, events, emit, eventContext{
+		assistant, finishReason, usage, toolCalls, messageID, providerIdentity, routeEvent, executionEvent, err := consumeEvents(ctx, events, emit, eventContext{
 			step:             result.Steps,
 			model:            wireReq.Model,
 			providerIdentity: currentProviderIdentity,
@@ -94,7 +103,7 @@ func RunTurn(ctx context.Context, session *conversation.Session, client unified.
 			} else {
 				assistant.ID = ""
 			}
-			fragment.AddContinuation(conversation.NewProviderContinuation(providerIdentity, messageID, unified.Extensions{}))
+			fragment.AddContinuation(conversation.NewProviderContinuationFromRoute(providerIdentity, messageID, routeEvent, executionEvent, unified.Extensions{}))
 		}
 
 		if len(toolCalls) == 0 {
@@ -148,7 +157,7 @@ type eventContext struct {
 	providerIdentity conversation.ProviderIdentity
 }
 
-func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(Event), meta eventContext) (unified.Message, unified.FinishReason, unified.Usage, []unified.ToolCall, string, conversation.ProviderIdentity, error) {
+func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(Event), meta eventContext) (unified.Message, unified.FinishReason, unified.Usage, []unified.ToolCall, string, conversation.ProviderIdentity, unified.RouteEvent, unified.ProviderExecutionEvent, error) {
 	var text strings.Builder
 	var reasoning strings.Builder
 	var reasoningSignature strings.Builder
@@ -157,19 +166,21 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 	toolBuilders := map[int]*toolCallBuilder{}
 	finishReason := unified.FinishReasonUnknown
 	providerIdentity := meta.providerIdentity
+	var routeEvent unified.RouteEvent
+	var executionEvent unified.ProviderExecutionEvent
 	var messageID string
 	var sawCompleted bool
 
 	for {
 		select {
 		case <-ctx.Done():
-			return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, ctx.Err()
+			return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, routeEvent, executionEvent, ctx.Err()
 		case event, ok := <-events:
 			if !ok {
 				if !sawCompleted {
-					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, fmt.Errorf("runner: stream ended without completed event")
+					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, routeEvent, executionEvent, fmt.Errorf("runner: stream ended without completed event")
 				}
-				return assistantMessage(messageID, text.String(), reasoning.String(), reasoningSignature.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, nil
+				return assistantMessage(messageID, text.String(), reasoning.String(), reasoningSignature.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, routeEvent, executionEvent, nil
 			}
 			switch ev := event.(type) {
 			case unified.MessageStartEvent:
@@ -223,16 +234,20 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 				}
 			case unified.ErrorEvent:
 				if ev.Err != nil {
-					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, ev.Err
+					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, routeEvent, executionEvent, ev.Err
 				}
-				return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, fmt.Errorf("runner: provider stream error")
+				return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, routeEvent, executionEvent, fmt.Errorf("runner: provider stream error")
 			case unified.WarningEvent:
 				emit(WarningEvent{Step: meta.step, Warning: ev})
 			case unified.RawEvent:
 				emit(RawEvent{Step: meta.step, Raw: ev})
 			case unified.RouteEvent:
+				routeEvent = ev
 				providerIdentity = providerIdentityFromRouteEvent(ev)
 				emit(RouteEvent{Step: meta.step, Route: ev, ProviderIdentity: providerIdentity})
+			case unified.ProviderExecutionEvent:
+				executionEvent = ev
+				emit(ProviderExecutionEvent{Step: meta.step, Execution: ev})
 			}
 		}
 	}

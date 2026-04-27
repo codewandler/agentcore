@@ -97,7 +97,18 @@ func TestAgentUsesNativeContinuationWhenAvailable(t *testing.T) {
 		APIKind:      "openai.responses",
 		NativeModel:  testModel,
 	}
-	firstClient := runnertest.NewClient(runnertest.TextStream("first response", "resp_text"))
+	firstClient := runnertest.NewClient([]unified.Event{
+		unified.RouteEvent{
+			ProviderName:         testProvider,
+			TargetAPI:            "openai.responses",
+			NativeModel:          testModel,
+			ConsumerContinuation: unified.ContinuationPreviousResponseID,
+			InternalContinuation: unified.ContinuationPreviousResponseID,
+			Transport:            unified.TransportHTTPSSE,
+		},
+		unified.TextDeltaEvent{Text: "first response"},
+		unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_text"},
+	})
 	first, err := New(
 		WithClient(firstClient),
 		WithWorkspace(t.TempDir()),

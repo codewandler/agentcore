@@ -82,10 +82,9 @@ func TestSessionCachePolicyCanBeOverridden(t *testing.T) {
 
 func TestSessionNativeContinuationProjection(t *testing.T) {
 	s := New(WithModel("model-a"))
-	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
+	commitAssistantTurn(t, s, "hello", "hi", nativeContinuation(
 		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", APIFamily: "openai.responses", NativeModel: "gpt-test"},
 		"resp_1",
-		unified.Extensions{},
 	))
 
 	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
@@ -108,10 +107,9 @@ func TestSessionNativeContinuationProjection(t *testing.T) {
 
 func TestSessionNativeContinuationFallsBackToReplayOnProviderMismatch(t *testing.T) {
 	s := New()
-	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
+	commitAssistantTurn(t, s, "hello", "hi", nativeContinuation(
 		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
 		"resp_1",
-		unified.Extensions{},
 	))
 
 	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
@@ -144,12 +142,55 @@ func TestSessionNativeContinuationFallsBackForUnsupportedResponsesFamily(t *test
 	require.False(t, req.Extensions.Has(unified.ExtOpenAIPreviousResponseID))
 }
 
-func TestSessionNativeContinuationMatchesResponsesAliases(t *testing.T) {
+func TestSessionContinuationRequiresRouteMetadata(t *testing.T) {
 	s := New()
 	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
 		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
 		"resp_1",
 		unified.Extensions{},
+	))
+
+	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
+		ProviderName: "openai",
+		APIKind:      "openai.responses",
+		NativeModel:  "gpt-test",
+	})
+	require.NoError(t, err)
+	require.Len(t, req.Messages, 3)
+	require.False(t, req.Extensions.Has(unified.ExtOpenAIPreviousResponseID))
+}
+
+func TestSessionCodexProjectionAddsSessionHintsAndKeepsReplay(t *testing.T) {
+	s := New(WithConversationID("thread_1"), WithSessionID("live_1"))
+	commitAssistantTurn(t, s, "hello", "hi", NewProviderContinuation(
+		ProviderIdentity{ProviderName: "codex_responses", APIKind: "codex.responses", NativeModel: "gpt-test"},
+		"resp_1",
+		unified.Extensions{},
+	))
+
+	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
+		ProviderName: "codex_responses",
+		APIKind:      "codex.responses",
+		NativeModel:  "gpt-test",
+	})
+	require.NoError(t, err)
+	require.Len(t, req.Messages, 3)
+	require.False(t, req.Extensions.Has(unified.ExtOpenAIPreviousResponseID))
+
+	codex, warnings := unified.CodexExtensionsFrom(req.Extensions)
+	require.Empty(t, warnings)
+	require.Equal(t, unified.InteractionSession, codex.InteractionMode)
+	require.Equal(t, "thread_1", codex.SessionID)
+	require.Equal(t, string(MainBranch), codex.BranchID)
+	require.NotEmpty(t, codex.BranchHeadID)
+	require.Equal(t, "resp_1", codex.ParentResponseID)
+}
+
+func TestSessionNativeContinuationMatchesResponsesAliases(t *testing.T) {
+	s := New()
+	commitAssistantTurn(t, s, "hello", "hi", nativeContinuation(
+		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
+		"resp_1",
 	))
 
 	req, err := s.BuildRequestForProvider(NewRequest().User("next").Build(), ProviderIdentity{
@@ -168,18 +209,16 @@ func TestSessionNativeContinuationMatchesResponsesAliases(t *testing.T) {
 
 func TestSessionNativeContinuationUsesSelectedBranchHead(t *testing.T) {
 	s := New()
-	commitAssistantTurn(t, s, "root", "root reply", NewProviderContinuation(
+	commitAssistantTurn(t, s, "root", "root reply", nativeContinuation(
 		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
 		"resp_root",
-		unified.Extensions{},
 	))
 	require.NoError(t, s.Fork("alt"))
 
 	require.NoError(t, s.Checkout(MainBranch))
-	commitAssistantTurn(t, s, "main", "main reply", NewProviderContinuation(
+	commitAssistantTurn(t, s, "main", "main reply", nativeContinuation(
 		ProviderIdentity{ProviderName: "openai", APIKind: "openai.responses", NativeModel: "gpt-test"},
 		"resp_main",
-		unified.Extensions{},
 	))
 
 	require.NoError(t, s.Checkout("alt"))
@@ -256,6 +295,14 @@ func commitAssistantTurn(t *testing.T, s *Session, userText string, assistantTex
 	fragment.Complete(unified.FinishReasonStop)
 	_, err := s.CommitFragment(fragment)
 	require.NoError(t, err)
+}
+
+func nativeContinuation(identity ProviderIdentity, responseID string) ProviderContinuation {
+	continuation := NewProviderContinuation(identity, responseID, unified.Extensions{})
+	continuation.ConsumerContinuation = unified.ContinuationPreviousResponseID
+	continuation.InternalContinuation = unified.ContinuationPreviousResponseID
+	continuation.Transport = unified.TransportHTTPSSE
+	return continuation
 }
 
 func requireText(t *testing.T, msg unified.Message, want string) {

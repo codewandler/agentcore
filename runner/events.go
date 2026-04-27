@@ -82,6 +82,11 @@ type RouteEvent struct {
 	ProviderIdentity conversation.ProviderIdentity
 }
 
+type ProviderExecutionEvent struct {
+	Step      int
+	Execution unified.ProviderExecutionEvent
+}
+
 type ErrorEvent struct {
 	Err error
 }
