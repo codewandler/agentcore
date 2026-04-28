@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -589,4 +590,147 @@ func TestWithContextProviderFactoriesSkillStateAvailable(t *testing.T) {
 	require.NotNil(t, capturedInfo.SkillRepository)
 	require.NotNil(t, capturedInfo.SkillState)
 	require.Equal(t, []string{"coder"}, capturedInfo.SkillRepository.LoadedNames())
+}
+
+func TestAgentCompactReplacesOlderMessages(t *testing.T) {
+	client := runnertest.NewClient(
+		runnertest.TextStream("resp1"),
+		runnertest.TextStream("resp2"),
+		runnertest.TextStream("resp3"),
+		runnertest.TextStream("Summary of old conversation."),
+	)
+	a, err := New(
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+		WithSystem("system"),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, a.RunTurn(ctx, 1, "old message 1"))
+	require.NoError(t, a.RunTurn(ctx, 2, "old message 2"))
+	require.NoError(t, a.RunTurn(ctx, 3, "recent message"))
+
+	result, err := a.CompactWithOptions(ctx, CompactOptions{KeepWindow: 4})
+	require.NoError(t, err)
+	require.Equal(t, 2, result.ReplacedCount)
+	require.Greater(t, result.TokensBefore, result.TokensAfter)
+	require.NotEmpty(t, result.CompactionNodeID)
+
+	// 3 turns + 1 summary request = 4 total requests.
+	require.Len(t, client.Requests(), 4)
+	summaryReq := client.RequestAt(3)
+	require.Len(t, summaryReq.Messages, 1)
+	require.Equal(t, unified.RoleUser, summaryReq.Messages[0].Role)
+}
+
+func TestAgentCompactWithProvidedSummarySkipsLLMCall(t *testing.T) {
+	client := runnertest.NewClient(
+		runnertest.TextStream("resp1"),
+		runnertest.TextStream("resp2"),
+		runnertest.TextStream("resp3"),
+	)
+	a, err := New(
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+		WithSystem("system"),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, a.RunTurn(ctx, 1, "old"))
+	require.NoError(t, a.RunTurn(ctx, 2, "old2"))
+	require.NoError(t, a.RunTurn(ctx, 3, "recent"))
+
+	result, err := a.CompactWithOptions(ctx, CompactOptions{
+		KeepWindow: 4,
+		Summary:    "Manual summary.",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, result.ReplacedCount)
+	// No extra LLM call — still only 3 requests.
+	require.Len(t, client.Requests(), 3)
+}
+
+func TestAgentCompactTooShortReturnsError(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("resp"))
+	a, err := New(
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, a.RunTurn(context.Background(), 1, "hello"))
+
+	_, err = a.Compact(context.Background())
+	require.ErrorIs(t, err, ErrNothingToCompact)
+}
+
+func TestAgentAutoCompactionTriggersAboveThreshold(t *testing.T) {
+	largeResponse := strings.Repeat("x", 400_000)
+	client := runnertest.NewClient(
+		runnertest.TextStream("resp1"),
+		runnertest.TextStream(largeResponse),
+		runnertest.TextStream("Summary of conversation."),
+	)
+	var buf bytes.Buffer
+	a, err := New(
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+		WithOutput(&buf),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+		WithAutoCompaction(AutoCompactionConfig{
+			Enabled:        true,
+			TokenThreshold: 1000,
+			KeepWindow:     2,
+		}),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, a.RunTurn(ctx, 1, "hello"))
+	require.NoError(t, a.RunTurn(ctx, 2, "generate large"))
+	require.Contains(t, buf.String(), "auto-compacted")
+}
+
+func TestAgentAutoCompactionDisabledByDefault(t *testing.T) {
+	largeResponse := strings.Repeat("x", 400_000)
+	client := runnertest.NewClient(runnertest.TextStream(largeResponse))
+	var buf bytes.Buffer
+	a, err := New(
+		WithClient(client),
+		WithWorkspace(t.TempDir()),
+		WithOutput(&buf),
+		WithInferenceOptions(InferenceOptions{Model: testProvider + "/" + testModel, MaxTokens: 1000}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, a.RunTurn(context.Background(), 1, "hello"))
+	require.NotContains(t, buf.String(), "auto-compacted")
+}
+
+func TestAgentAutoCompactionThresholdUsesContextWindow(t *testing.T) {
+	a := &Instance{
+		contextWindow:  200_000,
+		autoCompaction: AutoCompactionConfig{Enabled: true},
+	}
+	require.Equal(t, 160_000, a.autoCompactionThreshold())
+}
+
+func TestAgentAutoCompactionThresholdExplicitOverride(t *testing.T) {
+	a := &Instance{
+		contextWindow:  200_000,
+		autoCompaction: AutoCompactionConfig{Enabled: true, TokenThreshold: 50_000},
+	}
+	require.Equal(t, 50_000, a.autoCompactionThreshold())
+}
+
+func TestAgentAutoCompactionThresholdFallback(t *testing.T) {
+	a := &Instance{
+		autoCompaction: AutoCompactionConfig{Enabled: true},
+	}
+	require.Equal(t, defaultAutoCompactionThreshold, a.autoCompactionThreshold())
 }

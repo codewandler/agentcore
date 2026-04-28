@@ -73,6 +73,7 @@ func ResumeHistoryFromThread(ctx context.Context, store thread.Store, live threa
 		return nil, err
 	}
 	var inferredSessionID string
+	var lastCompactionReplaces []conversation.NodeID
 	for _, event := range events {
 		if inferredSessionID == "" && event.Source.SessionID != "" {
 			inferredSessionID = event.Source.SessionID
@@ -84,6 +85,11 @@ func ResumeHistoryFromThread(ctx context.Context, store thread.Store, live threa
 		if !ok {
 			continue
 		}
+		if event.Kind == eventConversationCompaction {
+			if ce, ok := payload.(conversation.CompactionEvent); ok {
+				lastCompactionReplaces = ce.Replaces
+			}
+		}
 		if err := h.tree.InsertNode(conversation.BranchID(event.BranchID), conversation.Node{
 			ID:        conversation.NodeID(event.NodeID),
 			Parent:    conversation.NodeID(event.ParentNodeID),
@@ -92,6 +98,9 @@ func ResumeHistoryFromThread(ctx context.Context, store thread.Store, live threa
 		}); err != nil {
 			return nil, err
 		}
+	}
+	if len(lastCompactionReplaces) > 0 {
+		h.setCompactionFloor(lastCompactionReplaces)
 	}
 	if !h.sessionIDExplicit && inferredSessionID != "" {
 		h.sessionID = inferredSessionID
@@ -195,10 +204,35 @@ func (h *History) CompactContext(ctx context.Context, summary string, replaces .
 			return "", fmt.Errorf("runtime: compaction replacement node %q not found", id)
 		}
 	}
-	return h.AppendContext(ctx, conversation.CompactionEvent{
+	id, err := h.AppendContext(ctx, conversation.CompactionEvent{
 		Summary:  summary,
 		Replaces: append([]conversation.NodeID(nil), replaces...),
 	})
+	if err != nil {
+		return "", err
+	}
+	h.setCompactionFloor(replaces)
+	return id, nil
+}
+
+// setCompactionFloor sets the tree floor to the earliest node on the current
+// path that is not in the replaced set. This bounds future Path() traversals
+// to only the active portion of the conversation.
+func (h *History) setCompactionFloor(replaced []conversation.NodeID) {
+	path, err := h.tree.Path(h.branch)
+	if err != nil || len(path) == 0 {
+		return
+	}
+	replacedSet := make(map[conversation.NodeID]struct{}, len(replaced))
+	for _, id := range replaced {
+		replacedSet[id] = struct{}{}
+	}
+	for _, node := range path {
+		if _, ok := replacedSet[node.ID]; !ok {
+			h.tree.SetFloor(h.branch, node.ID)
+			return
+		}
+	}
 }
 
 func (h *History) BuildRequestForProvider(req conversation.Request, identity conversation.ProviderIdentity) (unified.Request, error) {

@@ -146,6 +146,12 @@ func placeCompaction(item Item, replaces []NodeID, fallback int, indexByNode map
 			found = true
 		}
 	}
+	// When none of the replaced nodes are on the path (e.g. because a
+	// compaction floor excluded them), place the summary at the beginning.
+	// The summary replaces content that preceded the current visible path.
+	if !found && len(replaces) > 0 {
+		index = 0
+	}
 	return compactionPlacement{Index: index, Item: item}
 }
 

@@ -554,6 +554,71 @@ func TestEngineCompactUsesThreadRuntimeWhenConfigured(t *testing.T) {
 	requireEventCountRuntime(t, stored.Events, EventContextRenderCommitted, 1)
 }
 
+func TestCompactContextSetsFloorOnTree(t *testing.T) {
+	history := NewHistory(WithHistorySessionID("test"))
+	old1, err := history.AddUser("old1")
+	require.NoError(t, err)
+	old2, err := history.AddUser("old2")
+	require.NoError(t, err)
+	_, err = history.AddUser("keep")
+	require.NoError(t, err)
+
+	_, err = history.CompactContext(context.Background(), "summary", old1, old2)
+	require.NoError(t, err)
+
+	// Floor should be set.
+	floor, ok := history.Tree().Floor(history.Branch())
+	require.True(t, ok)
+
+	// Path should be bounded by the floor — only keep + compaction node.
+	path, err := history.Tree().Path(history.Branch())
+	require.NoError(t, err)
+	require.Len(t, path, 2, "path should contain keep + compaction node")
+
+	// Messages should project correctly: summary first, then keep.
+	messages, err := history.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	requireTextMessage(t, messages[0], "summary")
+	requireTextMessage(t, messages[1], "keep")
+	_ = floor
+}
+
+func TestCompactFloorRestoredOnResume(t *testing.T) {
+	ctx := context.Background()
+	store := thread.NewMemoryStore()
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_floor_resume"})
+	require.NoError(t, err)
+
+	history := NewHistory(WithHistorySessionID("sess"), WithHistoryLiveThread(live))
+	old, err := history.AddUser("old")
+	require.NoError(t, err)
+	_, err = history.AddUser("keep")
+	require.NoError(t, err)
+
+	_, err = history.CompactContext(ctx, "summary", old)
+	require.NoError(t, err)
+
+	// Verify floor is set on original.
+	_, ok := history.Tree().Floor(history.Branch())
+	require.True(t, ok)
+
+	// Resume from store.
+	resumed, err := ResumeHistoryFromThread(ctx, store, live, WithHistorySessionID("sess"))
+	require.NoError(t, err)
+
+	// Floor should be restored.
+	_, ok = resumed.Tree().Floor(resumed.Branch())
+	require.True(t, ok)
+
+	// Messages should match.
+	messages, err := resumed.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	requireTextMessage(t, messages[0], "summary")
+	requireTextMessage(t, messages[1], "keep")
+}
+
 func requireToolSpec(t *testing.T, req unified.Request, name string) {
 	t.Helper()
 	for _, spec := range req.Tools {

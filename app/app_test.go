@@ -646,3 +646,61 @@ func TestAgentContextPluginSkillRepoAlwaysAvailable(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, result.Text, "test_skills")
 }
+
+func TestAppCompactCommandReturnsResult(t *testing.T) {
+	client := runnertest.NewClient(
+		runnertest.TextStream("resp1"),
+		runnertest.TextStream("resp2"),
+		runnertest.TextStream("resp3"),
+		runnertest.TextStream("Summary."),
+	)
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "coder",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+	_, err = app.InstantiateAgent("coder",
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	_, err = app.Send(ctx, "old1")
+	require.NoError(t, err)
+	_, err = app.Send(ctx, "old2")
+	require.NoError(t, err)
+	_, err = app.Send(ctx, "recent")
+	require.NoError(t, err)
+
+	result, err := app.Send(ctx, "/compact")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "Compacted")
+	require.Contains(t, result.Text, "replaced")
+}
+
+func TestAppCompactCommandTooShort(t *testing.T) {
+	client := runnertest.NewClient(runnertest.TextStream("resp"))
+	app, err := New(WithAgentSpec(agent.Spec{
+		Name:      "coder",
+		System:    "You code.",
+		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+	}), WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+	_, err = app.InstantiateAgent("coder",
+		agent.WithClient(client),
+		agent.WithWorkspace(t.TempDir()),
+	)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	_, err = app.Send(ctx, "hello")
+	require.NoError(t, err)
+
+	result, err := app.Send(ctx, "/compact")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "too short")
+}

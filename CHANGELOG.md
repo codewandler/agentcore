@@ -10,6 +10,37 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-04-28
+
+### Added
+
+- Added conversation compaction with LLM-generated summaries. New
+  `agent.Instance.Compact` and `CompactWithOptions` methods replace older
+  messages with a summary node, reducing context window pressure.
+- Added `/compact` builtin slash command for user-triggered compaction.
+- Added auto-compaction between turns via `WithAutoCompaction` option.
+  When enabled, the agent checks projected token count after each turn and
+  compacts automatically when it exceeds a configurable threshold (default:
+  80% of the model's context window).
+- Added compaction floor on `conversation.Tree` — `SetFloor`/`Floor` methods
+  and `Path()` stop-at-floor behavior. After compaction, the floor bounds
+  path traversal to only the active portion of the conversation.
+- Added `conversation.ProjectItems` floor-aware placement: when replaced nodes
+  are excluded by a floor, the compaction summary is placed at the beginning
+  of the projected items.
+- Added usage event persistence to the thread event log
+  (`harness.usage_recorded`). Usage records now survive session resume.
+  Replay deduplicates by request ID.
+- Added `contextWindow` field to `agent.Instance`, populated from
+  `AutoRouteSummary.ContextWindow` via the llmadapter model resolution
+  pipeline. Also populates `contextproviders.ModelInfo.ContextWindow`.
+
+### Changed
+
+- Updated `github.com/codewandler/llmadapter` to `v1.0.0-rc.14`.
+  New version carries `Limits` (including `ContextWindow`) through
+  `ModelResolutionCandidate` and `AutoRouteSummary`.
+
 ## [0.26.0] - 2026-04-28
 
 ### Added

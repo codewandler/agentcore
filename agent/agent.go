@@ -35,6 +35,8 @@ import (
 
 var ErrMaxStepsReached = errors.New("maximum steps reached")
 
+const EventUsageRecorded thread.EventKind = "harness.usage_recorded"
+
 // Spec describes an agent identity/configuration independent of a running
 // conversation session.
 type Spec struct {
@@ -104,6 +106,8 @@ type Instance struct {
 	threadRuntime            *agentruntime.ThreadRuntime
 	extraContextProviders    []agentcontext.Provider
 	contextProviderFactories []ContextProviderFactory
+	contextWindow            int
+	autoCompaction           AutoCompactionConfig
 }
 
 func New(opts ...Option) (*Instance, error) {
@@ -428,6 +432,7 @@ func (a *Instance) RunTurn(ctx context.Context, turnID int, task string) error {
 	if err != nil {
 		return fmt.Errorf("provider=%s model=%s: %w", a.resolvedProvider, a.resolvedModel, err)
 	}
+	a.maybeAutoCompact(ctx)
 	return nil
 }
 
@@ -721,6 +726,7 @@ func (a *Instance) resolveRouteIdentity() {
 	}
 	a.resolvedProvider = summary.Provider
 	a.resolvedModel = summary.NativeModel
+	a.contextWindow = summary.ContextWindow
 	a.providerIdentity = identity
 }
 
@@ -760,6 +766,7 @@ func (a *Instance) initSession(ctx context.Context) error {
 			if err := a.replaySkillEvents(events); err != nil {
 				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
 			}
+			a.replayUsageEvents(events)
 			history, err := agentruntime.ResumeHistoryFromThread(ctx, store, tr.Live(), append(a.historyOptions(false), agentruntime.WithHistorySessionID(id))...)
 			if err != nil {
 				return fmt.Errorf("resume session %s: %w", a.resumeSession, err)
@@ -782,6 +789,7 @@ func (a *Instance) initSession(ctx context.Context) error {
 			if err == nil {
 				if branchEvents, err := stored.EventsForBranch(live.BranchID()); err == nil {
 					_ = a.replaySkillEvents(branchEvents)
+					a.replayUsageEvents(branchEvents)
 				}
 			}
 		}
@@ -950,9 +958,10 @@ func (a *Instance) contextProviders() []agentcontext.Provider {
 	addIfNotOverridden(contextproviders.Environment(contextproviders.WithWorkDir(a.workspace)))
 	addIfNotOverridden(contextproviders.Time(time.Minute))
 	addIfNotOverridden(contextproviders.Model(contextproviders.ModelInfo{
-		Name:     a.resolvedModel,
-		Provider: a.resolvedProvider,
-		Effort:   string(a.inference.Effort),
+		Name:          a.resolvedModel,
+		Provider:      a.resolvedProvider,
+		ContextWindow: a.contextWindow,
+		Effort:        string(a.inference.Effort),
 	}))
 	if a.toolset != nil {
 		addIfNotOverridden(contextproviders.Tools(a.toolset.ActiveTools()...))
@@ -1044,7 +1053,7 @@ func (a *Instance) recordEvent(turnID int, event runner.Event) {
 		a.resolvedProvider = ev.ProviderIdentity.ProviderName
 		a.resolvedModel = ev.ProviderIdentity.NativeModel
 	case runner.UsageEvent:
-		a.tracker.Record(usage.FromRunnerEvent(ev, usage.RunnerEventOptions{
+		record := usage.FromRunnerEvent(ev, usage.RunnerEventOptions{
 			TurnID:        strconv.Itoa(turnID),
 			SessionID:     a.sessionID,
 			FallbackModel: a.inference.Model,
@@ -1052,7 +1061,56 @@ func (a *Instance) recordEvent(turnID int, event runner.Event) {
 				Provider: a.resolvedProvider,
 				Model:    a.resolvedModel,
 			},
-		}))
+		})
+		a.tracker.Record(record)
+		a.persistUsageEvent(record)
+	}
+}
+
+// persistUsageEvent appends a usage record to the thread event log so it
+// survives session resume.
+func (a *Instance) persistUsageEvent(record usage.Record) {
+	if a.threadRuntime == nil || a.threadRuntime.Live() == nil {
+		return
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		if a.verbose {
+			fmt.Fprintf(a.Out(), "[usage persist: marshal error: %v]\n", err)
+		}
+		return
+	}
+	if err := a.threadRuntime.Live().Append(context.Background(), thread.Event{
+		Kind:    EventUsageRecorded,
+		Payload: raw,
+		Source:  thread.EventSource{Type: "session", SessionID: a.sessionID},
+	}); err != nil && a.verbose {
+		fmt.Fprintf(a.Out(), "[usage persist: append error: %v]\n", err)
+	}
+}
+
+// replayUsageEvents rebuilds the usage tracker from persisted thread events.
+// It deduplicates by request ID to avoid double-counting on repeated resumes.
+func (a *Instance) replayUsageEvents(events []thread.Event) {
+	if a.tracker == nil {
+		return
+	}
+	seen := make(map[string]struct{})
+	for _, event := range events {
+		if event.Kind != EventUsageRecorded {
+			continue
+		}
+		var record usage.Record
+		if err := json.Unmarshal(event.Payload, &record); err != nil {
+			continue
+		}
+		if id := record.Dims.RequestID; id != "" {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+		}
+		a.tracker.Record(record)
 	}
 }
 

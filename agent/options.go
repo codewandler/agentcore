@@ -255,3 +255,10 @@ func WithContextProviderFactories(factories ...ContextProviderFactory) Option {
 		a.contextProviderFactories = append(a.contextProviderFactories, factories...)
 	}
 }
+
+// WithAutoCompaction configures automatic compaction between turns.
+// When enabled, the agent checks projected token count after each turn
+// and compacts if it exceeds the threshold.
+func WithAutoCompaction(config AutoCompactionConfig) Option {
+	return func(a *Instance) { a.autoCompaction = config }
+}

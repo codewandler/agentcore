@@ -746,6 +746,24 @@ func (a *App) builtins() []command.Command {
 			}
 			return command.Text(fmt.Sprintf("skill: activated %q", name)), nil
 		}),
+		command.New(command.Spec{Name: "compact", Description: "Summarize and compact conversation history"}, func(ctx context.Context, _ command.Params) (command.Result, error) {
+			inst, ok := a.DefaultAgent()
+			if !ok {
+				return command.Text("compact: no current agent"), nil
+			}
+			result, err := inst.Compact(ctx)
+			if err != nil {
+				if errors.Is(err, agent.ErrNothingToCompact) {
+					return command.Text("compact: conversation too short to compact"), nil
+				}
+				return command.Text(fmt.Sprintf("compact: %v", err)), nil
+			}
+			saved := result.TokensBefore - result.TokensAfter
+			return command.Text(fmt.Sprintf(
+				"Compacted: replaced %d messages with summary\nEstimated tokens: before=%d after=%d (saved ~%d)",
+				result.ReplacedCount, result.TokensBefore, result.TokensAfter, saved,
+			)), nil
+		}),
 	}
 }
 

@@ -321,3 +321,62 @@ func requireTextPart(t *testing.T, message unified.Message, want string) {
 		t.Fatalf("text = %#v, want %q", message.Content[0], want)
 	}
 }
+
+func TestProjectItemsWithFloorExcludesReplacedNodes(t *testing.T) {
+	tree := NewTree()
+	old1, err := tree.Append(MainBranch, MessageEvent{Message: unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "old1"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old2, err := tree.Append(MainBranch, MessageEvent{Message: unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "old2"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := tree.Append(MainBranch, MessageEvent{Message: unified.Message{Role: unified.RoleUser, Content: []unified.ContentPart{unified.TextPart{Text: "keep"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tree.Append(MainBranch, CompactionEvent{Summary: "summary of old", Replaces: []NodeID{old1, old2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Without floor: ProjectItems should produce [summary, keep].
+	items, err := ProjectItems(tree, MainBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := MessagesFromItems(items)
+	if len(messages) != 2 {
+		t.Fatalf("without floor: expected 2 messages, got %d", len(messages))
+	}
+
+	// Set floor to keep (earliest non-replaced node).
+	tree.SetFloor(MainBranch, keep)
+
+	// With floor: replaced nodes are excluded from Path, but ProjectItems
+	// should still produce [summary, keep] with summary at the beginning.
+	items, err = ProjectItems(tree, MainBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages = MessagesFromItems(items)
+	if len(messages) != 2 {
+		t.Fatalf("with floor: expected 2 messages, got %d", len(messages))
+	}
+	if got := textFromMessage(messages[0]); got != "summary of old" {
+		t.Fatalf("with floor: expected first message 'summary of old', got %q", got)
+	}
+	if got := textFromMessage(messages[1]); got != "keep" {
+		t.Fatalf("with floor: expected second message 'keep', got %q", got)
+	}
+}
+
+func textFromMessage(msg unified.Message) string {
+	for _, part := range msg.Content {
+		if tp, ok := part.(unified.TextPart); ok {
+			return tp.Text
+		}
+	}
+	return ""
+}

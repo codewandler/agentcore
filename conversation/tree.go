@@ -17,12 +17,14 @@ type Tree struct {
 	mu       sync.RWMutex
 	nodes    map[NodeID]Node
 	branches map[BranchID]NodeID
+	floors   map[BranchID]NodeID
 }
 
 func NewTree() *Tree {
 	return &Tree{
 		nodes:    make(map[NodeID]Node),
 		branches: map[BranchID]NodeID{MainBranch: ""},
+		floors:   make(map[BranchID]NodeID),
 	}
 }
 
@@ -149,6 +151,33 @@ func (t *Tree) Head(branch BranchID) (NodeID, bool) {
 	return head, ok
 }
 
+// SetFloor sets the compaction floor for a branch. Path() will stop walking
+// at this node (inclusive) instead of continuing to root. An empty nodeID
+// clears the floor.
+func (t *Tree) SetFloor(branch BranchID, nodeID NodeID) {
+	if branch == "" {
+		branch = MainBranch
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if nodeID == "" {
+		delete(t.floors, branch)
+		return
+	}
+	t.floors[branch] = nodeID
+}
+
+// Floor returns the compaction floor for a branch, if set.
+func (t *Tree) Floor(branch BranchID) (NodeID, bool) {
+	if branch == "" {
+		branch = MainBranch
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	id, ok := t.floors[branch]
+	return id, ok && id != ""
+}
+
 func (t *Tree) Path(branch BranchID) ([]Node, error) {
 	if branch == "" {
 		branch = MainBranch
@@ -159,6 +188,7 @@ func (t *Tree) Path(branch BranchID) ([]Node, error) {
 	if !ok {
 		return nil, fmt.Errorf("conversation: branch %q not found", branch)
 	}
+	floor := t.floors[branch] // "" means walk to root
 	var reversed []Node
 	for id := head; id != ""; {
 		node, ok := t.nodes[id]
@@ -166,6 +196,9 @@ func (t *Tree) Path(branch BranchID) ([]Node, error) {
 			return nil, fmt.Errorf("conversation: node %q not found", id)
 		}
 		reversed = append(reversed, node)
+		if id == floor {
+			break
+		}
 		id = node.Parent
 	}
 	out := make([]Node, len(reversed))
