@@ -10,6 +10,22 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-04-28
+
+### Fixed
+
+- Fixed `file_edit` tool JSON schema: all `oneOf` operation variants now carry
+  `type: object`, preventing LLM dispatch ambiguity.
+- Added field-level descriptions to `FileEditParams` (`path`, `dry_run`,
+  `allow_partial`, `operations`) so the schema is self-documenting without
+  relying on external documentation.
+- Stopped adding `examples` inside `oneOf`/`anyOf`/`allOf` branches.
+  Examples on discriminated-union variants are noise that some LLMs
+  misinterpret as valid values; they now only appear on scalar parameters.
+- Fixed `injectRequiredFromTags` to parse jsonschema tag values that contain
+  escaped commas (`\,`) correctly, so descriptions with commas in struct tags
+  no longer break required-field detection.
+
 ## [0.27.0] - 2026-04-28
 
 ### Added
