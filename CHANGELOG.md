@@ -10,11 +10,33 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-04-28
+
 ### Added
 
+- Added `tools/vision` package — image understanding tool that delegates to a
+  vision-capable LLM (google/gemini-2.5-flash via OpenRouter). Supports URLs,
+  local file paths, and data URIs. Multiple images per action for comparison.
+- Added `plugins/visionplugin` — `app.Plugin` wrapper for the vision tool with
+  `WithClient` and `WithAPIKey` options and env-based auto-detection
+  (`OPENROUTER_API_KEY` / `VISION_OPENROUTER_API_KEY`).
+- Added `IncludeVision` to `tools/standard.Options` and enabled it in
+  `CatalogOptions` so YAML agent specs can reference `vision` by name.
+- Added `vision` tool to the engineer example agent.
 - Added `internal/htmlconvert` package to centralize HTML-to-Markdown conversion
   logic, providing a clean integration point for `tools/web` and future HTML
   processing needs.
+
+### Fixed
+
+- Tool executor now preserves partial output on timeout and cancellation.
+  Previously, when a tool returned both a result and a context error, the
+  result was discarded and replaced with `[Timed out]` or `[Canceled]`. Now
+  the partial output is included before the label so the LLM sees what was
+  produced before the interruption.
+- Tool executor no longer discards valid results when the context expires
+  after `Execute` returns. Tools that handle timeouts internally (like bash)
+  now always have their results forwarded.
 
 ### Changed
 
