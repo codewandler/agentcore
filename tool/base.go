@@ -91,6 +91,35 @@ func SchemaFor[P any]() *jsonschema.Schema {
 	return s
 }
 
+
+// hasRequiredToken reports whether a jsonschema tag value contains "required"
+// as a standalone comma-separated token, respecting \, escapes inside values.
+func hasRequiredToken(tag string) bool {
+	for len(tag) > 0 {
+		// Find next unescaped comma
+		i := 0
+		for i < len(tag) {
+			if tag[i] == '\\' {
+				i += 2 // skip escaped char
+				continue
+			}
+			if tag[i] == ',' {
+				break
+			}
+			i++
+		}
+		token := strings.TrimSpace(tag[:i])
+		if token == "required" {
+			return true
+		}
+		if i >= len(tag) {
+			break
+		}
+		tag = tag[i+1:]
+	}
+	return false
+}
+
 // injectRequiredFromTags patches the "required" array in the schema map for
 // fields that carry jsonschema:"required" but whose types implement JSONSchema()
 // — causing the reflector to skip their struct tags entirely.
@@ -109,12 +138,10 @@ func injectRequiredFromTags[P any](m map[string]any) map[string]any {
 	var required []any
 	for i := range t.NumField() {
 		f := t.Field(i)
-		for _, token := range strings.Split(f.Tag.Get("jsonschema"), ",") {
-			if strings.TrimSpace(token) == "required" {
-				if name := strings.Split(f.Tag.Get("json"), ",")[0]; name != "" && name != "-" {
-					required = append(required, name)
-				}
-				break
+		// Split on unescaped commas only (escaped commas \, are part of values).
+		if hasRequiredToken(f.Tag.Get("jsonschema")) {
+			if name := strings.Split(f.Tag.Get("json"), ",")[0]; name != "" && name != "-" {
+				required = append(required, name)
 			}
 		}
 	}
@@ -197,15 +224,8 @@ func addExamplesToMap(m map[string]any) {
 		}
 	}
 
-	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
-		if arr, ok := m[key].([]any); ok {
-			for _, item := range arr {
-				if itemMap, ok := item.(map[string]any); ok {
-					addExamplesToMap(itemMap)
-				}
-			}
-		}
-	}
+	// Do not recurse into oneOf/anyOf/allOf — those are discriminated union
+	// variants, not simple parameter fields. Adding examples there is noise.
 }
 
 // compileMapForValidation compiles a map[string]any
