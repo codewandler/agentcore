@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	md "github.com/codewandler/agentsdk/markdown"
+	extmd "github.com/codewandler/markdown"
 )
 
 type State int
@@ -22,7 +22,7 @@ const (
 type StepDisplay struct {
 	w              io.Writer
 	state          State
-	buffer         *md.Buffer
+	buffer         *extmd.Buffer
 	render         Renderer
 	codeRenderer   nativeMarkdownRenderer
 	rendered       bool
@@ -48,7 +48,7 @@ func NewStepDisplayWithRenderer(w io.Writer, renderer Renderer) *StepDisplay {
 		renderer = func(s string) string { return s }
 	}
 	d := &StepDisplay{w: w, render: renderer, codeRenderer: newNativeMarkdownRenderer(), atLineStart: true}
-	d.buffer = md.NewBuffer(func(blocks []md.Block) {
+	d.buffer = extmd.NewBuffer(func(blocks []extmd.Block) {
 		for _, block := range blocks {
 			d.writeRenderedMarkdown(block.Markdown)
 		}
