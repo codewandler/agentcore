@@ -1,17 +1,18 @@
 // Package markdown provides markdown parsing and rendering utilities.
 //
-// This package re-exports the public API from github.com/codewandler/markdown.
+// For YAML frontmatter parsing see [Parse] and [Bind] in frontmatter.go.
 //
-// For simple rendering, use RenderString() or RenderToWriter().
-// For streaming, import stream and terminal subpackages directly:
+// For terminal rendering use [RenderString] or [RenderToWriter], which delegate
+// to github.com/codewandler/markdown.
+//
+// For streaming block buffering or the stream parser, import the upstream
+// subpackages directly:
 //
 //	import (
+//		"github.com/codewandler/markdown"
 //		"github.com/codewandler/markdown/stream"
 //		"github.com/codewandler/markdown/terminal"
 //	)
-//
-//	parser := stream.NewParser()
-//	renderer := terminal.NewRenderer(os.Stdout)
 package markdown
 
 import (
