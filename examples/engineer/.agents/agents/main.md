@@ -16,6 +16,7 @@ tools:
   - git_diff
   - web_fetch
   - web_search
+  - vision
   - skill
 commands: [review, design, deploy]
 capabilities: [planner]

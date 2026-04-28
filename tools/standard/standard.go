@@ -12,6 +12,7 @@ import (
 	"github.com/codewandler/agentsdk/tools/todo"
 	"github.com/codewandler/agentsdk/tools/toolmgmt"
 	"github.com/codewandler/agentsdk/tools/turn"
+	"github.com/codewandler/agentsdk/tools/vision"
 	"github.com/codewandler/agentsdk/tools/web"
 	"github.com/codewandler/agentsdk/websearch"
 )
@@ -25,6 +26,7 @@ type Options struct {
 	IncludeTodo           bool
 	IncludeToolManagement bool
 	IncludeTurnDone       bool
+	IncludeVision         bool
 }
 
 // Toolset groups a standard tool bundle with the activation manager that owns
@@ -99,6 +101,9 @@ func Tools(opts Options) []tool.Tool {
 	if opts.IncludeTurnDone {
 		out = append(out, turn.Tools()...)
 	}
+	if opts.IncludeVision {
+		out = append(out, vision.Tools(vision.ClientFromEnv())...)
+	}
 	return out
 }
 
@@ -125,6 +130,7 @@ func CatalogOptions() Options {
 	opts.IncludeNotify = true
 	opts.IncludeTodo = true
 	opts.IncludeTurnDone = true
+	opts.IncludeVision = true
 	return opts
 }
 
