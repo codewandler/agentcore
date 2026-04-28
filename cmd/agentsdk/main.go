@@ -134,10 +134,13 @@ func toolSchemaCmd() *cobra.Command {
 				if err := yaml.Unmarshal(raw, &shaped); err != nil {
 					return fmt.Errorf("tool %q: yaml unmarshal: %w", name, err)
 				}
-				yamlBytes, err := yaml.Marshal(shaped)
-				if err != nil {
+				var yamlBuf strings.Builder
+				enc := yaml.NewEncoder(&yamlBuf)
+				enc.SetIndent(2)
+				if err := enc.Encode(shaped); err != nil {
 					return fmt.Errorf("tool %q: yaml marshal: %w", name, err)
 				}
+				yamlBytes := []byte(strings.TrimRight(yamlBuf.String(), "\n"))
 				if i > 0 {
 					fmt.Fprintln(out)
 				}
