@@ -51,30 +51,48 @@ func (e *defaultToolExecutor) ExecuteTool(ctx context.Context, call unified.Tool
 	toolCtx := withContext(e.toolCtx, execCtx)
 	res, err := t.Execute(toolCtx, call.Arguments)
 	if err != nil {
-		return toolResultFromError(call, execCtx, err)
-	}
-	if err := execCtx.Err(); err != nil {
-		return toolResultFromContext(call, err)
+		return toolResultFromError(call, execCtx, res, err)
 	}
 	if res == nil {
+		// Tool returned (nil, nil). If the context expired during
+		// execution, report that instead of an empty result.
+		if err := execCtx.Err(); err != nil {
+			return toolResultFromContext(call, err)
+		}
 		return toolResult(call, "", false)
 	}
+	// Always return the tool's result, even if the context expired.
+	// The tool already had the chance to observe the cancellation and
+	// include partial output (as bash does). Discarding a valid result
+	// loses information the LLM needs.
 	return toolResult(call, res.String(), res.IsError())
 }
 
-func toolResultFromError(call unified.ToolCall, ctx context.Context, err error) unified.ToolResult {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return toolResult(call, canceledToolOutput, true)
-	case errors.Is(err, context.DeadlineExceeded):
-		return toolResult(call, timedOutToolOutput, true)
-	case ctx != nil && errors.Is(ctx.Err(), context.Canceled):
-		return toolResult(call, canceledToolOutput, true)
-	case ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return toolResult(call, timedOutToolOutput, true)
-	default:
+func toolResultFromError(call unified.ToolCall, ctx context.Context, partialResult tool.Result, err error) unified.ToolResult {
+	isCanceled := errors.Is(err, context.Canceled) ||
+		(ctx != nil && errors.Is(ctx.Err(), context.Canceled))
+	isTimedOut := errors.Is(err, context.DeadlineExceeded) ||
+		(ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded))
+
+	if !isCanceled && !isTimedOut {
+		// Regular error — no timeout/cancel involved.
 		return toolResult(call, err.Error(), true)
 	}
+
+	// Timeout or cancellation. If the tool returned a partial result
+	// alongside the error, preserve it so the LLM sees what was
+	// produced before the interruption.
+	label := timedOutToolOutput
+	if isCanceled {
+		label = canceledToolOutput
+	}
+	if partialResult != nil {
+		partial := partialResult.String()
+		if partial != "" {
+			return toolResult(call, partial+"\n\n"+label, true)
+		}
+	}
+	return toolResult(call, label, true)
 }
 
 func toolResultFromContext(call unified.ToolCall, err error) unified.ToolResult {

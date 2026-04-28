@@ -330,6 +330,72 @@ func TestRunTurnIncompleteStreamRecordsThreadDiagnostic(t *testing.T) {
 	require.False(t, payload.Facts.SawCompleted)
 }
 
+func TestRunTurnToolTimeoutPreservesPartialResult(t *testing.T) {
+	client := runnertest.NewClient(runnertest.ToolCallStream("resp_tool", runnertest.ToolCall("slow", "call_1", 0, `{}`)))
+	slow := tool.New("slow", "slow tool with partial output", func(ctx tool.Ctx, _ struct{}) (tool.Result, error) {
+		<-ctx.Done()
+		// Return partial result alongside the context error.
+		return tool.Text("partial output before timeout"), ctx.Err()
+	})
+	sess := newTestHistory("")
+
+	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("use slow").Build(),
+		WithTools([]tool.Tool{slow}),
+		WithToolTimeout(time.Millisecond),
+		WithMaxSteps(1),
+	)
+	require.ErrorIs(t, err, ErrMaxStepsReached)
+	// The partial output must be preserved, with the timeout label appended.
+	var found bool
+	for _, event := range result.Events {
+		if ev, ok := event.(ToolResultEvent); ok {
+			require.Contains(t, ev.Output, "partial output before timeout")
+			require.Contains(t, ev.Output, "[Timed out]")
+			require.True(t, ev.IsError)
+			found = true
+		}
+	}
+	require.True(t, found, "missing tool result event")
+}
+
+func TestRunTurnToolTimeoutNilPartialResult(t *testing.T) {
+	// When a tool returns (nil, DeadlineExceeded), we should still get [Timed out].
+	client := runnertest.NewClient(runnertest.ToolCallStream("resp_tool", runnertest.ToolCall("slow", "call_1", 0, `{}`)))
+	slow := tool.New("slow", "slow tool", func(ctx tool.Ctx, _ struct{}) (tool.Result, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	sess := newTestHistory("")
+
+	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("use slow").Build(),
+		WithTools([]tool.Tool{slow}),
+		WithToolTimeout(time.Millisecond),
+		WithMaxSteps(1),
+	)
+	require.ErrorIs(t, err, ErrMaxStepsReached)
+	requireToolResult(t, result.Events, "[Timed out]", true)
+}
+
+func TestRunTurnToolSuccessAfterContextExpiry(t *testing.T) {
+	// When a tool returns a valid result but the context expired after,
+	// the result must be preserved (not replaced with [Timed out]).
+	client := runnertest.NewClient(runnertest.ToolCallStream("resp_tool", runnertest.ToolCall("fast", "call_1", 0, `{}`)))
+	fast := tool.New("fast", "fast tool", func(ctx tool.Ctx, _ struct{}) (tool.Result, error) {
+		return tool.Text("completed successfully"), nil
+	})
+	sess := newTestHistory("")
+
+	// Use a very short timeout — the tool finishes instantly but the
+	// context may expire between Execute returning and the check.
+	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("use fast").Build(),
+		WithTools([]tool.Tool{fast}),
+		WithToolTimeout(time.Hour), // generous — tool is instant
+		WithMaxSteps(1),
+	)
+	require.ErrorIs(t, err, ErrMaxStepsReached)
+	requireToolResult(t, result.Events, "completed successfully", false)
+}
+
 func requireToolResult(t *testing.T, events []Event, output string, isError bool) {
 	t.Helper()
 	for _, event := range events {
