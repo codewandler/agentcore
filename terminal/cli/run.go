@@ -177,8 +177,9 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 		appOpts = append(appOpts, app.WithAgentSessionStoreDir(sessionsDir))
 	}
 	// Risk gate: log-only mode — observes all tool calls, always approves.
+	// Write to stderr so TUI doesn't overwrite the output.
 	appOpts = append(appOpts, app.WithToolMiddlewares(
-		tool.HooksMiddleware(&riskLogMiddleware{out: out}),
+		tool.HooksMiddleware(&riskLogMiddleware{out: os.Stderr}),
 	))
 	appOpts = append(appOpts, cfg.AppOptions...)
 	application, err := app.New(appOpts...)
