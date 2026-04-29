@@ -52,6 +52,21 @@ type AgentContextPlugin interface {
 	AgentContextProviders(AgentContextInfo) []agentcontext.Provider
 }
 
+// ToolMiddlewarePlugin contributes middlewares applied to all tools
+// after all tools have been registered (two-pass: tools first, then middlewares).
+type ToolMiddlewarePlugin interface {
+	Plugin
+	ToolMiddlewares() []tool.Middleware
+}
+
+// ToolTargetedMiddlewarePlugin contributes middlewares for specific tools.
+// ToolMiddlewaresFor is called once per registered tool name (exact, not glob).
+// Return nil to skip a tool. Applied before global middlewares (innermost).
+type ToolTargetedMiddlewarePlugin interface {
+	Plugin
+	ToolMiddlewaresFor(toolName string) []tool.Middleware
+}
+
 // AgentContextInfo carries the per-agent state available when
 // [AgentContextPlugin.AgentContextProviders] is called.
 //

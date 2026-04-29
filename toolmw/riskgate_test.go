@@ -242,3 +242,61 @@ func TestRiskGate_ApproverReceivesAssessment(t *testing.T) {
 	require.Len(t, assessment.Dimensions, 1)
 	require.Equal(t, "write:file", assessment.Dimensions[0].Name)
 }
+
+// ── Integration: RiskGate + PolicyAssessor + real DeclareIntent ─────────────
+
+func TestRiskGate_Integration_PolicyAssessor(t *testing.T) {
+	// A tool that declares a write to a system file.
+	base := &riskTestTool{
+		name: "file_write",
+		intent: tool.Intent{
+			Tool:      "file_write",
+			ToolClass: "filesystem_write",
+			Operations: []tool.IntentOperation{{
+				Resource:  tool.IntentResource{Category: "file", Value: "/etc/crontab", Locality: "system"},
+				Operation: "write",
+				Certain:   true,
+			}},
+			Confidence: "high",
+		},
+	}
+
+	// Wire RiskGate with real PolicyAssessor.
+	gate := tool.Apply(base, NewRiskGate(NewPolicyAssessor()))
+
+	// write(4) + system(3) = 7 → requires_approval.
+	// No approver → denied.
+	res, err := gate.Execute(riskCtx(), json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "no approver configured")
+
+	// With approver that approves → passes through.
+	res, err = gate.Execute(riskCtxWithApprover(true), json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.Equal(t, "ok", res.String())
+}
+
+func TestRiskGate_Integration_WorkspaceRead_AutoAllow(t *testing.T) {
+	// A tool that declares a read from workspace — should auto-allow.
+	base := &riskTestTool{
+		name: "file_read",
+		intent: tool.Intent{
+			Tool:      "file_read",
+			ToolClass: "filesystem_read",
+			Operations: []tool.IntentOperation{{
+				Resource:  tool.IntentResource{Category: "file", Value: "src/main.go", Locality: "workspace"},
+				Operation: "read",
+				Certain:   true,
+			}},
+			Confidence: "high",
+		},
+	}
+
+	gate := tool.Apply(base, NewRiskGate(NewPolicyAssessor()))
+
+	// read(1) + workspace(0) = 1 → allow. No approver needed.
+	res, err := gate.Execute(riskCtx(), json.RawMessage(`{}`))
+	require.NoError(t, err)
+	require.Equal(t, "ok", res.String())
+}

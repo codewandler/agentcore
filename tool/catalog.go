@@ -111,6 +111,38 @@ func (c *Catalog) Names() []string {
 	return names
 }
 
+// ApplyAll wraps every tool in the catalog with the given middlewares.
+// The catalog keys (registration names) are preserved — only the tool
+// values are replaced with their wrapped versions.
+func (c *Catalog) ApplyAll(middlewares ...Middleware) {
+	if c == nil {
+		return
+	}
+	for _, name := range c.order {
+		c.tools[name] = Apply(c.tools[name], middlewares...)
+	}
+}
+
+// ApplyTo wraps tools matching the given name or glob pattern with the
+// given middlewares. Returns the number of tools matched.
+func (c *Catalog) ApplyTo(pattern string, middlewares ...Middleware) int {
+	if c == nil {
+		return 0
+	}
+	var matched int
+	for _, name := range c.order {
+		ok, err := path.Match(pattern, name)
+		if err != nil {
+			continue // malformed pattern — skip silently (consistent with Select's glob handling)
+		}
+		if ok || pattern == name {
+			c.tools[name] = Apply(c.tools[name], middlewares...)
+			matched++
+		}
+	}
+	return matched
+}
+
 func hasPatternMeta(value string) bool {
 	return strings.ContainsAny(value, "*?[")
 }

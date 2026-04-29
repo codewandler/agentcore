@@ -31,9 +31,12 @@ type App struct {
 	protected           map[string]bool
 	diagnostics         []resource.Diagnostic
 	defaultAgent        string
-	plugins             map[string]Plugin
-	contextProviders    []agentcontext.Provider
-	agentContextPlugins []AgentContextPlugin
+	plugins               map[string]Plugin
+	toolMiddlewarePlugins  []ToolMiddlewarePlugin
+	toolTargetedMwPlugins  []ToolTargetedMiddlewarePlugin
+	toolMwApplied          bool
+	contextProviders       []agentcontext.Provider
+	agentContextPlugins    []AgentContextPlugin
 	skillSources        []skill.Source
 	agentOptions        []agent.Option
 	tools               *tool.Catalog
@@ -307,6 +310,10 @@ func (a *App) AgentSpec(name string) (agent.Spec, bool) {
 }
 
 func (a *App) InstantiateAgent(name string, opts ...agent.Option) (*agent.Instance, error) {
+	// Ensure middleware plugins are applied before tools are consumed.
+	// Idempotent — safe to call multiple times.
+	a.ApplyToolMiddlewares()
+
 	spec, ok := a.AgentSpec(name)
 	if !ok {
 		return nil, fmt.Errorf("app: agent spec %q not found", name)
@@ -476,6 +483,13 @@ func (a *App) RegisterPlugin(plugin Plugin) error {
 	if acp, ok := plugin.(AgentContextPlugin); ok {
 		a.agentContextPlugins = append(a.agentContextPlugins, acp)
 	}
+	// Middleware plugins are collected now, applied later via ApplyToolMiddlewares.
+	if tmp, ok := plugin.(ToolMiddlewarePlugin); ok {
+		a.toolMiddlewarePlugins = append(a.toolMiddlewarePlugins, tmp)
+	}
+	if ttmp, ok := plugin.(ToolTargetedMiddlewarePlugin); ok {
+		a.toolTargetedMwPlugins = append(a.toolTargetedMwPlugins, ttmp)
+	}
 	return nil
 }
 
@@ -556,6 +570,33 @@ func (a *App) isProtectedCommand(name string) bool {
 		return false
 	}
 	return a.protected[strings.TrimPrefix(strings.TrimSpace(name), "/")]
+}
+
+// ApplyToolMiddlewares applies collected middleware plugins to the tool catalog.
+// Call this after all plugins have been registered and before agent instantiation.
+//
+// Application order:
+//  1. ToolTargetedMiddlewarePlugin middlewares are applied per-tool (innermost).
+//  2. ToolMiddlewarePlugin middlewares are applied globally (outermost).
+func (a *App) ApplyToolMiddlewares() {
+	if a == nil || a.tools == nil || a.toolMwApplied {
+		return
+	}
+	a.toolMwApplied = true
+
+	// Pass 1: targeted middlewares (per-tool, innermost).
+	for _, plugin := range a.toolTargetedMwPlugins {
+		for _, name := range a.tools.Names() {
+			if mws := plugin.ToolMiddlewaresFor(name); len(mws) > 0 {
+				a.tools.ApplyTo(name, mws...)
+			}
+		}
+	}
+
+	// Pass 2: global middlewares (outermost).
+	for _, plugin := range a.toolMiddlewarePlugins {
+		a.tools.ApplyAll(plugin.ToolMiddlewares()...)
+	}
 }
 
 func (a *App) ToolCatalog() *tool.Catalog {
