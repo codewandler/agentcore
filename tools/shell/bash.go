@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/cmdrisk"
 )
 
 const (
@@ -110,8 +111,26 @@ func buildResult(runs []bashRun) tool.Result {
 	return b.Build()
 }
 
+// Option configures the bash tool.
+type Option func(*bashConfig)
+
+type bashConfig struct {
+	analyzer *cmdrisk.Analyzer
+}
+
+// WithRiskAnalyzer sets the cmdrisk analyzer for bash command risk assessment.
+// When set, the bash tool's DeclareIntent uses cmdrisk to extract structured
+// intent (targets, behaviors, confidence) from shell commands.
+func WithRiskAnalyzer(a *cmdrisk.Analyzer) Option {
+	return func(c *bashConfig) { c.analyzer = a }
+}
+
 // Tools returns the bash tool.
-func Tools() []tool.Tool {
+func Tools(opts ...Option) []tool.Tool {
+	var cfg bashConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	const bashGuidance = `When cmd is an array commands run sequentially. Use failfast=true to stop on first non-zero exit.
 Output is truncated at 50 KB — pipe through head/tail for very long output.
 Prefer native tools over bash for file ops: file_read not cat, grep not bash+grep, glob not find.
@@ -152,7 +171,7 @@ Never cd into the project root — workdir already defaults there.`
 				return runSequential(ctx, commands, workdir, timeout, p.FailFast, emitOutput)
 			},
 			tool.WithGuidance[BashParams](bashGuidance),
-			bashIntent(),
+			bashIntent(cfg.analyzer),
 		),
 	}
 }

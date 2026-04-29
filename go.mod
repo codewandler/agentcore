@@ -31,6 +31,7 @@ require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
+	github.com/codewandler/cmdrisk v0.0.0-00010101000000-000000000000 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -42,4 +43,7 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
+	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
+
+replace github.com/codewandler/cmdrisk => ../cmdrisk

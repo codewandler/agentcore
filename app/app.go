@@ -47,18 +47,19 @@ type App struct {
 type Option func(*config)
 
 type config struct {
-	out          io.Writer
-	commands     []command.Command
-	agents       map[string]*agent.Instance
-	specs        []agent.Spec
-	defaultAgent string
-	plugins      []Plugin
-	bundles      []resource.ContributionBundle
-	skillSources []skill.Source
-	discoveries  []SkillSourceDiscovery
-	agentOptions []agent.Option
-	tools        []tool.Tool
-	noBuiltins   bool
+	out              io.Writer
+	commands         []command.Command
+	agents           map[string]*agent.Instance
+	specs            []agent.Spec
+	defaultAgent     string
+	plugins          []Plugin
+	bundles          []resource.ContributionBundle
+	skillSources     []skill.Source
+	discoveries      []SkillSourceDiscovery
+	agentOptions     []agent.Option
+	tools            []tool.Tool
+	noBuiltins       bool
+	toolMiddlewares  []tool.Middleware
 }
 
 func New(opts ...Option) (*App, error) {
@@ -99,6 +100,13 @@ func New(opts ...Option) (*App, error) {
 		return nil, err
 	}
 	a.tools = catalog
+	if len(cfg.toolMiddlewares) > 0 {
+		a.tools.ApplyAll(cfg.toolMiddlewares...)
+		// Also wrap default tools so agents without explicit tool lists get middlewares.
+		for i, t := range defaultTools {
+			defaultTools[i] = tool.Apply(t, cfg.toolMiddlewares...)
+		}
+	}
 	a.defaultTools = append([]tool.Tool(nil), defaultTools...)
 	for name, inst := range cfg.agents {
 		if inst != nil {
@@ -221,6 +229,13 @@ func WithTools(tools ...tool.Tool) Option {
 
 func WithoutBuiltins() Option {
 	return func(c *config) { c.noBuiltins = true }
+}
+
+// WithToolMiddlewares adds middlewares that will be applied to all tools
+// in the catalog after construction. These are applied in order (first =
+// innermost) before any plugin-contributed middlewares.
+func WithToolMiddlewares(middlewares ...tool.Middleware) Option {
+	return func(c *config) { c.toolMiddlewares = append(c.toolMiddlewares, middlewares...) }
 }
 
 func (a *App) Out() io.Writer {
