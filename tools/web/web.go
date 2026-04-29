@@ -160,6 +160,7 @@ func webFetch() tool.Tool {
 				Body:        bodyStr,
 			}, nil
 		},
+		webFetchIntent(),
 	)
 }
 
@@ -196,6 +197,7 @@ func SearchTool(provider websearch.Provider) tool.Tool {
 			}
 			return &searchResult{Query: p.Query, Results: results}, nil
 		},
+		webSearchIntent(),
 	)
 }
 

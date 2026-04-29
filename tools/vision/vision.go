@@ -75,6 +75,7 @@ func visionTool(client unified.Client) tool.Tool {
 		},
 		tool.WithGuidance[Params]("Use vision to understand screenshots, diagrams, photos, or any image content. "+
 			"Provide a focused prompt for better results. Multiple images in one action are sent together for comparison."),
+		visionIntent(),
 	)
 }
 

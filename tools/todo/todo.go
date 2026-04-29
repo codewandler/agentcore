@@ -113,6 +113,7 @@ func todoTool() tool.Tool {
 				return tool.Error(fmt.Sprintf("unknown action: %s", p.Action)), nil
 			}
 		},
+		todoIntent(),
 	)
 }
 

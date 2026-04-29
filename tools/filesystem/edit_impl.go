@@ -358,6 +358,7 @@ path accepts a single string, an array, or a glob pattern (e.g. ["src/**/*.go"])
 			return res.Build(), nil
 		},
 		tool.WithGuidance[FileEditParams](guidance),
+		fileEditIntent(),
 	)
 }
 

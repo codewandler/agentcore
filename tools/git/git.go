@@ -39,6 +39,7 @@ func gitStatus() tool.Tool {
 			}
 			return tool.NewResult().Text(out).Build(), nil
 		},
+		gitStatusIntent(),
 	)
 }
 
@@ -106,6 +107,7 @@ func gitDiff() tool.Tool {
 
 			return res.Build(), nil
 		},
+		gitDiffIntent(),
 	)
 }
 

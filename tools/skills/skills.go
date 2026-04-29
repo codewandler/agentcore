@@ -130,6 +130,7 @@ func skillTool() tool.Tool {
 			out.ActiveSkills = state.ActiveSkillNames()
 			return out, nil
 		},
+		skillIntent(),
 	)
 }
 

@@ -159,6 +159,7 @@ func notifySend() tool.Tool {
 
 			return tool.Text(strings.Join(parts, "\n")), nil
 		},
+		notifyIntent(),
 	)
 }
 

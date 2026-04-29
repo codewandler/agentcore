@@ -199,6 +199,7 @@ func dirList() tool.Tool {
 			return tool.Text(fmt.Sprintf("Directory: %s (%d entries)\n\n%s",
 				path, len(lines), strings.Join(lines, "\n"))), nil
 		},
+		dirListIntent(),
 	)
 }
 
@@ -252,6 +253,7 @@ func dirTree() tool.Tool {
 
 			return tool.Text(strings.Join(lines, "\n")), nil
 		},
+		dirTreeIntent(),
 	)
 }
 
@@ -336,6 +338,7 @@ func fileRead() tool.Tool {
 			b.Text(strings.TrimRight(sb.String(), "\n"))
 			return b.Build(), nil
 		},
+		fileReadIntent(),
 	)
 }
 
@@ -565,6 +568,7 @@ func fileWrite() tool.Tool {
 			}
 			return tool.Textf("Wrote %s to %s (%d lines)", humanize.Size(int64(len(p.Content))), path, lines), nil
 		},
+		fileWriteIntent(),
 	)
 }
 
@@ -612,6 +616,7 @@ func fileStat() tool.Tool {
 			fmt.Fprintf(&sb, "modified: %s (%s ago)\n", linfo.ModTime().Format(time.RFC3339), humanDuration(time.Since(linfo.ModTime())))
 			return tool.Text(strings.TrimSpace(sb.String())), nil
 		},
+		fileStatIntent(),
 	)
 }
 
@@ -643,6 +648,7 @@ func fileDelete() tool.Tool {
 			}
 			return tool.Textf("Deleted %s", path), nil
 		},
+		fileDeleteIntent(),
 	)
 }
 
@@ -692,6 +698,7 @@ func glob() tool.Tool {
 			sort.Strings(filtered)
 			return tool.Textf("Found %d file(s):\n%s", len(filtered), strings.Join(filtered, "\n")), nil
 		},
+		globIntent(),
 	)
 }
 
@@ -851,6 +858,7 @@ func grep() tool.Tool {
 			}
 			return tool.Text(strings.TrimSpace(sb.String())), nil
 		},
+		grepIntent(),
 	)
 }
 

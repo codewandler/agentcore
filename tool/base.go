@@ -16,12 +16,13 @@ import (
 // P is the JSON-decodable parameter struct. Schema is auto-generated via
 // local JSON Schema reflection; the handler receives a fully decoded P on each call.
 type TypedTool[P any] struct {
-	name        string
-	description string
-	schema      *jsonschema.Schema // for LLM API
-	validated   *jsv.Schema        // compiled for validation
-	handler     func(ctx Ctx, p P) (Result, error)
-	guidance    string // optional guidance shown in HEAD context
+	name          string
+	description   string
+	schema        *jsonschema.Schema // for LLM API
+	validated     *jsv.Schema        // compiled for validation
+	handler       func(ctx Ctx, p P) (Result, error)
+	guidance      string // optional guidance shown in HEAD context
+	declareIntent func(ctx Ctx, p P) (Intent, error)
 }
 
 // New creates a typed Tool. The schema is derived from the zero value of P.
@@ -256,10 +257,47 @@ func WithGuidance[P any](g string) TypedToolOption[P] {
 	return func(t *TypedTool[P]) { t.guidance = g }
 }
 
+// WithDeclareIntent sets the intent declaration function for a TypedTool.
+// When set, the tool implements [IntentProvider] and can participate in
+// risk assessment and approval flows.
+//
+// The function receives the already-decoded params (same as the handler)
+// and returns the intent describing what the tool call will do.
+func WithDeclareIntent[P any](fn func(ctx Ctx, p P) (Intent, error)) TypedToolOption[P] {
+	return func(t *TypedTool[P]) { t.declareIntent = fn }
+}
+
 func (t *TypedTool[P]) Name() string               { return t.name }
 func (t *TypedTool[P]) Description() string        { return t.description }
 func (t *TypedTool[P]) Schema() *jsonschema.Schema { return t.schema }
 func (t *TypedTool[P]) Guidance() string           { return t.guidance }
+
+// DeclareIntent implements [IntentProvider]. If [WithDeclareIntent] was not
+// set, it returns an opaque low-confidence intent.
+//
+// Note: TypedTool always satisfies IntentProvider. Tools without
+// WithDeclareIntent return opaque intents, which is functionally
+// identical to not implementing IntentProvider at all.
+// Input is not schema-validated here (unlike Execute) — DeclareIntent
+// is intentionally lenient and falls back to opaque on parse errors.
+func (t *TypedTool[P]) DeclareIntent(ctx Ctx, input json.RawMessage) (Intent, error) {
+	if t.declareIntent == nil {
+		return Intent{
+			Tool:       t.name,
+			ToolClass:  "unknown",
+			Opaque:     true,
+			Confidence: "low",
+		}, nil
+	}
+
+	var p P
+	if len(input) > 0 && string(input) != "null" {
+		if err := json.Unmarshal(input, &p); err != nil {
+			return Intent{Tool: t.name, ToolClass: "unknown", Opaque: true, Confidence: "low"}, nil
+		}
+	}
+	return t.declareIntent(ctx, p)
+}
 
 func (t *TypedTool[P]) Execute(ctx Ctx, input json.RawMessage) (Result, error) {
 	if len(input) == 0 || string(input) == "null" {

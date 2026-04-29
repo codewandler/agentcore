@@ -152,6 +152,7 @@ Never cd into the project root — workdir already defaults there.`
 				return runSequential(ctx, commands, workdir, timeout, p.FailFast, emitOutput)
 			},
 			tool.WithGuidance[BashParams](bashGuidance),
+			bashIntent(),
 		),
 	}
 }

@@ -126,6 +126,7 @@ func toolsList() tool.Tool {
 			}
 			return listResult{Active: active, Inactive: inactive}, nil
 		},
+		toolsListIntent(),
 	)
 }
 
@@ -213,6 +214,7 @@ func toolsActivate() tool.Tool {
 			}
 			return activateResult{Activated: activated, AlreadyActive: unique, NotFound: notFound}, nil
 		},
+		toolsActivateIntent(),
 	)
 }
 
@@ -251,5 +253,6 @@ func toolsDeactivate() tool.Tool {
 			}
 			return deactivateResult{Deactivated: deactivated}, nil
 		},
+		toolsDeactivateIntent(),
 	)
 }

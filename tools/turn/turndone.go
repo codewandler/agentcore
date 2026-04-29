@@ -65,6 +65,7 @@ func Tool() tool.Tool {
 			}
 			return TurnDoneResult{content: p.Content, errMsg: p.Error}, nil
 		},
+		turnDoneIntent(),
 	)
 }
 
