@@ -155,6 +155,21 @@ func TestStepDisplay(t *testing.T) {
 		assert.Contains(t, out, Reset)
 	})
 
+	t.Run("reasoning markdown is rendered", func(t *testing.T) {
+		var buf strings.Builder
+		sd := NewStepDisplay(&buf)
+
+		sd.WriteReasoning("Thinking with **bold** and `code`.")
+		sd.End()
+
+		out := buf.String()
+		plainOut := ansiOnlyLineRE.ReplaceAllString(out, "")
+		assert.Contains(t, plainOut, "Thinking with bold and code.")
+		assert.NotContains(t, plainOut, "**bold**")
+		assert.NotContains(t, plainOut, "`code`")
+		assert.Contains(t, out, Bold+"bold"+Reset)
+		assert.Contains(t, out, "\x1b[38;2;230;219;116mcode\x1b[0m")
+	})
 	t.Run("plain prose appears in output", func(t *testing.T) {
 		var buf strings.Builder
 		sd := NewStepDisplay(&buf)
@@ -371,6 +386,19 @@ func TestMarkdownRenderer(t *testing.T) {
 		assert.Contains(t, plainOut, "https://example.com")
 		assert.NotContains(t, plainOut, "~~removed~~")
 		assert.Contains(t, out, "\x1b[9m")
+	})
+
+	t.Run("bare URLs are rendered as clickable OSC8 hyperlinks", func(t *testing.T) {
+		var buf strings.Builder
+		render := NewMarkdownRendererForWriter(&buf)
+
+		out := render("See https://example.com/docs for details.\n")
+		plainOut := ansiOnlyLineRE.ReplaceAllString(out, "")
+
+		assert.Contains(t, plainOut, "See https://example.com/docs for details.")
+		assert.Contains(t, out, "\x1b]8;;https://example.com/docs\a")
+		assert.Contains(t, out, "https://example.com/docs")
+		assert.Contains(t, out, "\x1b]8;;\a")
 	})
 
 	t.Run("fenced code keeps following markdown separated", func(t *testing.T) {

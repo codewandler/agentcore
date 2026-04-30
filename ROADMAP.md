@@ -1,5 +1,13 @@
 # Roadmap
 
+## Terminal Rendering
+
+- **Clickable issue references**
+  - Add configurable issue-link rules for terminal Markdown rendering.
+  - Initial target: Jira-style references such as `#DEV-1234` should render as OSC8 clickable links.
+  - Store rules in SDK/app configuration as pattern-to-URL-template mappings, for example `#DEV-1234` -> `https://jira.example.com/browse/DEV-1234`.
+  - Keep URL resolution configurable; agentsdk should not hardcode a Jira host or project key.
+
 ## Plugin Architecture
 
 The plugin architecture is implemented. First-party plugins bundle tools,

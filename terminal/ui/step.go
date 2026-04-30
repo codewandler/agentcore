@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
-	mdterminal "github.com/codewandler/markdown/terminal"
 )
 
 type State int
@@ -20,14 +18,14 @@ const (
 type StepDisplay struct {
 	w        io.Writer
 	state    State
-	sr       *mdterminal.StreamRenderer
+	sr       liveMarkdownRenderer
 	rendered bool
 }
 
 func NewStepDisplay(w io.Writer) *StepDisplay {
 	return &StepDisplay{
 		w:  w,
-		sr: mdterminal.NewStreamRenderer(w),
+		sr: newLiveMarkdownRenderer(w),
 	}
 }
 
@@ -36,11 +34,14 @@ func (d *StepDisplay) WriteReasoning(chunk string) {
 		fmt.Fprint(d.w, Dim)
 		d.state = StateReasoning
 	}
-	fmt.Fprint(d.w, chunk)
+	_, _ = d.sr.Write([]byte(chunk))
+	d.rendered = true
 }
 
 func (d *StepDisplay) WriteText(chunk string) {
 	if d.state == StateReasoning {
+		_ = d.sr.Flush()
+		d.sr = newLiveMarkdownRenderer(d.w)
 		fmt.Fprintf(d.w, "%s\n\n", Reset)
 	}
 	if d.state != StateText {
@@ -53,10 +54,12 @@ func (d *StepDisplay) WriteText(chunk string) {
 func (d *StepDisplay) PrintToolCall(name string, args map[string]any) {
 	switch d.state {
 	case StateReasoning:
+		_ = d.sr.Flush()
+		d.sr = newLiveMarkdownRenderer(d.w)
 		fmt.Fprintf(d.w, "%s\n", Reset)
 	case StateText:
 		_ = d.sr.Flush()
-		d.sr = mdterminal.NewStreamRenderer(d.w)
+		d.sr = newLiveMarkdownRenderer(d.w)
 		fmt.Fprint(d.w, "\n")
 	}
 	d.state = StateIdle
@@ -73,10 +76,13 @@ func (d *StepDisplay) PrintToolCall(name string, args map[string]any) {
 func (d *StepDisplay) End() {
 	switch d.state {
 	case StateReasoning:
+		_ = d.sr.Flush()
+		d.sr = newLiveMarkdownRenderer(d.w)
 		fmt.Fprintf(d.w, "%s\n", Reset)
+		d.rendered = false
 	case StateText:
 		_ = d.sr.Flush()
-		d.sr = mdterminal.NewStreamRenderer(d.w)
+		d.sr = newLiveMarkdownRenderer(d.w)
 		fmt.Fprint(d.w, "\n")
 		d.rendered = false
 	}

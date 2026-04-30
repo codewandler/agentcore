@@ -9,7 +9,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/codewandler/cmdrisk v0.0.0-00010101000000-000000000000
 	github.com/codewandler/llmadapter v1.0.0-rc.14
-	github.com/codewandler/markdown v0.35.1
+	github.com/codewandler/markdown v0.41.0
 	github.com/codewandler/modeldb v0.13.2
 	github.com/emiago/diago v0.28.0
 	github.com/emiago/sipgo v1.2.1
