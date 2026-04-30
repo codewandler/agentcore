@@ -132,6 +132,7 @@ func Tools(opts Options) []tool.Tool {
 func DefaultOptions() Options {
 	return Options{
 		WebSearchProvider:     web.DefaultSearchProviderFromEnv(),
+		IncludeGit:            true,
 		IncludeToolManagement: true,
 	}
 }

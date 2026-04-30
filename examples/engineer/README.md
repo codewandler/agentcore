@@ -30,6 +30,8 @@ The agent has access to filesystem, shell, git, and web tools:
 | `dir_list` | Directory listing with metadata |
 | `git_status` | Working tree status |
 | `git_diff` | Diff of staged or unstaged changes |
+| `git_add` | Stage explicit paths in the git index |
+| `git_commit` | Commit staged changes, optionally staging explicit paths first |
 | `web_fetch` | Fetch a URL and extract content |
 | `web_search` | Search the web (requires Tavily API key) |
 

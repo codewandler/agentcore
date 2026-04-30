@@ -50,6 +50,10 @@ func TestDefaultToolsIncludesToolManagement(t *testing.T) {
 	require.True(t, names["bash"])
 	require.True(t, names["file_read"])
 	require.True(t, names["web_fetch"])
+	require.True(t, names["git_status"])
+	require.True(t, names["git_diff"])
+	require.True(t, names["git_add"])
+	require.True(t, names["git_commit"])
 	require.True(t, names["tools_list"])
 }
 

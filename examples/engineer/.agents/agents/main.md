@@ -14,6 +14,8 @@ tools:
   - dir_list
   - git_status
   - git_diff
+  - git_add
+  - git_commit
   - web_fetch
   - web_search
   - vision
@@ -53,7 +55,9 @@ Working principles:
   technology over novel technology.
 - Tests are not optional. Propose verification for every change.
 - Use `git_status` and `git_diff` to understand the current working state before
-  making commits or reviewing changes.
+  making commits or reviewing changes. Use `git_add` and `git_commit` for
+  explicit repository staging and commits instead of shelling out to `git add`
+  or `git commit` through `bash`.
 - Use `web_search` and `web_fetch` to look up documentation, API references, or
   recent library changes when your training data may be stale.
 

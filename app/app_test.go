@@ -153,7 +153,9 @@ func TestAppDefaultSpecUsesDefaultToolsetNotFullCatalog(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	require.Contains(t, names, "tools_list")
-	require.NotContains(t, names, "git_status")
+	require.Contains(t, names, "git_status")
+	require.Contains(t, names, "git_add")
+	require.Contains(t, names, "git_commit")
 	require.True(t, slices.Contains(names, "web_fetch"))
 }
 
@@ -542,9 +544,9 @@ type testMultiFacetPlugin struct {
 	providers []agentcontext.Provider
 }
 
-func (p testMultiFacetPlugin) Name() string                                  { return p.name }
-func (p testMultiFacetPlugin) Tools() []tool.Tool                            { return p.tools }
-func (p testMultiFacetPlugin) ContextProviders() []agentcontext.Provider     { return p.providers }
+func (p testMultiFacetPlugin) Name() string                              { return p.name }
+func (p testMultiFacetPlugin) Tools() []tool.Tool                        { return p.tools }
+func (p testMultiFacetPlugin) ContextProviders() []agentcontext.Provider { return p.providers }
 
 func TestMultiFacetPluginRegistersToolsAndContextProviders(t *testing.T) {
 	dummyTool := tool.New("multi_tool", "A multi-facet tool", func(tool.Ctx, struct{}) (tool.Result, error) {

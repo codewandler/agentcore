@@ -28,8 +28,9 @@ match these entries as the project starts publishing releases.
   `github.com/codewandler/markdown` v0.41.0 with GFM autolinks, OSC8
   clickable URLs, live table redraws, and Markdown rendering for reasoning
   output.
-- Added `git_add` and `git_commit` tools to the git tool bundle for explicit
-  staging and commit creation without shelling out to `bash`.
+- Added `git_add` and `git_commit` tools to the git tool bundle and default
+  standard toolset for explicit staging and commit creation without shelling out
+  to `bash`.
 - Added `summary` mode to the git context provider with changed-file, staged,
   unstaged, and untracked counts.
 
