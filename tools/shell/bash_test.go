@@ -34,6 +34,26 @@ func TestBashParams_Unmarshal_FailFast(t *testing.T) {
 	require.True(t, p.FailFast)
 }
 
+func TestBuildResult_MultipleCommandsIncludesSummary(t *testing.T) {
+	res := buildResult([]bashRun{
+		{Command: "echo ok", ExitCode: 0},
+		{Command: "false", ExitCode: 1},
+	})
+
+	out := res.String()
+	require.True(t, res.IsError())
+	require.Contains(t, out, "Summary:")
+	require.Contains(t, out, "✓ command 1 exited 0")
+	require.Contains(t, out, "✗ command 2 exited 1")
+	require.Contains(t, out, "=== command 1: echo ok ===")
+	require.Contains(t, out, "=== command 2: false ===")
+}
+
+func TestBuildResult_SingleCommandOmitsSummary(t *testing.T) {
+	res := buildResult([]bashRun{{Command: "echo ok", ExitCode: 0}})
+	require.NotContains(t, res.String(), "Summary:")
+}
+
 func TestBash_Schema_hasOneOf(t *testing.T) {
 	tools := Tools()
 	require.Len(t, tools, 1)

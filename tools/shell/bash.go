@@ -88,8 +88,11 @@ func buildResult(runs []bashRun) tool.Result {
 		b.WithError()
 	}
 
-	// LLM-visible text: all commands concatenated.
+	// LLM-visible text: summary for multi-command arrays, then detailed output.
 	var parts []string
+	if len(runs) > 1 {
+		parts = append(parts, formatRunSummary(runs))
+	}
 	for i, r := range runs {
 		parts = append(parts, r.formatText(i, len(runs)))
 	}
@@ -109,6 +112,22 @@ func buildResult(runs []bashRun) tool.Result {
 	}
 
 	return b.Build()
+}
+
+func formatRunSummary(runs []bashRun) string {
+	var sb strings.Builder
+	sb.WriteString("Summary:")
+	for i, r := range runs {
+		marker := "✓"
+		if r.isError() {
+			marker = "✗"
+		}
+		fmt.Fprintf(&sb, "\n  %s command %d exited %d in %.1fs", marker, i+1, r.ExitCode, r.Duration.Seconds())
+		if r.TimedOut {
+			sb.WriteString(" (timed out)")
+		}
+	}
+	return sb.String()
 }
 
 // Option configures the bash tool.

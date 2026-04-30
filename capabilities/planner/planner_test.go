@@ -22,6 +22,30 @@ func TestPlannerRequiresExplicitPlanCreation(t *testing.T) {
 	}
 }
 
+func TestPlannerCreatePlanAfterCreatedReturnsHelpfulError(t *testing.T) {
+	p := New(capability.AttachSpec{CapabilityName: CapabilityName, InstanceID: "planner_1"}, &recordingRuntime{})
+	_, err := p.ApplyActions(context.Background(), []Action{{
+		Action: ActionCreatePlan,
+		Plan:   &PlanPatch{ID: "plan_1", Title: "Existing plan"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = p.ApplyActions(context.Background(), []Action{{
+		Action: ActionCreatePlan,
+		Plan:   &PlanPatch{ID: "plan_2", Title: "New plan"},
+	}})
+	if err == nil {
+		t.Fatal("expected create_plan to fail after plan exists")
+	}
+	for _, want := range []string{"plan already created", "plan_1", "Existing plan", "update the existing plan"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want substring %q", err.Error(), want)
+		}
+	}
+}
+
 func TestPlannerApplyActionsAppendsThenApplies(t *testing.T) {
 	runtime := &recordingRuntime{threadID: "thread_1", branchID: thread.MainBranch}
 	p := New(capability.AttachSpec{CapabilityName: CapabilityName, InstanceID: "planner_1"}, runtime)

@@ -22,7 +22,7 @@ func (p *Planner) Tools() []tool.Tool {
 				}
 				return tool.Text(string(raw)), nil
 			},
-			tool.WithGuidance[ToolInput]("Use plan to create or update the active plan. Batch related changes in one call; the batch is applied all-or-nothing."),
+			tool.WithGuidance[ToolInput]("Use plan to create or update the active plan. Only one active plan exists per planner instance; after create_plan succeeds, update that plan instead of calling create_plan again. Batch related changes in one call; the batch is applied all-or-nothing."),
 		),
 	}
 }

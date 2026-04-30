@@ -477,6 +477,32 @@ func TestFilesystem_DirTree_ShowsTree(t *testing.T) {
 	require.Contains(t, output, "file.go")
 }
 
+func TestFilesystem_DirTree_ShowLines(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0644))
+
+	tl := dirTree()
+	raw, _ := json.Marshal(DirTreeParams{Path: ".", Depth: 2, ShowSize: true, ShowLines: true})
+	res, err := tl.Execute(ctx(dir), raw)
+	require.NoError(t, err)
+	output := res.String()
+	require.Contains(t, output, "main.go")
+	require.Contains(t, output, "3L")
+	require.Contains(t, output, "B")
+}
+
+func TestFilesystem_DirTree_FlatShowLines(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "pkg"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "pkg", "main.go"), []byte("a\nb\n"), 0644))
+
+	tl := dirTree()
+	raw, _ := json.Marshal(DirTreeParams{Path: ".", Depth: 3, Flat: true, ShowLines: true})
+	res, err := tl.Execute(ctx(dir), raw)
+	require.NoError(t, err)
+	require.Contains(t, res.String(), "pkg/main.go (2L)")
+}
+
 func TestFilesystem_Grep_EmptyPaths_DefaultsToCurrentDir(t *testing.T) {
 	tl := grep()
 	// When Paths is not provided, it defaults to searching the current directory

@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/codewandler/agentsdk/tool"
-	"github.com/invopop/jsonschema"
 	idiff "github.com/codewandler/agentsdk/internal/diff"
 	"github.com/codewandler/agentsdk/internal/humanize"
+	"github.com/codewandler/agentsdk/tool"
+	"github.com/invopop/jsonschema"
 )
 
 var (
@@ -43,10 +43,10 @@ func (Operation) JSONSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			makeVariant("replace", tool.SchemaFor[ReplaceOp]()),
-			makeVariant("insert",  tool.SchemaFor[InsertOp]()),
-			makeVariant("remove",  tool.SchemaFor[RemoveOp]()),
-			makeVariant("append",  tool.SchemaFor[AppendOp]()),
-			makeVariant("patch",   tool.SchemaFor[PatchOp]()),
+			makeVariant("insert", tool.SchemaFor[InsertOp]()),
+			makeVariant("remove", tool.SchemaFor[RemoveOp]()),
+			makeVariant("append", tool.SchemaFor[AppendOp]()),
+			makeVariant("patch", tool.SchemaFor[PatchOp]()),
 		},
 	}
 }
@@ -131,10 +131,12 @@ func fileEdit() tool.Tool {
 If operations affect overlapping original regions, the file edit fails with a conflict error.
 Multiple inserts/appends at the same position are allowed and keep operation order.
 Insert content is used exactly as provided; include a trailing newline yourself if you want to insert a full new line.
+For find-and-delete by exact text, use replace with new_string=""; remove is delete-only and does not accept replacement text.
+Avoid batching dependent edits to the same region; apply the first edit, re-read the target region, then apply the next edit.
 dry_run=true shows the diff without writing anything to disk.
 allow_partial=true skips files that fail (symlinks, missing, too large, conflicts) instead of aborting all.
 SHA-256 hash check: the file is re-read before writing; if it changed since the tool read it, the call fails — re-read and retry.
-path accepts a single string, an array, or a glob pattern (e.g. ["src/**/*.go"]).`
+path accepts a single string, an array, or a glob pattern (e.g. ["src/**/*.go"]); when multiple files match, the same operations array is applied to every file.`
 
 	return tool.New("file_edit",
 		"Edit files using structured operations: replace, insert, remove, append, and patch operations in a single call. All operations are resolved against the original file content and merged before writing.",
@@ -492,6 +494,10 @@ func editsConflict(a, b resolvedEdit) (bool, string) {
 	return false, ""
 }
 
+func errOldStringNotFound() error {
+	return fmt.Errorf("old_string not found; re-read the target region and retry with exact current text (whitespace must match)")
+}
+
 func resolveReplace(content string, op *ReplaceOp, opIndex int) ([]resolvedEdit, error) {
 	if op.OldString == "" {
 		return nil, fmt.Errorf("old_string required")
@@ -510,7 +516,7 @@ func resolveReplace(content string, op *ReplaceOp, opIndex int) ([]resolvedEdit,
 				newText:   op.IfMissing,
 			}}, nil
 		}
-		return nil, fmt.Errorf("old_string not found")
+		return nil, errOldStringNotFound()
 	}
 	if len(matches) > 1 && !op.ReplaceAll {
 		return nil, fmt.Errorf("multiple matches (%d); set replace_all=true", len(matches))
@@ -576,7 +582,7 @@ func resolveRemove(content string, op *RemoveOp, opIndex int) ([]resolvedEdit, e
 	if op.RemoveByString != nil && op.OldString != "" {
 		idx := strings.Index(content, op.OldString)
 		if idx < 0 {
-			return nil, fmt.Errorf("old_string not found")
+			return nil, errOldStringNotFound()
 		}
 		end := idx + len(op.OldString)
 		return []resolvedEdit{{

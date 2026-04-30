@@ -51,6 +51,7 @@ type DirTreeParams struct {
 	ShowHidden  bool   `json:"show_hidden,omitempty" jsonschema:"description=Include hidden files"`
 	Pattern     string `json:"pattern,omitempty" jsonschema:"description=Glob pattern to filter entries"`
 	ShowSize    bool   `json:"show_size,omitempty" jsonschema:"description=Show file sizes"`
+	ShowLines   bool   `json:"show_lines,omitempty" jsonschema:"description=Show file line counts"`
 	Flat        bool   `json:"flat,omitempty" jsonschema:"description=List files flat (like find -type f) instead of tree"`
 	MaxEntries  int    `json:"max_entries,omitempty" jsonschema:"description=Maximum number of entries (default 1000 max 5000)"`
 	NoGitignore bool   `json:"no_gitignore,omitempty" jsonschema:"description=Disable .gitignore filtering"`
@@ -243,11 +244,11 @@ func dirTree() tool.Tool {
 			truncated := false
 
 			if p.Flat {
-				collectFiles(path, path, depth, 0, p.ShowHidden, p.Pattern, p.ShowSize, gi,
+				collectFiles(path, path, depth, 0, p.ShowHidden, p.Pattern, p.ShowSize, p.ShowLines, gi,
 					&lines, &totalNodes, &truncated, maxNodes)
 			} else {
 				lines = append(lines, filepath.Base(path)+"/")
-				buildDirTree(path, path, "", depth, 0, p.ShowHidden, p.Pattern, p.ShowSize, gi,
+				buildDirTree(path, path, "", depth, 0, p.ShowHidden, p.Pattern, p.ShowSize, p.ShowLines, gi,
 					&lines, &totalNodes, &truncated, maxNodes)
 			}
 
@@ -1004,12 +1005,33 @@ func loadGitignore(workdir string) *ignore.GitIgnore {
 	return gi
 }
 
+func formatFileTreeEntry(path, name string, showSize, showLines bool) string {
+	var parts []string
+	if showSize {
+		if info, err := os.Stat(path); err == nil {
+			parts = append(parts, humanize.Size(info.Size()))
+		}
+	}
+	if showLines {
+		if binary, err := isBinaryFile(path); err == nil && !binary {
+			if lines, err := countFileLines(path); err == nil {
+				parts = append(parts, fmt.Sprintf("%dL", lines))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return name
+	}
+	return fmt.Sprintf("%s (%s)", name, strings.Join(parts, ", "))
+}
+
 func buildDirTree(
 	rootPath, absPath, prefix string,
 	maxDepth, curDepth int,
 	showHidden bool,
 	pattern string,
 	showSize bool,
+	showLines bool,
 	gi *ignore.GitIgnore,
 	lines *[]string,
 	totalNodes *int,
@@ -1069,10 +1091,8 @@ func buildDirTree(
 		displayName := entry.Name()
 		if entry.IsDir() {
 			displayName += "/"
-		} else if showSize {
-			if info, err := entry.Info(); err == nil {
-				displayName = fmt.Sprintf("%s (%s)", displayName, humanize.Size(info.Size()))
-			}
+		} else if showSize || showLines {
+			displayName = formatFileTreeEntry(filepath.Join(absPath, entry.Name()), displayName, showSize, showLines)
 		}
 		*lines = append(*lines, prefix+connector+displayName)
 		*totalNodes++
@@ -1083,7 +1103,7 @@ func buildDirTree(
 		}
 		if entry.IsDir() && curDepth+1 < maxDepth {
 			buildDirTree(rootPath, filepath.Join(absPath, entry.Name()), childPrefix,
-				maxDepth, curDepth+1, showHidden, pattern, showSize, gi,
+				maxDepth, curDepth+1, showHidden, pattern, showSize, showLines, gi,
 				lines, totalNodes, truncated, maxNodes)
 		}
 	}
@@ -1095,6 +1115,7 @@ func collectFiles(
 	showHidden bool,
 	pattern string,
 	showSize bool,
+	showLines bool,
 	gi *ignore.GitIgnore,
 	lines *[]string,
 	totalNodes *int,
@@ -1135,7 +1156,7 @@ func collectFiles(
 		if entry.IsDir() {
 			if curDepth+1 < maxDepth {
 				collectFiles(rootPath, fullPath, maxDepth, curDepth+1,
-					showHidden, pattern, showSize, gi, lines, totalNodes, truncated, maxNodes)
+					showHidden, pattern, showSize, showLines, gi, lines, totalNodes, truncated, maxNodes)
 			}
 		} else {
 			if pattern != "" {
@@ -1144,10 +1165,8 @@ func collectFiles(
 				}
 			}
 			displayName := relPath
-			if showSize {
-				if info, err := entry.Info(); err == nil {
-					displayName = fmt.Sprintf("%s (%s)", relPath, humanize.Size(info.Size()))
-				}
+			if showSize || showLines {
+				displayName = formatFileTreeEntry(fullPath, relPath, showSize, showLines)
 			}
 			*lines = append(*lines, displayName)
 			*totalNodes++

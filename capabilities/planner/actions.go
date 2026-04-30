@@ -101,7 +101,7 @@ func buildActionEvent(plan *Plan, created *bool, action Action) ([]capability.St
 	switch strings.TrimSpace(action.Action) {
 	case ActionCreatePlan:
 		if *created {
-			return nil, fmt.Errorf("planner: plan already created")
+			return nil, fmt.Errorf("planner: plan already created (id=%q title=%q); update the existing plan instead of calling create_plan again", plan.ID, plan.Title)
 		}
 		if action.Plan == nil {
 			return nil, fmt.Errorf("planner: create_plan requires plan")
