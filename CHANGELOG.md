@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Versions below are backfilled from the repository's implementation milestones. Tags
 match these entries as the project starts publishing releases.
 
-## [Unreleased]
+## [0.28.0] - 2026-04-30
 
 ### Added
 
@@ -17,8 +17,17 @@ match these entries as the project starts publishing releases.
   the `oneOf` discriminated-union parameter pattern. Each dial creates an
   independent SIP user agent so multiple concurrent calls are fully
   isolated. Includes a `Dialer` interface for testability.
+- Expanded phone dialing with per-call `sip_endpoint`, `protocol`,
+  `caller_id`, custom SIP headers, `username:password` credentials, audio
+  modes (`none`, `echo`, `device` with app-provided `AudioDevice`), and
+  `debug` SIP response diagnostics.
 - Added `PhoneConfig` option to `tools/standard.Options` for wiring the
-  phone tool into standard bundles.
+  phone tool into standard bundles, and included a phone placeholder in the
+  standard catalog so resource specs can select it.
+- Added live terminal Markdown rendering using
+  `github.com/codewandler/markdown` v0.41.0 with GFM autolinks, OSC8
+  clickable URLs, live table redraws, and Markdown rendering for reasoning
+  output.
 
 - Added `Behaviors` field to `tool.Intent` for high-level semantic labels
   (e.g. `filesystem_read`, `network_fetch`) shared with cmdrisk vocabulary.
@@ -49,6 +58,7 @@ match these entries as the project starts publishing releases.
   cmdrisk-integrated intent provider with per-command analysis, assessment
   merging, and context-aware risk context construction.
 - Updated `tools/vision/vision.go` default model to `anthropic/claude-sonnet-4`.
+- Updated `github.com/codewandler/markdown` to v0.41.0.
 
 ## [0.27.1] - 2026-04-28
 
