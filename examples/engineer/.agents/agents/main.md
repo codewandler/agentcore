@@ -17,6 +17,7 @@ tools:
   - web_fetch
   - web_search
   - vision
+  - phone
   - skill
 commands: [review, design, deploy]
 capabilities: [planner]

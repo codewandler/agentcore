@@ -2,6 +2,7 @@ package phone
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,17 +14,21 @@ import (
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-// Config configures the phone tool. SIPAddr is required.
+// Config configures the phone tool. SIPAddr is the default outbound SIP endpoint.
+// It may be left empty when callers provide a sip_endpoint on dial operations.
 type Config struct {
-	// SIPAddr is the SIP endpoint in "host:port" form (e.g. "asterisk.dev.internal:5062").
+	// SIPAddr is the default outbound SIP endpoint in "host:port" form (e.g. "asterisk.dev.internal:5062").
 	SIPAddr string
 
-	// Transport is "tcp" or "udp". Default: "tcp".
+	// Transport is the default SIP protocol/transport ("tcp", "udp", "ws", or v4/v6 variants like "tcp4"). Default: "tcp".
 	Transport string
 
 	// Log is the logger for SIP operations. Default: slog.Default().
 	Log *slog.Logger
 
+	// AudioDevice connects established calls to local microphone/speaker IO when
+	// dial.audio is "device". If nil, dial.audio="device" is rejected.
+	AudioDevice AudioDevice
 	// Dialer overrides the default SIP dialer (for testing).
 	Dialer Dialer
 }
@@ -58,8 +63,15 @@ type PhoneOperation struct {
 
 // DialOp places an outbound call.
 type DialOp struct {
-	Number  string `json:"number" jsonschema:"description=Phone number or SIP address to dial.,required"`
-	Timeout int    `json:"timeout,omitempty" jsonschema:"description=Dial timeout in seconds (default 30)."`
+	Number      string            `json:"number" jsonschema:"description=Phone number or SIP address to dial.,required"`
+	SIPEndpoint string            `json:"sip_endpoint,omitempty" jsonschema:"description=Outbound SIP endpoint in host:port form. Optional when the tool has a default endpoint configured."`
+	CallerID    string            `json:"caller_id,omitempty" jsonschema:"description=Optional SIP caller ID / From user. Empty by default."`
+	Protocol    string            `json:"protocol,omitempty" jsonschema:"description=SIP protocol/transport to use for this call: tcp, udp, ws, or v4/v6 variants like tcp4. Defaults to the tool transport, which defaults to tcp."`
+	Headers     map[string]string `json:"headers,omitempty" jsonschema:"description=Additional SIP headers to include in the INVITE. Header names should be valid SIP header names; From is managed by caller_id."`
+	Credentials string            `json:"credentials,omitempty" jsonschema:"description=Optional SIP digest credentials in username:password form. Prefer app/env configuration for secrets."`
+	Audio       string            `json:"audio,omitempty" jsonschema:"description=Audio mode: none, echo, or device. Empty defaults to none. echo echoes RTP media; device connects microphone/speaker when supported."`
+	Debug       bool              `json:"debug,omitempty" jsonschema:"description=Include SIP response diagnostics in the tool result."`
+	Timeout     int               `json:"timeout,omitempty" jsonschema:"description=Dial timeout in seconds (default 30)."`
 }
 
 // HangupOp terminates an active call.
@@ -147,12 +159,8 @@ func (r *callRegistry) active() []*activeCall {
 const defaultDialTimeout = 30
 
 // Tools returns the phone tool configured with the given SIP settings.
-// Returns nil if cfg.SIPAddr is empty.
+// If cfg.SIPAddr is empty, dial operations must provide sip_endpoint.
 func Tools(cfg Config) []tool.Tool {
-	if cfg.SIPAddr == "" {
-		return nil
-	}
-
 	registry := newRegistry()
 	dialer := cfg.dialer()
 	sipAddr := cfg.SIPAddr
@@ -165,7 +173,7 @@ func Tools(cfg Config) []tool.Tool {
 				if len(p.Operations) == 0 {
 					return nil, fmt.Errorf("at least one operation is required")
 				}
-				return executeOps(ctx, p.Operations, registry, dialer, sipAddr, transport)
+				return executeOps(ctx, p.Operations, registry, dialer, sipAddr, transport, cfg.AudioDevice)
 			},
 			phoneIntent(sipAddr),
 		),
@@ -180,6 +188,7 @@ func executeOps(
 	registry *callRegistry,
 	dialer Dialer,
 	sipAddr, transport string,
+	audioDevice AudioDevice,
 ) (tool.Result, error) {
 	var parts []string
 	anyError := false
@@ -190,7 +199,7 @@ func executeOps(
 
 		switch {
 		case op.Dial != nil:
-			text, err = executeDial(ctx, op.Dial, registry, dialer, sipAddr, transport)
+			text, err = executeDial(ctx, op.Dial, registry, dialer, sipAddr, transport, audioDevice)
 		case op.Hangup != nil:
 			text, err = executeHangup(op.Hangup, registry)
 		case op.Status != nil:
@@ -221,9 +230,38 @@ func executeDial(
 	registry *callRegistry,
 	dialer Dialer,
 	sipAddr, transport string,
+	audioDevice AudioDevice,
 ) (string, error) {
 	if op.Number == "" {
 		return "", fmt.Errorf("dial: number is required")
+	}
+	endpoint := strings.TrimSpace(sipAddr)
+	if endpoint == "" {
+		endpoint = strings.TrimSpace(op.SIPEndpoint)
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("dial: sip_endpoint is required when the phone tool has no default SIP endpoint configured")
+	}
+
+	protocol := strings.TrimSpace(op.Protocol)
+	if protocol == "" {
+		protocol = transport
+	}
+
+	audioMode, err := parseAudioMode(op.Audio)
+	if err != nil {
+		return "", err
+	}
+	if audioMode == AudioModeDevice && audioDevice == nil {
+		return "", fmt.Errorf("dial: audio mode %q requires a configured audio device", audioMode)
+	}
+	username, password, err := parseCredentials(op.Credentials)
+	if err != nil {
+		return "", err
+	}
+	headers, err := cleanSIPHeaders(op.Headers)
+	if err != nil {
+		return "", err
 	}
 
 	timeout := op.Timeout
@@ -234,13 +272,109 @@ func executeDial(
 	dialCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	call, err := dialer.Dial(dialCtx, sipAddr, transport, op.Number)
+	dialResult, err := dialer.Dial(dialCtx, DialRequest{
+		Endpoint:    endpoint,
+		Protocol:    protocol,
+		Number:      op.Number,
+		CallerID:    strings.TrimSpace(op.CallerID),
+		Username:    username,
+		Password:    password,
+		Headers:     headers,
+		Audio:       audioMode,
+		AudioDevice: audioDevice,
+		Debug:       op.Debug,
+	})
 	if err != nil {
-		return "", fmt.Errorf("dial %s: %w", op.Number, err)
+		debug := DialDebugInfo{}
+		var dialErr *DialError
+		if errors.As(err, &dialErr) {
+			debug = dialErr.Debug
+		}
+		msg := fmt.Sprintf("dial %s: %v", op.Number, err)
+		if op.Debug {
+			msg = appendDialDebug(msg, debug)
+		}
+		return "", errors.New(msg)
 	}
 
-	ac := registry.add(op.Number, call)
-	return fmt.Sprintf("Call started: %s\nNumber: %s\nState: %s", ac.ID, ac.Number, ac.State), nil
+	ac := registry.add(op.Number, dialResult.Call)
+	text := fmt.Sprintf("Call started: %s\nNumber: %s\nState: %s", ac.ID, ac.Number, ac.State)
+	if op.Debug {
+		text = appendDialDebug(text, dialResult.Debug)
+	}
+	return text, nil
+}
+
+func parseAudioMode(raw string) (AudioMode, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", string(AudioModeNone):
+		return AudioModeNone, nil
+	case string(AudioModeEcho):
+		return AudioModeEcho, nil
+	case string(AudioModeDevice):
+		return AudioModeDevice, nil
+	default:
+		return "", fmt.Errorf("dial: unsupported audio mode %q (supported: none, echo, device)", raw)
+	}
+}
+
+func parseCredentials(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", nil
+	}
+	username, password, ok := strings.Cut(raw, ":")
+	username = strings.TrimSpace(username)
+	if !ok || username == "" {
+		return "", "", fmt.Errorf("dial: credentials must be in username:password form")
+	}
+	return username, password, nil
+}
+
+func cleanSIPHeaders(headers map[string]string) (map[string]string, error) {
+	if len(headers) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(headers))
+	for name, value := range headers {
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		if name == "" || value == "" {
+			continue
+		}
+		if forbiddenCustomSIPHeaders[strings.ToLower(name)] {
+			return nil, fmt.Errorf("dial: custom SIP header %q is managed by the phone tool and cannot be overridden", name)
+		}
+		out[name] = value
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+var forbiddenCustomSIPHeaders = map[string]bool{
+	"from":           true,
+	"to":             true,
+	"via":            true,
+	"contact":        true,
+	"call-id":        true,
+	"cseq":           true,
+	"content-length": true,
+	"content-type":   true,
+}
+
+func appendDialDebug(text string, debug DialDebugInfo) string {
+	if len(debug.Responses) == 0 {
+		return text + "\nSIP responses: none"
+	}
+	var sb strings.Builder
+	sb.WriteString(text)
+	sb.WriteString("\nSIP responses:")
+	for _, res := range debug.Responses {
+		fmt.Fprintf(&sb, "\n  %d %s", res.StatusCode, res.Reason)
+	}
+	return sb.String()
 }
 
 func executeHangup(op *HangupOp, registry *callRegistry) (string, error) {

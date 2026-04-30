@@ -216,12 +216,22 @@ func TestTools_WithoutPhoneConfig(t *testing.T) {
 
 func TestTools_PhoneConfigEmptyAddr(t *testing.T) {
 	tools := Tools(Options{
-		PhoneConfig: &phone.Config{}, // SIPAddr empty
+		PhoneConfig: &phone.Config{}, // SIPAddr empty; dial calls can provide sip_endpoint
 	})
 
 	names := map[string]bool{}
 	for _, tt := range tools {
 		names[tt.Name()] = true
 	}
-	require.False(t, names["phone"], "phone tool should not be present with empty SIPAddr")
+	require.True(t, names["phone"], "phone tool should be present with empty SIPAddr")
+}
+
+func TestCatalogTools_IncludesPhonePlaceholder(t *testing.T) {
+	tools := CatalogTools()
+
+	names := map[string]bool{}
+	for _, tt := range tools {
+		names[tt.Name()] = true
+	}
+	require.True(t, names["phone"], "catalog should include phone so resource specs can select it")
 }

@@ -42,7 +42,8 @@ type Options struct {
 	IncludeVision         bool
 
 	// PhoneConfig configures the phone tool for SIP call origination.
-	// When non-nil and SIPAddr is set, the phone tool is included in the bundle.
+	// When non-nil, the phone tool is included. If SIPAddr is empty,
+	// dial operations must provide sip_endpoint.
 	PhoneConfig *phone.Config
 }
 
@@ -151,6 +152,7 @@ func CatalogOptions() Options {
 	opts.IncludeTodo = true
 	opts.IncludeTurnDone = true
 	opts.IncludeVision = true
+	opts.PhoneConfig = &phone.Config{}
 	return opts
 }
 

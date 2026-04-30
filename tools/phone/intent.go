@@ -12,10 +12,14 @@ func phoneIntent(sipAddr string) tool.TypedToolOption[PhoneParams] {
 		for _, op := range p.Operations {
 			switch {
 			case op.Dial != nil:
+				endpoint := sipAddr
+				if endpoint == "" {
+					endpoint = op.Dial.SIPEndpoint
+				}
 				ops = append(ops, tool.IntentOperation{
 					Resource: tool.IntentResource{
 						Category: "host",
-						Value:    sipAddr,
+						Value:    endpoint,
 						Locality: "network",
 					},
 					Operation: "network_write",

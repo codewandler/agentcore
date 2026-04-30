@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/emiago/diago"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,23 +34,33 @@ func (c *mockCall) Done() <-chan struct{} {
 type mockDialer struct {
 	mu    sync.Mutex
 	calls int
-	err   error // if set, Dial returns this error
+
+	lastReq DialRequest
+	debug   DialDebugInfo
+	err     error // if set, Dial returns this error
 }
 
-func (d *mockDialer) Dial(_ context.Context, addr, transport, number string) (Call, error) {
+func (d *mockDialer) Dial(_ context.Context, req DialRequest) (DialResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.lastReq = req
 	if d.err != nil {
-		return nil, d.err
+		return DialResult{}, &DialError{Err: d.err, Debug: d.debug}
 	}
 	d.calls++
-	return newMockCall(), nil
+	return DialResult{Call: newMockCall(), Debug: d.debug}, nil
 }
 
 func (d *mockDialer) callCount() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.calls
+}
+
+type fakeAudioDevice struct{}
+
+func (fakeAudioDevice) Connect(context.Context, *diago.DialogClientSession) error {
+	return nil
 }
 
 // ── test context ──────────────────────────────────────────────────────────────
@@ -91,13 +101,14 @@ func execute(t *testing.T, tl tool.Tool, input string) tool.Result {
 
 // ── Tool construction ─────────────────────────────────────────────────────────
 
-func TestTools_NilWhenNoAddr(t *testing.T) {
-	tools := Tools(Config{})
-	require.Nil(t, tools)
-}
-
 func TestTools_ReturnsPhoneTool(t *testing.T) {
 	tools := Tools(Config{SIPAddr: "host:5062", Dialer: &mockDialer{}})
+	require.Len(t, tools, 1)
+	require.Equal(t, "phone", tools[0].Name())
+}
+
+func TestTools_ReturnsPhoneToolWithoutDefaultEndpoint(t *testing.T) {
+	tools := Tools(Config{Dialer: &mockDialer{}})
 	require.Len(t, tools, 1)
 	require.Equal(t, "phone", tools[0].Name())
 }
@@ -142,6 +153,140 @@ func TestDial_Error(t *testing.T) {
 	res := execute(t, tl, `{"operations": [{"dial": {"number": "111"}}]}`)
 	require.True(t, res.IsError())
 	require.Contains(t, res.String(), "connection refused")
+}
+
+func TestDial_UsesOperationSIPEndpointWhenNoDefault(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "sip_endpoint": "pbx.example:5060"}}]}`)
+	require.Contains(t, res.String(), "call-1")
+	require.Equal(t, "pbx.example:5060", d.lastReq.Endpoint)
+}
+
+func TestDial_PerCallOptions(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Transport: "udp", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "protocol": "tcp", "caller_id": "agent", "credentials": "user:pass", "audio": "echo"}}]}`)
+	require.Contains(t, res.String(), "call-1")
+	require.Equal(t, DialRequest{
+		Endpoint: "default.example:5060",
+		Protocol: "tcp",
+		Number:   "111",
+		CallerID: "agent",
+		Username: "user",
+		Password: "pass",
+		Audio:    AudioModeEcho,
+	}, d.lastReq)
+}
+
+func TestDial_CustomHeaders(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "headers": {"X-Test": " value ", " ": "ignored", "X-Empty": ""}}}]}`)
+	require.Contains(t, res.String(), "call-1")
+	require.Equal(t, map[string]string{"X-Test": "value"}, d.lastReq.Headers)
+}
+
+func TestDial_ForbidsManagedCustomHeaders(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "headers": {"From": "bad"}}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), `custom SIP header "From"`)
+}
+
+func TestDial_RejectsMalformedCredentials(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "credentials": "missing-colon"}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "credentials must be in username:password form")
+}
+
+func TestDial_RejectsUnsupportedAudioMode(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "audio": "loud"}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "unsupported audio mode")
+}
+
+func TestDial_DeviceAudioPassesConfiguredDevice(t *testing.T) {
+	d := &mockDialer{}
+	device := fakeAudioDevice{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d, AudioDevice: device})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "audio": "device"}}]}`)
+	require.Contains(t, res.String(), "call-1")
+	require.Equal(t, AudioModeDevice, d.lastReq.Audio)
+	require.NotNil(t, d.lastReq.AudioDevice)
+}
+
+func TestDial_DeviceAudioRequiresConfiguredDevice(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "audio": "device"}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "requires a configured audio device")
+	require.Zero(t, d.callCount())
+}
+func TestDial_DebugIncludesResponsesOnSuccess(t *testing.T) {
+	d := &mockDialer{debug: DialDebugInfo{Responses: []SIPResponseInfo{{StatusCode: 180, Reason: "Ringing"}, {StatusCode: 200, Reason: "OK"}}}}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "debug": true}}]}`)
+	require.Contains(t, res.String(), "SIP responses:")
+	require.Contains(t, res.String(), "180 Ringing")
+	require.Contains(t, res.String(), "200 OK")
+}
+
+func TestDial_DebugIncludesResponsesOnFailure(t *testing.T) {
+	d := &mockDialer{err: fmt.Errorf("busy"), debug: DialDebugInfo{Responses: []SIPResponseInfo{{StatusCode: 486, Reason: "Busy Here"}}}}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111", "debug": true}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "busy")
+	require.Contains(t, res.String(), "486 Busy Here")
+}
+
+func TestDial_DefaultsProtocolToToolTransportAndAudioOff(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{SIPAddr: "default.example:5060", Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111"}}]}`)
+	require.Contains(t, res.String(), "call-1")
+	require.Equal(t, "tcp", d.lastReq.Protocol)
+	require.Empty(t, d.lastReq.CallerID)
+	require.Equal(t, AudioModeNone, d.lastReq.Audio)
+}
+
+func TestDial_RequiresSIPEndpointWhenNoDefault(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{Dialer: d})
+	require.Len(t, tools, 1)
+
+	res := execute(t, tools[0], `{"operations": [{"dial": {"number": "111"}}]}`)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "sip_endpoint is required")
 }
 
 func TestDial_MissingNumber(t *testing.T) {
@@ -255,6 +400,19 @@ func TestIntent_Dial(t *testing.T) {
 	require.Contains(t, intent.Behaviors, "telephony_dial")
 }
 
+func TestIntent_DialUsesOperationSIPEndpointWhenNoDefault(t *testing.T) {
+	d := &mockDialer{}
+	tools := Tools(Config{Dialer: d})
+	inner := tool.Innermost(tools[0])
+	provider := inner.(tool.IntentProvider)
+
+	intent, err := provider.DeclareIntent(ctx(), json.RawMessage(
+		`{"operations": [{"dial": {"number": "111", "sip_endpoint": "pbx.example:5060"}}]}`))
+	require.NoError(t, err)
+	require.Len(t, intent.Operations, 1)
+	require.Equal(t, "pbx.example:5060", intent.Operations[0].Resource.Value)
+}
+
 func TestIntent_Status(t *testing.T) {
 	d := &mockDialer{}
 	tools := Tools(Config{SIPAddr: "asterisk:5062", Dialer: d})
@@ -318,6 +476,7 @@ func TestParseHostPort(t *testing.T) {
 		{"asterisk:5062", "asterisk", 5062},
 		{"10.0.0.1:5060", "10.0.0.1", 5060},
 		{"hostname", "hostname", 5060},
+		{"[2001:db8::1]:5061", "2001:db8::1", 5061},
 	}
 	for _, tt := range tests {
 		h, p := parseHostPort(tt.input)
@@ -338,6 +497,3 @@ func TestAppendIfMissing(t *testing.T) {
 	s = appendIfMissing(s, "b")
 	require.Equal(t, []string{"a", "b"}, s)
 }
-
-// Ensure time import is used (for future tests that may need sleeps).
-var _ = time.Second
