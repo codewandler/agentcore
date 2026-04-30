@@ -35,3 +35,35 @@ func gitDiffIntent() tool.TypedToolOption[GitDiffParams] {
 		}, nil
 	})
 }
+
+func gitAddIntent() tool.TypedToolOption[GitAddParams] {
+	return tool.WithDeclareIntent(func(ctx tool.Ctx, _ GitAddParams) (tool.Intent, error) {
+		return tool.Intent{
+			Tool:       "git_add",
+			ToolClass:  "repository_modify",
+			Confidence: "high",
+			Operations: []tool.IntentOperation{{
+				Resource:  tool.IntentResource{Category: "repo", Value: ctx.WorkDir(), Locality: "workspace"},
+				Operation: "write",
+				Certain:   true,
+			}},
+			Behaviors: []string{"filesystem_read", "repo_index_modify"},
+		}, nil
+	})
+}
+
+func gitCommitIntent() tool.TypedToolOption[GitCommitParams] {
+	return tool.WithDeclareIntent(func(ctx tool.Ctx, _ GitCommitParams) (tool.Intent, error) {
+		return tool.Intent{
+			Tool:       "git_commit",
+			ToolClass:  "repository_modify",
+			Confidence: "high",
+			Operations: []tool.IntentOperation{{
+				Resource:  tool.IntentResource{Category: "repo", Value: ctx.WorkDir(), Locality: "workspace"},
+				Operation: "write",
+				Certain:   true,
+			}},
+			Behaviors: []string{"filesystem_read", "repo_history_modify"},
+		}, nil
+	})
+}

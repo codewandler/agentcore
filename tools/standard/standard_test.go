@@ -29,6 +29,8 @@ func TestToolsIncludesBaseAndOptionals(t *testing.T) {
 		"file_read",
 		"web_fetch",
 		"git_status",
+		"git_add",
+		"git_commit",
 		"todo",
 		"tools_list",
 		"turn_done",
@@ -62,6 +64,8 @@ func TestCatalogToolsIncludesOptionalStandardTools(t *testing.T) {
 	for _, name := range []string{
 		"git_status",
 		"git_diff",
+		"git_add",
+		"git_commit",
 		"notify_send",
 		"todo",
 		"turn_done",

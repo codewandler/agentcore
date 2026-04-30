@@ -80,6 +80,60 @@ func TestGitProviderRendersChangedFilesWithCaps(t *testing.T) {
 	}
 }
 
+func TestGitProviderRendersSummaryCounts(t *testing.T) {
+	dir := initGitContextRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitContext(t, dir, "add", "staged.txt")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := Git(WithGitWorkDir(dir), WithGitMode(GitSummary))
+
+	providerContext, err := provider.GetContext(context.Background(), agentcontext.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := providerContext.Fragments[0].Content
+	for _, want := range []string{
+		"dirty: true",
+		"changed_file_count: 3",
+		"staged: 1",
+		"unstaged: 1",
+		"untracked: 1",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content missing %q: %s", want, content)
+		}
+	}
+	if strings.Contains(content, "changed_files:") {
+		t.Fatalf("summary mode should not render changed file list: %s", content)
+	}
+}
+
+func TestParseGitStatusLine(t *testing.T) {
+	tests := []struct {
+		line     string
+		index    byte
+		worktree byte
+		path     string
+	}{
+		{line: " M README.md", index: ' ', worktree: 'M', path: "README.md"},
+		{line: "A  staged.txt", index: 'A', worktree: ' ', path: "staged.txt"},
+		{line: "?? new.txt", index: '?', worktree: '?', path: "new.txt"},
+	}
+	for _, tt := range tests {
+		entry := parseGitStatusLine(tt.line)
+		if entry.indexStatus != tt.index || entry.worktreeStatus != tt.worktree || entry.path != tt.path || entry.raw != tt.line {
+			t.Fatalf("parseGitStatusLine(%q) = %#v", tt.line, entry)
+		}
+	}
+}
+
 func TestGitProviderOffAndNonRepoReturnNoFragments(t *testing.T) {
 	for _, provider := range []*GitProvider{
 		Git(WithGitMode(GitOff)),

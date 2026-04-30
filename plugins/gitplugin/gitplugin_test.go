@@ -24,13 +24,15 @@ func TestPluginName(t *testing.T) {
 func TestPluginToolsReturnsGitTools(t *testing.T) {
 	p := New()
 	tools := p.Tools()
-	require.Len(t, tools, 2)
+	require.Len(t, tools, 4)
 	names := make([]string, len(tools))
 	for i, tool := range tools {
 		names[i] = tool.Name()
 	}
 	require.Contains(t, names, "git_status")
 	require.Contains(t, names, "git_diff")
+	require.Contains(t, names, "git_add")
+	require.Contains(t, names, "git_commit")
 }
 
 func TestPluginContextProvidersReturnsGitProvider(t *testing.T) {

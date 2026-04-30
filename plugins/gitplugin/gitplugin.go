@@ -14,7 +14,7 @@ import (
 // Option configures a Plugin.
 type Option func(*Plugin)
 
-// Plugin bundles git tools (git_status, git_diff) and the git context provider
+// Plugin bundles git tools (git_status, git_diff, git_add, git_commit) and the git context provider
 // behind the app.Plugin interface.
 type Plugin struct {
 	gitMode contextproviders.GitMode
@@ -33,7 +33,7 @@ func New(opts ...Option) *Plugin {
 	return p
 }
 
-// WithMode sets the git context provider mode (off, minimal, changed_files).
+// WithMode sets the git context provider mode (off, minimal, changed_files, summary).
 func WithMode(mode contextproviders.GitMode) Option {
 	return func(p *Plugin) { p.gitMode = mode }
 }
@@ -52,7 +52,7 @@ func WithGitOption(opt contextproviders.GitOption) Option {
 // Name returns the plugin identity.
 func (p *Plugin) Name() string { return "git" }
 
-// Tools returns the git tools: git_status, git_diff.
+// Tools returns the git tools: git_status, git_diff, git_add, and git_commit.
 func (p *Plugin) Tools() []tool.Tool {
 	return git.Tools()
 }

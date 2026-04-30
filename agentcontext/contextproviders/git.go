@@ -18,6 +18,7 @@ const (
 	GitOff          GitMode = "off"
 	GitMinimal      GitMode = "minimal"
 	GitChangedFiles GitMode = "changed_files"
+	GitSummary      GitMode = "summary"
 )
 
 const (
@@ -164,6 +165,9 @@ func (p *GitProvider) content(ctx context.Context, req agentcontext.Request) (st
 	b.WriteString(content)
 	writeLine(&b, "dirty", strconv.FormatBool(len(changes) > 0))
 
+	if p.mode == GitSummary {
+		writeGitSummary(&b, changes)
+	}
 	if p.mode == GitChangedFiles && len(changes) > 0 {
 		writeGitChanges(&b, changes, p.maxFilesOrDefault())
 	}
@@ -216,20 +220,60 @@ func GitMinimalCmds() []Cmd {
 	}
 }
 
-func parseGitStatus(status string) []string {
+type gitStatusEntry struct {
+	raw            string
+	indexStatus    byte
+	worktreeStatus byte
+	path           string
+}
+
+func parseGitStatus(status string) []gitStatusEntry {
 	lines := strings.Split(status, "\n")
-	out := make([]string, 0, len(lines))
+	out := make([]gitStatusEntry, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimRight(line, "\r")
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		out = append(out, line)
+		out = append(out, parseGitStatusLine(line))
 	}
 	return out
 }
 
-func writeGitChanges(b *strings.Builder, changes []string, maxFiles int) {
+func parseGitStatusLine(line string) gitStatusEntry {
+	entry := gitStatusEntry{raw: line}
+	if len(line) >= 2 {
+		entry.indexStatus = line[0]
+		entry.worktreeStatus = line[1]
+	}
+	if len(line) > 3 {
+		entry.path = strings.TrimSpace(line[3:])
+	}
+	return entry
+}
+
+func writeGitSummary(b *strings.Builder, changes []gitStatusEntry) {
+	var staged, unstaged, untracked int
+	for _, change := range changes {
+		switch {
+		case change.indexStatus == '?' && change.worktreeStatus == '?':
+			untracked++
+		default:
+			if change.indexStatus != 0 && change.indexStatus != ' ' && change.indexStatus != '?' {
+				staged++
+			}
+			if change.worktreeStatus != 0 && change.worktreeStatus != ' ' && change.worktreeStatus != '?' {
+				unstaged++
+			}
+		}
+	}
+	writeLine(b, "changed_file_count", strconv.Itoa(len(changes)))
+	writeLine(b, "staged", strconv.Itoa(staged))
+	writeLine(b, "unstaged", strconv.Itoa(unstaged))
+	writeLine(b, "untracked", strconv.Itoa(untracked))
+}
+
+func writeGitChanges(b *strings.Builder, changes []gitStatusEntry, maxFiles int) {
 	if len(changes) == 0 {
 		return
 	}
@@ -243,7 +287,7 @@ func writeGitChanges(b *strings.Builder, changes []string, maxFiles int) {
 	}
 	for _, change := range changes[:limit] {
 		b.WriteString("\n  ")
-		b.WriteString(change)
+		b.WriteString(change.raw)
 	}
 	if limit < len(changes) {
 		fmt.Fprintf(b, "\ntruncated_files: %d", len(changes)-limit)

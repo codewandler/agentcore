@@ -204,6 +204,64 @@ func TestGitDiff_NoChanges(t *testing.T) {
 	require.Contains(t, res.String(), "No changes")
 }
 
+func TestGitAddStagesExplicitPaths(t *testing.T) {
+	dir := initGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b\n"), 0644))
+
+	res := callTool(t, gitAdd(), GitAddParams{Paths: []string{"a.txt"}}, dir)
+	require.False(t, res.IsError(), res.String())
+	require.Contains(t, res.String(), "a.txt")
+	require.NotContains(t, res.String(), "b.txt")
+	staged := run(t, dir, "git", "diff", "--cached", "--name-only")
+	require.Contains(t, staged, "a.txt")
+	require.NotContains(t, staged, "b.txt")
+}
+
+func TestGitAddRequiresPaths(t *testing.T) {
+	dir := initGitRepo(t)
+	res := callTool(t, gitAdd(), GitAddParams{Paths: []string{}}, dir)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "paths cannot be empty")
+}
+
+func TestGitCommitCreatesCommitFromStagedChanges(t *testing.T) {
+	dir := initGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "commit.txt"), []byte("commit\n"), 0644))
+	run(t, dir, "git", "add", "commit.txt")
+
+	res := callTool(t, gitCommit(), GitCommitParams{Message: "add commit file"}, dir)
+	require.False(t, res.IsError(), res.String())
+	require.Contains(t, res.String(), "Committed staged changes")
+	require.Contains(t, res.String(), "commit.txt")
+	log := run(t, dir, "git", "log", "--oneline", "-1")
+	require.Contains(t, log, "add commit file")
+}
+
+func TestGitCommitCanStageExplicitPaths(t *testing.T) {
+	dir := initGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "commit.txt"), []byte("commit\n"), 0644))
+
+	res := callTool(t, gitCommit(), GitCommitParams{Message: "add explicit file", Add: []string{"commit.txt"}}, dir)
+	require.False(t, res.IsError(), res.String())
+	log := run(t, dir, "git", "log", "--oneline", "-1")
+	require.Contains(t, log, "add explicit file")
+}
+
+func TestGitCommitRequiresStagedChanges(t *testing.T) {
+	dir := initGitRepo(t)
+	res := callTool(t, gitCommit(), GitCommitParams{Message: "empty"}, dir)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "no staged changes")
+}
+
+func TestGitCommitRequiresMessage(t *testing.T) {
+	dir := initGitRepo(t)
+	res := callTool(t, gitCommit(), GitCommitParams{}, dir)
+	require.True(t, res.IsError())
+	require.Contains(t, res.String(), "message cannot be empty")
+}
+
 func TestGitDiff_NotAGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	tl := gitDiff()

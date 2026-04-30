@@ -1,4 +1,4 @@
-// Package git provides git_status and git_diff tools.
+// Package git provides git_status, git_diff, git_add, and git_commit tools.
 package git
 
 import (
@@ -8,17 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codewandler/agentsdk/tool"
 	idiff "github.com/codewandler/agentsdk/internal/diff"
+	"github.com/codewandler/agentsdk/tool"
 )
 
 const gitTimeout = 30 * time.Second
 
-// Tools returns the git tools: git_status, git_diff.
+// Tools returns the git tools: git_status, git_diff, git_add, and git_commit.
 func Tools() []tool.Tool {
 	return []tool.Tool{
 		gitStatus(),
 		gitDiff(),
+		gitAdd(),
+		gitCommit(),
 	}
 }
 
@@ -108,6 +110,81 @@ func gitDiff() tool.Tool {
 			return res.Build(), nil
 		},
 		gitDiffIntent(),
+	)
+}
+
+// ── git_add ─────────────────────────────────────────────────────────────────
+
+type GitAddParams struct {
+	Paths []string `json:"paths" jsonschema:"description=Explicit file paths to stage. Directories are allowed.,required"`
+}
+
+func gitAdd() tool.Tool {
+	return tool.New("git_add",
+		"Stage explicit paths in the git index.",
+		func(ctx tool.Ctx, p GitAddParams) (tool.Result, error) {
+			if len(p.Paths) == 0 {
+				return tool.Error("paths cannot be empty"), nil
+			}
+			args := append([]string{"add", "--"}, p.Paths...)
+			if _, err := runGit(ctx, ctx.WorkDir(), args...); err != nil {
+				return tool.Errorf("git add: %s", err), nil
+			}
+			status, err := runGit(ctx, ctx.WorkDir(), "diff", "--cached", "--name-status")
+			if err != nil {
+				return tool.Errorf("git add status: %s", err), nil
+			}
+			status = strings.TrimSpace(status)
+			if status == "" {
+				return tool.Text("Staged paths, but there are no staged changes."), nil
+			}
+			return tool.Text("Staged changes:\n" + status), nil
+		},
+		gitAddIntent(),
+	)
+}
+
+// ── git_commit ──────────────────────────────────────────────────────────────
+
+type GitCommitParams struct {
+	Message string   `json:"message" jsonschema:"description=Commit message,required"`
+	Add     []string `json:"add,omitempty" jsonschema:"description=Optional explicit paths to stage before committing. Only these paths are added."`
+}
+
+func gitCommit() tool.Tool {
+	return tool.New("git_commit",
+		"Create a git commit from staged changes, optionally staging explicit paths first.",
+		func(ctx tool.Ctx, p GitCommitParams) (tool.Result, error) {
+			message := strings.TrimSpace(p.Message)
+			if message == "" {
+				return tool.Error("message cannot be empty"), nil
+			}
+			if len(p.Add) > 0 {
+				args := append([]string{"add", "--"}, p.Add...)
+				if _, err := runGit(ctx, ctx.WorkDir(), args...); err != nil {
+					return tool.Errorf("git add before commit: %s", err), nil
+				}
+			}
+			staged, err := runGit(ctx, ctx.WorkDir(), "diff", "--cached", "--name-status")
+			if err != nil {
+				return tool.Errorf("git commit staged status: %s", err), nil
+			}
+			staged = strings.TrimSpace(staged)
+			if staged == "" {
+				return tool.Error("no staged changes to commit"), nil
+			}
+			out, err := runGit(ctx, ctx.WorkDir(), "commit", "-m", message)
+			if err != nil {
+				return tool.Errorf("git commit: %s", err), nil
+			}
+			out = strings.TrimSpace(out)
+			text := "Committed staged changes:\n" + staged
+			if out != "" {
+				text += "\n\n" + out
+			}
+			return tool.Text(text), nil
+		},
+		gitCommitIntent(),
 	)
 }
 
