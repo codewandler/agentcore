@@ -30,6 +30,7 @@ type Definition struct {
 
 // Result is the structured workflow execution result.
 type Result struct {
+	RunID       RunID
 	StepResults map[string]action.Result
 	Data        any
 }
@@ -59,16 +60,19 @@ func EventDefinitions() []thread.EventDefinition {
 }
 
 type Started struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 }
 
 type StepStarted struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
 }
 
 type StepCompleted struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
@@ -76,6 +80,7 @@ type StepCompleted struct {
 }
 
 type StepFailed struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
@@ -83,11 +88,13 @@ type StepFailed struct {
 }
 
 type Completed struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 	Data         any    `json:"data,omitempty"`
 }
 
 type Failed struct {
+	RunID        RunID  `json:"run_id"`
 	WorkflowName string `json:"workflow_name"`
 	Error        string `json:"error"`
 }
@@ -123,12 +130,22 @@ func (r RegistryResolver) ResolveAction(_ action.Ctx, ref ActionRef) (action.Act
 type Executor struct {
 	Resolver Resolver
 	OnEvent  EventHandler
+	RunID    RunID
+	NewRunID func() RunID
 }
 
 // Execute runs def and returns a workflow result in action.Result.Data. Execution
 // stops at the first failed or unresolved step; partial step results are kept in
 // Result.StepResults.
 func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Result {
+	runID := e.RunID
+	if runID == "" {
+		if e.NewRunID != nil {
+			runID = e.NewRunID()
+		} else {
+			runID = NewRunID()
+		}
+	}
 	var events []action.Event
 	emit := func(event action.Event) {
 		events = append(events, event)
@@ -137,7 +154,7 @@ func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Resu
 		}
 	}
 	fail := func(err error, data any) action.Result {
-		emit(Failed{WorkflowName: def.Name, Error: err.Error()})
+		emit(Failed{RunID: runID, WorkflowName: def.Name, Error: err.Error()})
 		return action.Result{Data: data, Error: err, Events: events}
 	}
 
@@ -148,29 +165,29 @@ func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Resu
 	if err != nil {
 		return fail(err, nil)
 	}
-	emit(Started{WorkflowName: def.Name})
+	emit(Started{RunID: runID, WorkflowName: def.Name})
 	results := make(map[string]action.Result, len(ordered))
 	var last any = input
 	for _, step := range ordered {
 		a, ok := e.Resolver.ResolveAction(ctx, step.Action)
 		if !ok || a == nil {
-			return fail(fmt.Errorf("workflow %q step %q action %q not found", def.Name, step.ID, step.Action.Name), Result{StepResults: results, Data: last})
+			return fail(fmt.Errorf("workflow %q step %q action %q not found", def.Name, step.ID, step.Action.Name), Result{RunID: runID, StepResults: results, Data: last})
 		}
 		stepInput := stepInput(step, input, results)
-		emit(StepStarted{WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name})
+		emit(StepStarted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name})
 		res := a.Execute(ctx, stepInput)
 		results[step.ID] = res
 		events = append(events, res.Events...)
 		if res.Error != nil {
 			err := fmt.Errorf("workflow %q step %q failed: %w", def.Name, step.ID, res.Error)
-			emit(StepFailed{WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Error: res.Error.Error()})
-			return fail(err, Result{StepResults: results, Data: last})
+			emit(StepFailed{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Error: res.Error.Error()})
+			return fail(err, Result{RunID: runID, StepResults: results, Data: last})
 		}
 		last = res.Data
-		emit(StepCompleted{WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Data: res.Data})
+		emit(StepCompleted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Data: res.Data})
 	}
-	emit(Completed{WorkflowName: def.Name, Data: last})
-	return action.Result{Data: Result{StepResults: results, Data: last}, Events: events}
+	emit(Completed{RunID: runID, WorkflowName: def.Name, Data: last})
+	return action.Result{Data: Result{RunID: runID, StepResults: results, Data: last}, Events: events}
 }
 
 func stepInput(step Step, initial any, results map[string]action.Result) any {
