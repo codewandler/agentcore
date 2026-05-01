@@ -156,7 +156,7 @@ Datasource
 Action
   -> smallest typed unit of execution in package `action`
   -> completely independent of LLMs, agents, and tools
-  -> owns stable execution metadata: name, description, kind, intent, input schema, output schema, `action.Ctx`, `action.Result`, and middleware chain
+  -> owns stable execution metadata: name, description, input/output `action.Type`, intent, `action.Ctx`, `action.Result`, emitted events, and middleware chain
   -> can be called by workflows/pipelines, triggers, commands, tools, datasources, or app code
 
 Tool
@@ -171,8 +171,10 @@ Workflow / pipeline
   -> may itself be wrapped as an action for commands, triggers, tools, or parent workflows
 
 Command
-  -> human/app-facing invocation surface
-  -> can call an action, start a workflow, or execute a prompt/model-turn action
+  -> human/app/channel-facing invocation surface, usually slash-command shaped
+  -> owns UX metadata such as aliases, argument hints, caller policy, and result instructions to the channel
+  -> can call an action, start a workflow, or execute/render a prompt/model-turn action
+  -> is not the typed execution primitive; command params/results are channel semantics around execution
 
 Capability
   -> attachable agent/session feature with lifecycle, context, and optional event-sourced state
@@ -228,13 +230,19 @@ Today `app.Plugin` and its facets contribute commands, agent specs, tools, skill
 
 ### Action
 
-An action is the core executable primitive in a top-level `action` package: a named atomic operation with typed input, typed output, declared intent, result semantics, execution context, and middleware chain.
+An action is the core executable primitive in a top-level `action` package: a named atomic Go-native operation with typed input, typed output, declared intent, result semantics, execution context, optional emitted events, and middleware chain.
 
 Actions are independent of LLMs, agents, and tools. A system can run commands, workflows, datasource syncs, scheduled jobs, or service integrations entirely through actions without any model involved.
 
-Action metadata should live on the action, not on every surface that can invoke it. That includes name, description, kind/type, intent declaration, input schema, output schema, `action.Ctx`, `action.Result`, middleware, observability labels, and safety policy hooks. Examples of action kinds may include command execution, HTTP request, transform, approval, datasource read/write/sync, workflow dispatch, model/agent turn, or domain-specific operations.
+Action metadata should live on the action, not on every surface that can invoke it. That includes name, description, input/output `action.Type`, intent declaration, `action.Ctx`, `action.Result`, middleware, observability labels, and safety policy hooks. Action implementations may execute command processes, HTTP requests, transforms, approvals, datasource reads/writes/syncs, workflow dispatches, model/agent turns, or domain-specific operations, but core actions do not need a built-in kind enum for that.
 
-Actions can be implemented in Go and referenced by workflows, pipelines, tools, commands, triggers, datasources, and app code. This makes action the central reusable unit: workflow steps, datasource operations, model-callable tools, and slash commands should not each reinvent schema, result, intent, and middleware concepts.
+Actions are Go-native, not JSON-first. Core action handlers should accept typed values, not raw serialized bytes, and those values may be ordinary Go values such as interfaces, channels, readers, handles, or domain objects. Serialization constraints belong to surfaces such as tools, resource files, remote channels, and persisted workflow state. Tools are a specialization/projection because model inputs must be serializable and schema-described.
+
+`action.Type` should represent the input or output contract for an action. It should track the Go type plus optional schema metadata, for example `reflect.Type` plus JSON schema when the type is serializable. `action.NewTyped[I, O]` should construct the input and output `action.Type` values for `I` and `O`, and should prefer handlers shaped like `func(action.Ctx, I) (O, error)` so ordinary Go functions can adapt naturally into actions. Over time `action.Type` can own helper methods for creating new values, encoding, decoding, validation, and schema projection, while still allowing Go-native values that cannot be serialized.
+
+`action.Result` should be execution-oriented and minimal: data plus error plus optional emitted events. A result should not encode display concerns up front. Values that need display behavior can later implement a display-related interface, and channel/tool adapters can decide how to render them.
+
+Actions can be implemented in Go and referenced by workflows, pipelines, tools, commands, triggers, datasources, and app code. This makes action the central reusable unit: workflow steps, datasource operations, model-callable tools, and slash commands should not each reinvent result, intent, middleware, and surface-specific schema/projection concepts.
 
 ### Tool
 
@@ -246,7 +254,7 @@ In the current code, `tool.Tool` owns metadata, schema, execution, intent, resul
 
 Tools and actions are related but not identical:
 
-- an **action** is the reusable executable unit with schemas, intent, `action.Ctx`, `action.Result`, and middleware;
+- an **action** is the reusable Go-native executable unit with typed input/output, intent, `action.Ctx`, `action.Result`, optional emitted events, and middleware;
 - a **tool** is the model-callable exposure of executable power during a turn;
 - one action may be exposed as zero, one, or many tools depending on model/channel needs;
 - a tool may also expose higher-level executable surfaces such as workflows, commands, or datasource operations when that is the desired agent interface.
@@ -295,11 +303,11 @@ Today skills and exact `references/` paths can be activated at runtime and persi
 
 ### Command
 
-A command is a human/app-facing trigger surface around an action, workflow, datasource operation, or prompt-rendering behavior.
+A command is a human/app/channel-facing trigger surface around an action, workflow, datasource operation, or prompt-rendering behavior.
 
-Commands should wrap actions where they perform typed work, adding command-specific metadata such as aliases, argument hints, caller policy, slash-command wiring, and channel/user visibility. They may also start a workflow, call datasource actions, or render/execute an LLM prompt action when that is the appropriate command result.
+Commands should wrap actions where they perform typed work, adding command-specific metadata such as aliases, argument hints, caller policy, slash-command wiring, and channel/user visibility. Command parsing and command results are UX/channel concerns: a command may ask the channel to render text, reset or exit an interactive loop, start an agent turn from a rendered prompt, or dispatch typed work.
 
-Today `command.Command` has its own `Spec`, `Params`, and `Result`, and `command.Tool` exposes explicitly agent-callable commands as `command_run`. The target direction is not to delete commands, but to make their executable core action-backed where possible while preserving command-specific policy and UX semantics.
+Today `command.Command` has its own `Spec`, `Params`, and `Result`, and `command.Tool` exposes only explicitly agent-callable commands as `command_run`. `command.Tool` should continue to exist after the action migration as the deliberate agent-callable command projection and compatibility bridge. The target direction is not to delete commands, and not every command should become a model-callable tool. Instead, make executable command cores action-backed where useful while preserving command-specific policy, parsing, and channel result semantics.
 
 ### Channel
 

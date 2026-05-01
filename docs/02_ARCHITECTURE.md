@@ -85,14 +85,14 @@ Current strengths:
 - `tool.Result` supports deterministic model-facing output and persistence.
 - `tool.Intent` and `IntentProvider` provide side-effect declaration.
 - Middleware can wrap tools for logging, risk gates, timeouts, and approval.
-- These concepts are not inherently model-only; they should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware.
+- Some concepts are not inherently model-only; execution, intent, result, events, context, and middleware should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware. JSON schema/provider projection remains a tool-surface specialization unless an action explicitly provides optional schema metadata.
 - `activation.Manager` already models active/inactive tool visibility.
 - `tools/standard` provides useful batteries-included assembly.
 
 Evolution:
 
 - Add a top-level `action` package.
-- Introduce `action.Action` as the stable executable primitive that owns name, description, kind, input schema, output schema, intent declaration, `action.Ctx`, `action.Result`, result contract, and middleware chain.
+- Introduce `action.Action` as the stable Go-native executable primitive that owns name, description, input/output `action.Type`, intent declaration, `action.Ctx`, `action.Result`, emitted events, result contract, and middleware chain.
 - Move middleware completely to `action.*`; `tool` can alias or adapt it during migration.
 - Treat `tool.Tool` as embedding or wrapping `action.Action`, adding only LLM-facing concerns such as guidance, provider/tool-call projection, activation/visibility, and transcript rendering.
 - Keep `tool` as public compatibility API during migration, with aliases for `tool.Ctx`, `tool.Result`, `tool.Intent`, and middleware where practical.
@@ -207,15 +207,19 @@ Current strengths:
 
 - Skills support external Agent Skills-compatible filesystem resources.
 - Skill references under `references/` can be activated exactly and persisted.
-- Commands support slash-command parsing, command policy, and command result semantics.
-- `command.Tool` bridges agent-callable commands through `command_run`.
+- Commands support slash-command parsing, aliases, command policy, and command result semantics.
+- Command results are channel instructions: render text, run an agent turn, reset, exit, or mark handled.
+- `command.Tool` bridges only agent-callable commands through `command_run` and deliberately rejects channel-only result kinds from agent context.
 
 Evolution:
 
 - Keep skills as instruction/reference resources, not workflows.
-- Keep commands as user/app invocation surfaces and prompt templates, not workflow replacement.
+- Keep commands as user/app/channel invocation surfaces and prompt templates, not workflow replacement.
 - Prefer action-backed commands for typed work, with command-specific metadata for aliases, argument hints, caller policy, slash-command wiring, and channel/user visibility.
+- Treat command parsing (`command.Params`) as UX input, not as the canonical typed action input schema.
 - Allow commands to trigger actions or workflows where useful, but keep command result semantics distinct from action execution results.
+- Keep `command.Tool` after the action migration as the explicit agent-callable command projection and compatibility bridge.
+- Keep agent-callable commands opt-in; do not expose reset/exit/session-control commands through LLM-facing command tools unless there is an explicit policy reason.
 
 ### App/resource/plugin composition
 
@@ -357,13 +361,13 @@ Datasource
 Action
   is the smallest typed executable unit in package `action`
   is independent of LLMs, agents, and tools
-  owns stable execution metadata: name, description, kind, input schema, output schema, implementation, intent, `action.Ctx`, `action.Result`, result contract, and middleware chain
+  owns stable execution metadata: name, description, input/output `action.Type`, implementation, intent, `action.Ctx`, `action.Result`, emitted events, result contract, and middleware chain
   can be called by workflows, tools, commands, triggers, datasources, or app code
 
 Tool
   embeds or wraps `action.Action`
   is the LLM-facing projection of executable power
-  adds model/provider-specific exposure: activation, guidance, schema projection, provider conversion, and transcript-oriented result rendering
+  adds model/provider-specific exposure: activation, guidance, serializable schema projection, provider conversion, and transcript-oriented result rendering
 
 Workflow / pipeline
   composes `workflow.ActionRef`s with data flow and control flow
@@ -372,8 +376,10 @@ Workflow / pipeline
   may itself be exposed through an action wrapper
 
 Command
-  is a human/app-facing invocation surface
-  may call an action, start a workflow, or execute a prompt/model-turn action
+  is a human/app/channel-facing invocation surface
+  owns slash-command UX metadata, caller policy, parsing, and channel result instructions
+  may call an action, start a workflow, or execute/render a prompt/model-turn action
+  is not the canonical typed execution/result contract
 
 Capability
   is attached agent/session feature state plus lifecycle/context
@@ -418,13 +424,12 @@ Datasource
 Action
   name
   description
-  kind/type
-  input schema
-  output schema
+  input action.Type
+  output action.Type
   implementation
   intent declaration
   action.Ctx
-  action.Result
+  action.Result: Data any, Error error, Events []event.Event-like payloads
   result contract
   middleware chain
   observability labels
@@ -527,7 +532,7 @@ workflow.Action        = adapter exposing a workflow run as action.Action
 harness.Service        = hosts apps, sessions, workflows, channels, triggers
 ```
 
-A prompt or model turn is also an action when treated as an executable unit: it has input, output, context, policy, and result semantics. The fact that it calls an LLM is an implementation detail of that action kind, not a reason to make workflows depend directly on LLM concepts.
+A prompt or model turn is also an action when treated as an executable unit: it has input, output, context, policy, and result semantics. The fact that it calls an LLM is an implementation detail of that action implementation, not a reason to make workflows depend directly on LLM concepts.
 
 ## Harness architecture
 
@@ -584,7 +589,7 @@ harness.Service
 | `capabilities/planner` | Keep as built-in capability and dogfood example of event-sourced session state plus context plus action/tool projection. |
 | `agentcontext` | Keep context provider/render model; reuse for workflow steps. |
 | `skill` | Keep instruction/reference resource model. |
-| `command` | Keep slash command model; optionally expose as workflow actions. |
+| `command` | Keep slash command and channel-result model; keep `command.Tool` as the deliberate agent-callable projection/compatibility bridge; add action-backed command adapters where useful without making every command model-callable. |
 | `resource` | Extend contribution bundle with datasources/workflows/actions. |
 | `agentdir` | Extend loader for `.agents/datasources` and `.agents/workflows`. |
 | `app` | Keep composition root; add datasource/workflow/action registries; later hosted by harness. |
@@ -652,8 +657,8 @@ Recommendation: datasource/workflow/action should extend `resource.ContributionB
 
 ### Actions vs tools
 
-The current code puts action-like responsibilities on `tool.Tool`: name, description, schema, execution, result, intent declaration, context, and middleware. That made sense because the LLM/tool loop was the first execution surface. As workflows, triggers, commands, and datasources become first-class, those responsibilities should move to a surface-neutral top-level `action` package.
+The current code puts several action-like responsibilities on `tool.Tool`: name, description, execution, result, intent declaration, context, middleware, and schema projection. That made sense because the LLM/tool loop was the first execution surface. As workflows, triggers, commands, and datasources become first-class, Go-native execution responsibilities should move to a surface-neutral top-level `action` package.
 
-The trade-off: moving too aggressively risks breaking the clean existing tool API; moving too timidly will duplicate schema, result, intent, middleware, and safety machinery in a separate workflow stack.
+The trade-off: moving too aggressively risks breaking the clean existing tool API; moving too timidly will duplicate result, intent, middleware, event, and safety machinery in a separate workflow stack. The split should not make actions JSON-first: serializable JSON schemas are required for LLM tools and resource/remote surfaces, but core actions may accept real Go types such as interfaces, channels, readers, handles, or domain objects.
 
-Recommendation: introduce `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware as the central executable layer. Then make `tool.Tool` embed or wrap `action.Action` and add only LLM-facing concerns such as guidance, activation, provider projection, and transcript rendering. Preserve existing `tool.Tool` APIs through aliases and compatibility wrappers while new workflow/action code depends on the action abstraction.
+Recommendation: introduce `action.Action`, `action.Type`, `action.Ctx`, `action.Result`, action intent, emitted action events, and action middleware as the central executable layer. `action.Type` should carry the Go `reflect.Type` plus optional schema metadata, and later own helpers for creating values, encoding, decoding, validation, and schema projection. `action.NewTyped[I, O]` should construct input/output `action.Type` values for the typed handler and prefer handlers shaped like `func(action.Ctx, I) (O, error)` so ordinary Go functions can adapt naturally into actions. `action.Result` should stay minimal: `Data any`, `Error error`, and optional event payloads for the runtime to dispatch. Display/rendering concerns should be added later through interfaces implemented by returned data or by surface adapters, not by baking display variants into the core result. Then make `tool.Tool` embed or wrap `action.Action` and add only LLM-facing concerns such as guidance, activation, serializable schema/provider projection, and transcript rendering. Preserve existing `tool.Tool` APIs through aliases and compatibility wrappers while new workflow/action code depends on the action abstraction.
