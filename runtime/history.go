@@ -117,6 +117,13 @@ func WithHistorySessionID(id string) HistoryOption {
 	}
 }
 
+func (h *History) LiveThread() thread.Live {
+	if h == nil {
+		return nil
+	}
+	return h.live
+}
+
 func WithHistoryLiveThread(live thread.Live) HistoryOption {
 	return func(h *History) { h.live = live }
 }

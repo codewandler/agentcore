@@ -245,7 +245,7 @@ Evolution:
 - `resource.ContributionBundle` includes datasource and workflow contributions.
 - `app.Plugin` includes datasource/workflow/action facets.
 - `app.App` registers datasources/workflows/actions the same way it registers commands/tools/skills today.
-- `app.App` currently exposes workflow execution and workflow-command helpers as pragmatic integration seams; long-term harness/session code should own process, channel, and execution lifecycle while reusing app composition instead of bypassing it.
+- `app.App` currently exposes workflow execution and workflow-command helpers as pragmatic integration seams; when a default agent has a live session thread, `App.ExecuteWorkflow` records workflow events to that thread. Long-term harness/session code should own process, channel, and execution lifecycle while reusing app composition instead of bypassing it.
 
 ### Terminal as current channel
 
@@ -522,9 +522,11 @@ Persistence should be driven by statefulness and timescale, not by package bound
 
 The initial workflow event model should follow the same persistent-event style as the rest of the codebase: concrete payload structs registered through `thread.EventDefinition`, not a single discriminator-bearing payload struct. Live workflow execution may pass those same concrete payload structs through `action.Result.Events` or an event handler; a persistence adapter can later choose the corresponding `thread.EventKind` when appending to a thread.
 
-Live workflow events are telemetry payloads shaped to be compatible with future persistence. Workflow now has explicit run identity, step attempt metadata, `workflow.ValueRef` output references, and a projector/materializer that can rebuild `workflow.RunState` from concrete events. Runtime step dataflow remains Go-native `any` at the action boundary, while workflow events and projected run state store outputs as inline, external, or redacted value references. A more durable workflow system still needs a thread persistence adapter. Thread append integration should build on the run-state model rather than writing unprojectable telemetry.
+Live workflow events are telemetry payloads shaped to be compatible with future persistence. Workflow now has explicit run identity, step attempt metadata, `workflow.ValueRef` output references, and a projector/materializer that can rebuild `workflow.RunState` from concrete events. Runtime step dataflow remains Go-native `any` at the action boundary, while workflow events and projected run state store outputs as inline, external, or redacted value references.
 
-Do not create a separate workflow database until thread events prove insufficient.
+`workflow.RunStore` defines the workflow-facing run access contract: append events for a `RunID`, read recorded events, and project current `RunState`. It accepts `context.Context` because durable implementations read and append through thread stores or future external storage. `workflow.MemoryRunStore` is the simple in-memory implementation and is intentionally not a durable database; it clarifies append/read/project semantics, run isolation, unknown-run behavior, and projector error handling. `workflow.ThreadRecorder` records live workflow events into a `thread.Live`, and `workflow.ThreadRunStore` satisfies the same run-store semantics by appending to and reading from a scoped thread/branch log.
+
+`app.App` workflow helpers accept execution options for run ID generation and live event handling, which lets callers install `workflow.ThreadRecorder` without coupling `workflow.Executor` to persistence. As a transitional session seam, `App.ExecuteWorkflow` also detects the default agent's live thread and composes a recorder automatically, preserving any caller-provided event handler while appending workflow events into the session thread. Thread append integration builds on the run-state model rather than writing unprojectable telemetry. Do not create a separate workflow database until thread events prove insufficient.
 
 ### Runtime relationship
 

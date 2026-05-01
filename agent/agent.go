@@ -181,6 +181,22 @@ func (a *Instance) SessionStorePath() string {
 	return a.sessionStorePath
 }
 
+func (a *Instance) LiveThread() thread.Live {
+	if a == nil {
+		return nil
+	}
+	if a.threadRuntime != nil && a.threadRuntime.Live() != nil {
+		return a.threadRuntime.Live()
+	}
+	if a.history != nil {
+		return a.history.LiveThread()
+	}
+	if a.runtime != nil && a.runtime.History() != nil {
+		return a.runtime.History().LiveThread()
+	}
+	return nil
+}
+
 func (a *Instance) Tracker() *usage.Tracker {
 	if a == nil {
 		return nil

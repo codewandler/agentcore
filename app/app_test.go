@@ -20,6 +20,8 @@ import (
 	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/runnertest"
 	"github.com/codewandler/agentsdk/skill"
+	"github.com/codewandler/agentsdk/thread"
+	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/workflow"
 	"github.com/codewandler/llmadapter/unified"
@@ -124,6 +126,119 @@ func TestAppExecutesRegisteredWorkflow(t *testing.T) {
 	result := app.ExecuteWorkflow(context.Background(), "shout", "hello")
 	require.NoError(t, result.Error)
 	require.Equal(t, "HELLO!", result.Data.(workflow.Result).Data)
+}
+
+func TestAppExecuteWorkflowAcceptsExecutionOptions(t *testing.T) {
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "echo"}, func(_ action.Ctx, input any) action.Result {
+			return action.Result{Data: input}
+		})),
+		WithWorkflows(workflow.Definition{Name: "echo_flow", Steps: []workflow.Step{{ID: "echo", Action: workflow.ActionRef{Name: "echo"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+
+	var events []action.Event
+	result := app.ExecuteWorkflow(context.Background(), "echo_flow", "hi",
+		WithWorkflowRunID("run_fixed"),
+		WithWorkflowEventHandler(func(_ action.Ctx, event action.Event) {
+			events = append(events, event)
+		}),
+	)
+	require.NoError(t, result.Error)
+	require.Equal(t, workflow.RunID("run_fixed"), result.Data.(workflow.Result).RunID)
+	require.Equal(t, []action.Event{
+		workflow.Started{RunID: "run_fixed", WorkflowName: "echo_flow"},
+		workflow.StepStarted{RunID: "run_fixed", WorkflowName: "echo_flow", StepID: "echo", ActionName: "echo", Attempt: 1},
+		workflow.StepCompleted{RunID: "run_fixed", WorkflowName: "echo_flow", StepID: "echo", ActionName: "echo", Attempt: 1, Output: workflow.InlineValue("hi")},
+		workflow.Completed{RunID: "run_fixed", WorkflowName: "echo_flow", Output: workflow.InlineValue("hi")},
+	}, events)
+}
+
+func TestAppWorkflowActionAcceptsExecutionOptions(t *testing.T) {
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "echo"}, func(_ action.Ctx, input any) action.Result {
+			return action.Result{Data: input}
+		})),
+		WithWorkflows(workflow.Definition{Name: "echo_flow", Steps: []workflow.Step{{ID: "echo", Action: workflow.ActionRef{Name: "echo"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+
+	wfAction, ok := app.WorkflowAction("echo_flow", WithWorkflowRunID("run_action"))
+	require.True(t, ok)
+	result := wfAction.Execute(context.Background(), "hi")
+	require.NoError(t, result.Error)
+	require.Equal(t, workflow.RunID("run_action"), result.Data.(workflow.Result).RunID)
+}
+
+func TestAppWorkflowCommandAcceptsExecutionOptions(t *testing.T) {
+	ctx := context.Background()
+	registry, err := thread.NewEventRegistry(append(thread.CoreEventDefinitions(), workflow.EventDefinitions()...)...)
+	require.NoError(t, err)
+	store := thread.NewMemoryStore(thread.WithEventRegistry(registry))
+	live, err := store.Create(ctx, thread.CreateParams{ID: "thread_1"})
+	require.NoError(t, err)
+	recorder := &workflow.ThreadRecorder{Live: live}
+
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "upper"}, func(_ action.Ctx, input any) action.Result {
+			return action.Result{Data: strings.ToUpper(input.(string))}
+		})),
+		WithWorkflows(workflow.Definition{Name: "shout", Steps: []workflow.Step{{ID: "upper", Action: workflow.ActionRef{Name: "upper"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, app.RegisterWorkflowCommand("shout", "shout", "Run shout workflow", WithWorkflowRunID("run_cmd"), WithWorkflowEventHandler(recorder.OnEvent)))
+
+	result, err := app.Commands().Execute(ctx, "/shout hello")
+	require.NoError(t, err)
+	require.Equal(t, "HELLO", result.Text)
+	require.NoError(t, recorder.Err())
+
+	runs := workflow.ThreadRunStore{Store: store, ThreadID: live.ID()}
+	state, ok, err := runs.State(ctx, "run_cmd")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, workflow.RunSucceeded, state.Status)
+	require.Equal(t, workflow.InlineValue("HELLO"), state.Output)
+}
+
+func TestAppExecuteWorkflowRecordsToDefaultAgentLiveThread(t *testing.T) {
+	ctx := context.Background()
+	app, err := New(
+		WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		WithActions(action.New(action.Spec{Name: "echo"}, func(_ action.Ctx, input any) action.Result {
+			return action.Result{Data: input}
+		})),
+		WithWorkflows(workflow.Definition{Name: "echo_flow", Steps: []workflow.Step{{ID: "echo", Action: workflow.ActionRef{Name: "echo"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	inst, err := app.InstantiateAgent("coder",
+		agent.WithClient(runnertest.NewClient(runnertest.TextStream("ok"))),
+		agent.WithWorkspace(t.TempDir()),
+		agent.WithSessionStoreDir(t.TempDir()),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, app.SessionID())
+
+	var handled []action.Event
+	result := app.ExecuteWorkflow(ctx, "echo_flow", "hi",
+		WithWorkflowRunID("run_thread"),
+		WithWorkflowEventHandler(func(_ action.Ctx, event action.Event) {
+			handled = append(handled, event)
+		}),
+	)
+	require.NoError(t, result.Error)
+	require.NotEmpty(t, handled)
+
+	store := threadjsonlstore.Open(filepath.Dir(inst.SessionStorePath()))
+	state, ok, err := (workflow.ThreadRunStore{Store: store, ThreadID: thread.ID(app.SessionID())}).State(ctx, "run_thread")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, workflow.RunSucceeded, state.Status)
+	require.Equal(t, workflow.InlineValue("hi"), state.Output)
 }
 
 func TestAppWorkflowActionExposesRegisteredWorkflow(t *testing.T) {

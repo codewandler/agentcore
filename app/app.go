@@ -374,11 +374,63 @@ func (a *App) Workflows() []workflow.Definition {
 	return out
 }
 
-func (a *App) WorkflowExecutor() workflow.Executor {
-	return workflow.Executor{Resolver: workflow.RegistryResolver{Registry: a.ActionRegistry()}}
+type WorkflowExecutionOption func(*workflowExecutionConfig)
+
+type workflowExecutionConfig struct {
+	OnEvent  workflow.EventHandler
+	RunID    workflow.RunID
+	NewRunID func() workflow.RunID
 }
 
-func (a *App) ExecuteWorkflow(ctx action.Ctx, name string, input any) action.Result {
+func WithWorkflowEventHandler(handler workflow.EventHandler) WorkflowExecutionOption {
+	return func(c *workflowExecutionConfig) { c.OnEvent = handler }
+}
+
+func WithWorkflowRunID(runID workflow.RunID) WorkflowExecutionOption {
+	return func(c *workflowExecutionConfig) { c.RunID = runID }
+}
+
+func WithWorkflowRunIDGenerator(fn func() workflow.RunID) WorkflowExecutionOption {
+	return func(c *workflowExecutionConfig) { c.NewRunID = fn }
+}
+
+func applyWorkflowExecutionOptions(opts []WorkflowExecutionOption) workflowExecutionConfig {
+	var cfg workflowExecutionConfig
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	return cfg
+}
+
+func (a *App) workflowExecutionOptions(opts []WorkflowExecutionOption) ([]WorkflowExecutionOption, *workflow.ThreadRecorder) {
+	if a == nil {
+		return opts, nil
+	}
+	inst, ok := a.DefaultAgent()
+	if !ok || inst == nil || inst.LiveThread() == nil {
+		return opts, nil
+	}
+	cfg := applyWorkflowExecutionOptions(opts)
+	recorder := &workflow.ThreadRecorder{Live: inst.LiveThread()}
+	combined := func(ctx action.Ctx, event action.Event) {
+		if cfg.OnEvent != nil {
+			cfg.OnEvent(ctx, event)
+		}
+		recorder.OnEvent(ctx, event)
+	}
+	out := append([]WorkflowExecutionOption(nil), opts...)
+	out = append(out, WithWorkflowEventHandler(combined))
+	return out, recorder
+}
+
+func (a *App) WorkflowExecutor(opts ...WorkflowExecutionOption) workflow.Executor {
+	cfg := applyWorkflowExecutionOptions(opts)
+	return workflow.Executor{Resolver: workflow.RegistryResolver{Registry: a.ActionRegistry()}, OnEvent: cfg.OnEvent, RunID: cfg.RunID, NewRunID: cfg.NewRunID}
+}
+
+func (a *App) ExecuteWorkflow(ctx action.Ctx, name string, input any, opts ...WorkflowExecutionOption) action.Result {
 	if a == nil {
 		return action.Result{Error: fmt.Errorf("app: nil app")}
 	}
@@ -386,15 +438,20 @@ func (a *App) ExecuteWorkflow(ctx action.Ctx, name string, input any) action.Res
 	if !ok {
 		return action.Result{Error: fmt.Errorf("app: workflow %q not found", name)}
 	}
-	return a.WorkflowExecutor().Execute(ctx, def, input)
+	execOpts, recorder := a.workflowExecutionOptions(opts)
+	result := a.WorkflowExecutor(execOpts...).Execute(ctx, def, input)
+	if recorder != nil {
+		result.Error = errors.Join(result.Error, recorder.Err())
+	}
+	return result
 }
 
-func (a *App) WorkflowAction(name string) (action.Action, bool) {
+func (a *App) WorkflowAction(name string, opts ...WorkflowExecutionOption) (action.Action, bool) {
 	def, ok := a.Workflow(name)
 	if !ok {
 		return nil, false
 	}
-	return workflow.WorkflowAction{Definition: def, Executor: a.WorkflowExecutor()}, true
+	return workflow.WorkflowAction{Definition: def, Executor: a.WorkflowExecutor(opts...)}, true
 }
 
 func (a *App) RegisterWorkflowActions(names ...string) error {
@@ -418,15 +475,15 @@ func (a *App) RegisterWorkflowActions(names ...string) error {
 	return nil
 }
 
-func (a *App) RegisterWorkflowCommand(commandName, workflowName, description string) error {
-	cmd, err := a.WorkflowCommand(commandName, workflowName, description)
+func (a *App) RegisterWorkflowCommand(commandName, workflowName, description string, opts ...WorkflowExecutionOption) error {
+	cmd, err := a.WorkflowCommand(commandName, workflowName, description, opts...)
 	if err != nil {
 		return err
 	}
 	return a.RegisterCommands(cmd)
 }
 
-func (a *App) WorkflowCommand(commandName, workflowName, description string) (command.Command, error) {
+func (a *App) WorkflowCommand(commandName, workflowName, description string, opts ...WorkflowExecutionOption) (command.Command, error) {
 	if a == nil {
 		return nil, fmt.Errorf("app: nil app")
 	}
@@ -445,7 +502,7 @@ func (a *App) WorkflowCommand(commandName, workflowName, description string) (co
 		description = fmt.Sprintf("Run workflow %s", workflowName)
 	}
 	return command.New(command.Spec{Name: commandName, Description: description, ArgumentHint: "[input]"}, func(ctx context.Context, params command.Params) (command.Result, error) {
-		result := a.ExecuteWorkflow(ctx, workflowName, params.Raw)
+		result := a.ExecuteWorkflow(ctx, workflowName, params.Raw, opts...)
 		if result.Error != nil {
 			return command.Result{}, result.Error
 		}
