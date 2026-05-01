@@ -522,7 +522,7 @@ Persistence should be driven by statefulness and timescale, not by package bound
 
 The initial workflow event model should follow the same persistent-event style as the rest of the codebase: concrete payload structs registered through `thread.EventDefinition`, not a single discriminator-bearing payload struct. Live workflow execution may pass those same concrete payload structs through `action.Result.Events` or an event handler; a persistence adapter can later choose the corresponding `thread.EventKind` when appending to a thread.
 
-Live workflow events are telemetry payloads shaped to be compatible with future persistence. Workflow now has explicit run identity and a projector/materializer that can rebuild `workflow.RunState` from concrete events. A more durable workflow system still needs attempt metadata, value references for serializable inputs/outputs, and a thread persistence adapter. Thread append integration should build on the run-state model rather than writing unprojectable telemetry.
+Live workflow events are telemetry payloads shaped to be compatible with future persistence. Workflow now has explicit run identity, step attempt metadata, and a projector/materializer that can rebuild `workflow.RunState` from concrete events. A more durable workflow system still needs value references for serializable inputs/outputs and a thread persistence adapter. Thread append integration should build on the run-state model rather than writing unprojectable telemetry.
 
 Do not create a separate workflow database until thread events prove insufficient.
 

@@ -69,6 +69,7 @@ type StepStarted struct {
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
+	Attempt      int    `json:"attempt"`
 }
 
 type StepCompleted struct {
@@ -76,6 +77,7 @@ type StepCompleted struct {
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
+	Attempt      int    `json:"attempt"`
 	Data         any    `json:"data,omitempty"`
 }
 
@@ -84,6 +86,7 @@ type StepFailed struct {
 	WorkflowName string `json:"workflow_name"`
 	StepID       string `json:"step_id"`
 	ActionName   string `json:"action_name"`
+	Attempt      int    `json:"attempt"`
 	Error        string `json:"error"`
 }
 
@@ -174,17 +177,18 @@ func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Resu
 			return fail(fmt.Errorf("workflow %q step %q action %q not found", def.Name, step.ID, step.Action.Name), Result{RunID: runID, StepResults: results, Data: last})
 		}
 		stepInput := stepInput(step, input, results)
-		emit(StepStarted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name})
+		attempt := 1
+		emit(StepStarted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Attempt: attempt})
 		res := a.Execute(ctx, stepInput)
 		results[step.ID] = res
 		events = append(events, res.Events...)
 		if res.Error != nil {
 			err := fmt.Errorf("workflow %q step %q failed: %w", def.Name, step.ID, res.Error)
-			emit(StepFailed{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Error: res.Error.Error()})
+			emit(StepFailed{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Attempt: attempt, Error: res.Error.Error()})
 			return fail(err, Result{RunID: runID, StepResults: results, Data: last})
 		}
 		last = res.Data
-		emit(StepCompleted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Data: res.Data})
+		emit(StepCompleted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Attempt: attempt, Data: res.Data})
 	}
 	emit(Completed{RunID: runID, WorkflowName: def.Name, Data: last})
 	return action.Result{Data: Result{RunID: runID, StepResults: results, Data: last}, Events: events}

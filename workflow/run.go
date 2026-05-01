@@ -55,8 +55,18 @@ type StepState struct {
 	ID         string
 	ActionName string
 	Status     StepStatus
+	Attempt    int
+	Attempts   []AttemptState
 	Output     any
 	Error      string
+}
+
+// AttemptState is the materialized state of one step attempt.
+type AttemptState struct {
+	Attempt int
+	Status  StepStatus
+	Output  any
+	Error   string
 }
 
 // Projector materializes workflow run state from concrete workflow event
@@ -99,7 +109,9 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		step.ID = e.StepID
 		step.ActionName = e.ActionName
 		step.Status = StepRunning
+		step.Attempt = normalizeAttempt(e.Attempt)
 		step.Error = ""
+		step = upsertAttempt(step, AttemptState{Attempt: step.Attempt, Status: StepRunning})
 		state.Steps[e.StepID] = step
 		states[e.RunID] = state
 	case StepCompleted:
@@ -108,8 +120,10 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		step.ID = e.StepID
 		step.ActionName = e.ActionName
 		step.Status = StepSucceeded
+		step.Attempt = normalizeAttempt(e.Attempt)
 		step.Output = e.Data
 		step.Error = ""
+		step = upsertAttempt(step, AttemptState{Attempt: step.Attempt, Status: StepSucceeded, Output: e.Data})
 		state.Steps[e.StepID] = step
 		states[e.RunID] = state
 	case StepFailed:
@@ -118,7 +132,9 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		step.ID = e.StepID
 		step.ActionName = e.ActionName
 		step.Status = StepFailedStatus
+		step.Attempt = normalizeAttempt(e.Attempt)
 		step.Error = e.Error
+		step = upsertAttempt(step, AttemptState{Attempt: step.Attempt, Status: StepFailedStatus, Error: e.Error})
 		state.Steps[e.StepID] = step
 		states[e.RunID] = state
 	case Completed:
@@ -142,6 +158,25 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		return nil
 	}
 	return nil
+}
+
+func normalizeAttempt(attempt int) int {
+	if attempt <= 0 {
+		return 1
+	}
+	return attempt
+}
+
+func upsertAttempt(step StepState, attempt AttemptState) StepState {
+	attempt.Attempt = normalizeAttempt(attempt.Attempt)
+	for i, existing := range step.Attempts {
+		if existing.Attempt == attempt.Attempt {
+			step.Attempts[i] = attempt
+			return step
+		}
+	}
+	step.Attempts = append(step.Attempts, attempt)
+	return step
 }
 
 func stateFor(states map[RunID]RunState, runID RunID) RunState {

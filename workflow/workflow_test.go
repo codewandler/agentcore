@@ -146,7 +146,7 @@ func TestExecutorEmitsFailureEvents(t *testing.T) {
 	require.ErrorIs(t, result.Error, boom)
 	require.Equal(t, []thread.EventKind{EventStarted, EventStepStarted, EventStepFailed, EventFailed}, eventKinds(live))
 	require.Equal(t, boom.Error(), live[2].(StepFailed).Error)
-	require.Contains(t, result.Events, action.Event(StepFailed{RunID: live[0].(Started).RunID, WorkflowName: "failflow", StepID: "fail", ActionName: "fail", Error: boom.Error()}))
+	require.Contains(t, result.Events, action.Event(StepFailed{RunID: live[0].(Started).RunID, WorkflowName: "failflow", StepID: "fail", ActionName: "fail", Attempt: 1, Error: boom.Error()}))
 }
 
 func eventKinds(events []action.Event) []thread.EventKind {
@@ -173,7 +173,7 @@ func eventKinds(events []action.Event) []thread.EventKind {
 func TestEventDefinitionsValidateConcretePayloads(t *testing.T) {
 	registry, err := thread.NewEventRegistry(EventDefinitions()...)
 	require.NoError(t, err)
-	payload, err := json.Marshal(StepStarted{RunID: "run_1", WorkflowName: "wf", StepID: "step", ActionName: "action"})
+	payload, err := json.Marshal(StepStarted{RunID: "run_1", WorkflowName: "wf", StepID: "step", ActionName: "action", Attempt: 1})
 	require.NoError(t, err)
 	require.NoError(t, registry.Validate(thread.Event{Kind: EventStepStarted, Payload: payload}))
 	require.Error(t, registry.Validate(thread.Event{Kind: EventStepStarted, Payload: []byte(`{`)}))
