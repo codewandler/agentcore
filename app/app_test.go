@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -173,6 +174,64 @@ func TestAppWorkflowExecutionReportsMissingWorkflowAndAction(t *testing.T) {
 	_, ok := app.WorkflowAction("nope")
 	require.False(t, ok)
 	require.ErrorContains(t, app.RegisterWorkflowActions("nope"), "workflow \"nope\" not found")
+}
+
+func TestAppWorkflowCommandExecutesWorkflow(t *testing.T) {
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "upper"}, func(_ action.Ctx, input any) action.Result {
+			return action.Result{Data: strings.ToUpper(input.(string))}
+		})),
+		WithWorkflows(workflow.Definition{Name: "shout", Steps: []workflow.Step{{ID: "upper", Action: workflow.ActionRef{Name: "upper"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, app.RegisterWorkflowCommand("shout", "shout", "Run shout workflow"))
+
+	result, err := app.Commands().Execute(context.Background(), "/shout hello")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Equal(t, "HELLO", result.Text)
+}
+
+func TestAppWorkflowCommandValidatesWorkflow(t *testing.T) {
+	app, err := New(WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+
+	require.ErrorContains(t, app.RegisterWorkflowCommand("missing", "nope", "Missing"), "workflow \"nope\" not found")
+	require.ErrorContains(t, app.RegisterWorkflowCommand("", "nope", "Missing"), "command name is required")
+}
+
+func TestAppWorkflowCommandReturnsWorkflowError(t *testing.T) {
+	boom := errors.New("boom")
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "fail"}, func(action.Ctx, any) action.Result {
+			return action.Result{Error: boom}
+		})),
+		WithWorkflows(workflow.Definition{Name: "failflow", Steps: []workflow.Step{{ID: "fail", Action: workflow.ActionRef{Name: "fail"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, app.RegisterWorkflowCommand("failflow", "failflow", ""))
+
+	_, err = app.Commands().Execute(context.Background(), "/failflow input")
+	require.ErrorIs(t, err, boom)
+}
+
+func TestWorkflowCommandRendersNonStringOutput(t *testing.T) {
+	app, err := New(
+		WithActions(action.New(action.Spec{Name: "count"}, func(action.Ctx, any) action.Result {
+			return action.Result{Data: 42}
+		})),
+		WithWorkflows(workflow.Definition{Name: "countflow", Steps: []workflow.Step{{ID: "count", Action: workflow.ActionRef{Name: "count"}}}}),
+		WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	cmd, err := app.WorkflowCommand("count", "countflow", "")
+	require.NoError(t, err)
+
+	result, err := cmd.Execute(context.Background(), command.Params{})
+	require.NoError(t, err)
+	require.Equal(t, "42", result.Text)
 }
 func TestAppResourceBundleDuplicateAgentFirstWinsWithDiagnostic(t *testing.T) {
 	app, err := New(
