@@ -373,6 +373,50 @@ func (a *App) Workflows() []workflow.Definition {
 	}
 	return out
 }
+
+func (a *App) WorkflowExecutor() workflow.Executor {
+	return workflow.Executor{Resolver: workflow.RegistryResolver{Registry: a.ActionRegistry()}}
+}
+
+func (a *App) ExecuteWorkflow(ctx action.Ctx, name string, input any) action.Result {
+	if a == nil {
+		return action.Result{Error: fmt.Errorf("app: nil app")}
+	}
+	def, ok := a.Workflow(name)
+	if !ok {
+		return action.Result{Error: fmt.Errorf("app: workflow %q not found", name)}
+	}
+	return a.WorkflowExecutor().Execute(ctx, def, input)
+}
+
+func (a *App) WorkflowAction(name string) (action.Action, bool) {
+	def, ok := a.Workflow(name)
+	if !ok {
+		return nil, false
+	}
+	return workflow.WorkflowAction{Definition: def, Executor: a.WorkflowExecutor()}, true
+}
+
+func (a *App) RegisterWorkflowActions(names ...string) error {
+	if a == nil {
+		return fmt.Errorf("app: nil app")
+	}
+	if len(names) == 0 {
+		for _, def := range a.Workflows() {
+			names = append(names, def.Name)
+		}
+	}
+	for _, name := range names {
+		actionDef, ok := a.WorkflowAction(name)
+		if !ok {
+			return fmt.Errorf("app: workflow %q not found", name)
+		}
+		if err := a.RegisterActions(actionDef); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 func (a *App) RegisterAgent(name string, inst *agent.Instance) error {
 	if name == "" {
 		return fmt.Errorf("app: agent name is required")
