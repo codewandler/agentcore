@@ -8,13 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValueRefHelpers(t *testing.T) {
+	require.Equal(t, ValueRef{Inline: "ok"}, InlineValue("ok"))
+	require.Equal(t, ValueRef{}, InlineValue(nil))
+	require.Equal(t, ValueRef{ExternalURI: "s3://bucket/value.json", MediaType: "application/json"}, ExternalValue("s3://bucket/value.json", "application/json"))
+	require.Equal(t, ValueRef{ID: "secret-output", Redacted: true}, RedactedValue("secret-output"))
+}
+
 func TestProjectorMaterializesSuccessfulRunState(t *testing.T) {
 	events := []any{
 		Started{RunID: "run_1", WorkflowName: "shout"},
 		StepStarted{RunID: "run_1", WorkflowName: "shout", StepID: "upper", ActionName: "upper", Attempt: 1},
 		"ignored action event",
-		StepCompleted{RunID: "run_1", WorkflowName: "shout", StepID: "upper", ActionName: "upper", Attempt: 1, Data: "HELLO"},
-		Completed{RunID: "run_1", WorkflowName: "shout", Data: "HELLO"},
+		StepCompleted{RunID: "run_1", WorkflowName: "shout", StepID: "upper", ActionName: "upper", Attempt: 1, Output: InlineValue("HELLO")},
+		Completed{RunID: "run_1", WorkflowName: "shout", Output: InlineValue("HELLO")},
 	}
 
 	state, ok, err := Projector{}.ProjectRun(events, "run_1")
@@ -23,11 +30,11 @@ func TestProjectorMaterializesSuccessfulRunState(t *testing.T) {
 	require.Equal(t, RunID("run_1"), state.ID)
 	require.Equal(t, "shout", state.WorkflowName)
 	require.Equal(t, RunSucceeded, state.Status)
-	require.Equal(t, "HELLO", state.Output)
+	require.Equal(t, InlineValue("HELLO"), state.Output)
 	require.Equal(t, StepSucceeded, state.Steps["upper"].Status)
 	require.Equal(t, 1, state.Steps["upper"].Attempt)
-	require.Equal(t, "HELLO", state.Steps["upper"].Output)
-	require.Equal(t, []AttemptState{{Attempt: 1, Status: StepSucceeded, Output: "HELLO"}}, state.Steps["upper"].Attempts)
+	require.Equal(t, InlineValue("HELLO"), state.Steps["upper"].Output)
+	require.Equal(t, []AttemptState{{Attempt: 1, Status: StepSucceeded, Output: InlineValue("HELLO")}}, state.Steps["upper"].Attempts)
 }
 
 func TestProjectorMaterializesFailedRunState(t *testing.T) {
@@ -52,15 +59,15 @@ func TestProjectorMaterializesFailedRunState(t *testing.T) {
 func TestProjectorKeepsRunsSeparate(t *testing.T) {
 	events := []any{
 		Started{RunID: "run_1", WorkflowName: "echo"},
-		Completed{RunID: "run_1", WorkflowName: "echo", Data: "one"},
+		Completed{RunID: "run_1", WorkflowName: "echo", Output: InlineValue("one")},
 		Started{RunID: "run_2", WorkflowName: "echo"},
-		Completed{RunID: "run_2", WorkflowName: "echo", Data: "two"},
+		Completed{RunID: "run_2", WorkflowName: "echo", Output: InlineValue("two")},
 	}
 
 	states, err := Projector{}.Project(events)
 	require.NoError(t, err)
-	require.Equal(t, "one", states["run_1"].Output)
-	require.Equal(t, "two", states["run_2"].Output)
+	require.Equal(t, InlineValue("one"), states["run_1"].Output)
+	require.Equal(t, InlineValue("two"), states["run_2"].Output)
 }
 
 func TestProjectorRejectsPointerWorkflowEvents(t *testing.T) {
@@ -74,8 +81,8 @@ func TestProjectorTracksMultipleAttempts(t *testing.T) {
 		StepStarted{RunID: "run_1", WorkflowName: "retryflow", StepID: "fetch", ActionName: "fetch", Attempt: 1},
 		StepFailed{RunID: "run_1", WorkflowName: "retryflow", StepID: "fetch", ActionName: "fetch", Attempt: 1, Error: "temporary"},
 		StepStarted{RunID: "run_1", WorkflowName: "retryflow", StepID: "fetch", ActionName: "fetch", Attempt: 2},
-		StepCompleted{RunID: "run_1", WorkflowName: "retryflow", StepID: "fetch", ActionName: "fetch", Attempt: 2, Data: "ok"},
-		Completed{RunID: "run_1", WorkflowName: "retryflow", Data: "ok"},
+		StepCompleted{RunID: "run_1", WorkflowName: "retryflow", StepID: "fetch", ActionName: "fetch", Attempt: 2, Output: InlineValue("ok")},
+		Completed{RunID: "run_1", WorkflowName: "retryflow", Output: InlineValue("ok")},
 	}
 
 	state, ok, err := Projector{}.ProjectRun(events, "run_1")
@@ -86,7 +93,7 @@ func TestProjectorTracksMultipleAttempts(t *testing.T) {
 	require.Equal(t, 2, step.Attempt)
 	require.Equal(t, []AttemptState{
 		{Attempt: 1, Status: StepFailedStatus, Error: "temporary"},
-		{Attempt: 2, Status: StepSucceeded, Output: "ok"},
+		{Attempt: 2, Status: StepSucceeded, Output: InlineValue("ok")},
 	}, step.Attempts)
 }
 func TestExecutorResultCarriesRunIDForProjection(t *testing.T) {
@@ -102,4 +109,22 @@ func TestExecutorResultCarriesRunIDForProjection(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, RunSucceeded, state.Status)
+}
+
+func TestProjectorPropagatesExternalAndRedactedValueRefs(t *testing.T) {
+	external := ExternalValue("file:///tmp/output.json", "application/json")
+	redacted := RedactedValue("final-output")
+	events := []any{
+		Started{RunID: "run_1", WorkflowName: "refs"},
+		StepStarted{RunID: "run_1", WorkflowName: "refs", StepID: "fetch", ActionName: "fetch", Attempt: 1},
+		StepCompleted{RunID: "run_1", WorkflowName: "refs", StepID: "fetch", ActionName: "fetch", Attempt: 1, Output: external},
+		Completed{RunID: "run_1", WorkflowName: "refs", Output: redacted},
+	}
+
+	state, ok, err := Projector{}.ProjectRun(events, "run_1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, external, state.Steps["fetch"].Output)
+	require.Equal(t, []AttemptState{{Attempt: 1, Status: StepSucceeded, Output: external}}, state.Steps["fetch"].Attempts)
+	require.Equal(t, redacted, state.Output)
 }

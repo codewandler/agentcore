@@ -73,12 +73,12 @@ type StepStarted struct {
 }
 
 type StepCompleted struct {
-	RunID        RunID  `json:"run_id"`
-	WorkflowName string `json:"workflow_name"`
-	StepID       string `json:"step_id"`
-	ActionName   string `json:"action_name"`
-	Attempt      int    `json:"attempt"`
-	Data         any    `json:"data,omitempty"`
+	RunID        RunID    `json:"run_id"`
+	WorkflowName string   `json:"workflow_name"`
+	StepID       string   `json:"step_id"`
+	ActionName   string   `json:"action_name"`
+	Attempt      int      `json:"attempt"`
+	Output       ValueRef `json:"output,omitempty"`
 }
 
 type StepFailed struct {
@@ -91,9 +91,9 @@ type StepFailed struct {
 }
 
 type Completed struct {
-	RunID        RunID  `json:"run_id"`
-	WorkflowName string `json:"workflow_name"`
-	Data         any    `json:"data,omitempty"`
+	RunID        RunID    `json:"run_id"`
+	WorkflowName string   `json:"workflow_name"`
+	Output       ValueRef `json:"output,omitempty"`
 }
 
 type Failed struct {
@@ -188,9 +188,9 @@ func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Resu
 			return fail(err, Result{RunID: runID, StepResults: results, Data: last})
 		}
 		last = res.Data
-		emit(StepCompleted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Attempt: attempt, Data: res.Data})
+		emit(StepCompleted{RunID: runID, WorkflowName: def.Name, StepID: step.ID, ActionName: step.Action.Name, Attempt: attempt, Output: InlineValue(res.Data)})
 	}
-	emit(Completed{RunID: runID, WorkflowName: def.Name, Data: last})
+	emit(Completed{RunID: runID, WorkflowName: def.Name, Output: InlineValue(last)})
 	return action.Result{Data: Result{RunID: runID, StepResults: results, Data: last}, Events: events}
 }
 

@@ -46,7 +46,7 @@ type RunState struct {
 	WorkflowName string
 	Status       RunStatus
 	Steps        map[string]StepState
-	Output       any
+	Output       ValueRef
 	Error        string
 }
 
@@ -57,7 +57,7 @@ type StepState struct {
 	Status     StepStatus
 	Attempt    int
 	Attempts   []AttemptState
-	Output     any
+	Output     ValueRef
 	Error      string
 }
 
@@ -65,7 +65,7 @@ type StepState struct {
 type AttemptState struct {
 	Attempt int
 	Status  StepStatus
-	Output  any
+	Output  ValueRef
 	Error   string
 }
 
@@ -121,9 +121,9 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		step.ActionName = e.ActionName
 		step.Status = StepSucceeded
 		step.Attempt = normalizeAttempt(e.Attempt)
-		step.Output = e.Data
+		step.Output = e.Output
 		step.Error = ""
-		step = upsertAttempt(step, AttemptState{Attempt: step.Attempt, Status: StepSucceeded, Output: e.Data})
+		step = upsertAttempt(step, AttemptState{Attempt: step.Attempt, Status: StepSucceeded, Output: e.Output})
 		state.Steps[e.StepID] = step
 		states[e.RunID] = state
 	case StepFailed:
@@ -142,7 +142,7 @@ func applyEvent(states map[RunID]RunState, event any) error {
 		state.ID = e.RunID
 		state.WorkflowName = e.WorkflowName
 		state.Status = RunSucceeded
-		state.Output = e.Data
+		state.Output = e.Output
 		state.Error = ""
 		states[e.RunID] = state
 	case Failed:

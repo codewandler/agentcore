@@ -125,9 +125,9 @@ func TestExecutorEmitsWorkflowEvents(t *testing.T) {
 	require.Len(t, live, 6)
 	require.Equal(t, []thread.EventKind{EventStarted, EventStepStarted, EventStepCompleted, EventStepStarted, EventStepCompleted, EventCompleted}, eventKinds(live))
 	require.Equal(t, "upper", live[1].(StepStarted).StepID)
-	require.Equal(t, "HELLO!", live[5].(Completed).Data)
+	require.Equal(t, InlineValue("HELLO!"), live[5].(Completed).Output)
 	require.Contains(t, result.Events, action.Event("action-event"))
-	require.Contains(t, result.Events, action.Event(Completed{RunID: live[0].(Started).RunID, WorkflowName: "shout", Data: "HELLO!"}))
+	require.Contains(t, result.Events, action.Event(Completed{RunID: live[0].(Started).RunID, WorkflowName: "shout", Output: InlineValue("HELLO!")}))
 }
 
 func TestExecutorEmitsFailureEvents(t *testing.T) {

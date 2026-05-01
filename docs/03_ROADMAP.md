@@ -279,7 +279,7 @@ Status: partially complete.
 
 Current implementation supports Go-defined sequential workflows over `action.Action`, app-owned workflow execution through `App.ExecuteWorkflow`, workflow-as-action exposure, slash-command workflow triggers through `App.RegisterWorkflowCommand`, and concrete workflow event payload structs returned through `action.Result.Events` plus an optional live event handler. Workflow event definitions are registered in the same `thread.EventDefinition` style used elsewhere so persistence adapters can map concrete payloads into thread events later.
 
-These workflow events are live telemetry shaped for future persistence. Workflow now has run identity, materialized `workflow.RunState`, step attempt metadata, and a projector that rebuilds run/step/attempt status from concrete workflow events. Remaining work includes value references for serializable inputs/outputs, thread append integration, prompt/model-turn actions, richer validation/output contracts, and a concrete dogfood workflow resource that exercises the full path.
+These workflow events are live telemetry shaped for future persistence. Workflow now has run identity, materialized `workflow.RunState`, step attempt metadata, `workflow.ValueRef` output references, and a projector that rebuilds run/step/attempt status and outputs from concrete workflow events. Runtime step dataflow remains Go-native `any`; workflow events and projected state use inline, external, or redacted value references. Remaining work includes thread append integration, prompt/model-turn actions, richer validation/output contracts, and a concrete dogfood workflow resource that exercises the full path.
 
 - `runtime.Engine` can run model/tool turns and can be wrapped by prompt/model-turn actions.
 - Existing `tool.Tool` values can be adapted to actions during migration, but new workflow code should depend on `action.Action` through `workflow.ActionRef` resolution.
@@ -314,7 +314,7 @@ Tasks:
 
    This should be documented as a command-triggered workflow where each step is an action and the workflow can be rerun iteratively.
 
-5. Emit workflow/action events to the existing thread event log when a thread is available; emit datasource events for sync/checkpoint state when relevant. Concrete workflow event payloads, `thread.EventDefinition`s, run IDs, and run-state projection exist; thread append integration remains future work.
+5. Emit workflow/action events to the existing thread event log when a thread is available; emit datasource events for sync/checkpoint state when relevant. Concrete workflow event payloads, `thread.EventDefinition`s, run IDs, `ValueRef` outputs, and run-state projection exist; thread append integration remains future work.
 6. Add per-step input/output passing. ✅ initial dependency-output passing exists
 7. Add basic output validation. Not started
 8. Defer parallel DAG execution until sequential pipeline semantics are proven.
@@ -329,7 +329,7 @@ Acceptance criteria:
 - A command can trigger a workflow through `app.App`; the documentation refinement dogfood workflow remains to be added.
 - Action intent can be inspected before execution, including actions exposed as tools.
 - Execution is observable through events. ✅ initial in-memory workflow events exist
-- Thread-backed runs can persist workflow events. Not started; run identity and state projection now exist as prerequisites
+- Thread-backed runs can persist workflow events. Not started; run identity, value references, and state projection now exist as prerequisites
 
 Verification:
 
