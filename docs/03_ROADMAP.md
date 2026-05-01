@@ -280,10 +280,24 @@ Tasks:
    - command trigger invoking an action or workflow where appropriate;
    - no-op/transform action for tests.
 
-4. Emit workflow/action events to the existing thread event log when a thread is available; emit datasource events for sync/checkpoint state when relevant.
-5. Add per-step input/output passing.
-6. Add basic output validation.
-7. Defer parallel DAG execution until sequential pipeline semantics are proven.
+4. Add a dogfood workflow example for the documentation refinement loop used to evolve these docs:
+
+   ```text
+   /refine-docs
+     -> review_source
+     -> challenge_docs
+     -> identify_gaps_and_open_questions
+     -> propose_refinements
+     -> refine_docs
+     -> report_summary
+   ```
+
+   This should be documented as a command-triggered workflow where each step is an action and the workflow can be rerun iteratively.
+
+5. Emit workflow/action events to the existing thread event log when a thread is available; emit datasource events for sync/checkpoint state when relevant.
+6. Add per-step input/output passing.
+7. Add basic output validation.
+8. Defer parallel DAG execution until sequential pipeline semantics are proven.
 
 Acceptance criteria:
 
@@ -292,6 +306,7 @@ Acceptance criteria:
 - Output from one step can feed the next.
 - A prompt/model-turn can run as an action.
 - A workflow can be exposed as an action.
+- A command can trigger the documentation refinement workflow as a concrete dogfood example.
 - Action intent can be inspected before execution, including actions exposed as tools.
 - Execution is observable through events.
 - Thread-backed runs can persist workflow events.

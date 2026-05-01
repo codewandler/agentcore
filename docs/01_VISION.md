@@ -268,6 +268,8 @@ A workflow is not the core execution primitive. Actions are. A workflow orchestr
 
 A pipeline is the linear workflow case: a sequenced DAG with one primary path.
 
+A concrete dogfood example is the documentation refinement loop used to evolve these docs: review source and docs, challenge the current model, identify gaps/open questions, propose refinements, apply edits, and repeat. In a harness, this could be triggered by a command such as `/refine-docs` and executed as a workflow over actions for reading source, searching docs, analyzing gaps, editing files, and reporting unresolved questions.
+
 Workflow definitions may live wherever resource discovery can find them. The default filesystem convention for YAML specs should be:
 
 ```text

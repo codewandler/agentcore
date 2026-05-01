@@ -443,6 +443,11 @@ Pipeline
 WorkflowAction
   adapter that exposes a workflow as action.Action
   useful for commands, triggers, tools, and parent workflows
+
+Example: docs_refinement_loop
+  command /refine-docs triggers WorkflowAction(docs_refinement_loop)
+  steps: review_source -> challenge_docs -> identify_gaps -> propose_questions -> refine_docs -> report_summary
+  each step resolves workflow.ActionRef -> action.Action
 ```
 
 ### Resource loading
