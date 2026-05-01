@@ -1,26 +1,32 @@
 package jsonquery
 
-import "github.com/codewandler/agentsdk/tool"
+import "github.com/codewandler/agentsdk/action"
 
-func queryIntent() tool.TypedToolOption[QueryParams] {
-	return tool.WithDeclareIntent(func(ctx tool.Ctx, p QueryParams) (tool.Intent, error) {
-		path := resolvePath(p.Path, ctx.WorkDir())
-		return tool.Intent{
-			Tool:       "json_query",
-			ToolClass:  "filesystem_read",
-			Confidence: "high",
-			Operations: []tool.IntentOperation{{
-				Resource:  tool.IntentResource{Category: "file", Value: path, Locality: classifyLocality(ctx, path)},
-				Operation: "read",
-				Certain:   true,
-			}},
-			Behaviors: []string{"filesystem_read"},
-		}, nil
-	})
+type queryAction struct{ action.Action }
+
+func (a queryAction) DeclareIntent(ctx action.Ctx, input any) (action.Intent, error) {
+	p, err := action.CastInput[QueryParams](input)
+	if err != nil {
+		return action.Intent{Action: "json_query", Class: "unknown", Opaque: true, Confidence: "low"}, nil
+	}
+	path := resolvePath(p.Path, workDirFromContext(ctx))
+	return action.Intent{
+		Action:     "json_query",
+		Tool:       "json_query",
+		Class:      "filesystem_read",
+		ToolClass:  "filesystem_read",
+		Confidence: "high",
+		Operations: []action.IntentOperation{{
+			Resource:  action.IntentResource{Category: "file", Value: path, Locality: classifyLocality(ctx, path)},
+			Operation: "read",
+			Certain:   true,
+		}},
+		Behaviors: []string{"filesystem_read"},
+	}, nil
 }
 
-func classifyLocality(ctx tool.Ctx, absPath string) string {
-	workDir := ctx.WorkDir()
+func classifyLocality(ctx action.Ctx, absPath string) string {
+	workDir := workDirFromContext(ctx)
 	if workDir == "" {
 		return "unknown"
 	}

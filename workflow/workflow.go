@@ -1,0 +1,176 @@
+// Package workflow provides minimal orchestration over action references.
+package workflow
+
+import (
+	"fmt"
+
+	"github.com/codewandler/agentsdk/action"
+)
+
+// ActionRef identifies an action used by a workflow. Resolution is owned by the
+// executor so workflows can stay declarative and serializable.
+type ActionRef struct {
+	Name string
+}
+
+// Step is one workflow node.
+type Step struct {
+	ID        string
+	Action    ActionRef
+	Input     any
+	DependsOn []string
+}
+
+// Definition describes a workflow graph. The initial implementation executes a
+// topologically ordered DAG and passes dependency outputs as step inputs.
+type Definition struct {
+	Name        string
+	Description string
+	Steps       []Step
+}
+
+// Result is the structured workflow execution result.
+type Result struct {
+	StepResults map[string]action.Result
+	Data        any
+}
+
+// Resolver resolves action references at execution time.
+type Resolver interface {
+	ResolveAction(action.Ctx, ActionRef) (action.Action, bool)
+}
+
+// ResolverFunc adapts a function into Resolver.
+type ResolverFunc func(action.Ctx, ActionRef) (action.Action, bool)
+
+func (f ResolverFunc) ResolveAction(ctx action.Ctx, ref ActionRef) (action.Action, bool) {
+	return f(ctx, ref)
+}
+
+// RegistryResolver resolves workflow action refs from an action.Registry.
+type RegistryResolver struct {
+	Registry *action.Registry
+}
+
+func (r RegistryResolver) ResolveAction(_ action.Ctx, ref ActionRef) (action.Action, bool) {
+	if r.Registry == nil {
+		return nil, false
+	}
+	return r.Registry.Get(ref.Name)
+}
+
+// Executor executes workflows over resolved actions.
+type Executor struct {
+	Resolver Resolver
+}
+
+// Execute runs def and returns a workflow result in action.Result.Data. Execution
+// stops at the first failed or unresolved step; partial step results are kept in
+// Result.StepResults.
+func (e Executor) Execute(ctx action.Ctx, def Definition, input any) action.Result {
+	if e.Resolver == nil {
+		return action.Result{Error: fmt.Errorf("workflow %q has no action resolver", def.Name)}
+	}
+	ordered, err := topo(def.Steps)
+	if err != nil {
+		return action.Result{Error: err}
+	}
+	results := make(map[string]action.Result, len(ordered))
+	var last any = input
+	for _, step := range ordered {
+		a, ok := e.Resolver.ResolveAction(ctx, step.Action)
+		if !ok || a == nil {
+			return action.Result{Data: Result{StepResults: results, Data: last}, Error: fmt.Errorf("workflow %q step %q action %q not found", def.Name, step.ID, step.Action.Name)}
+		}
+		stepInput := stepInput(step, input, results)
+		res := a.Execute(ctx, stepInput)
+		results[step.ID] = res
+		if res.Error != nil {
+			return action.Result{Data: Result{StepResults: results, Data: last}, Error: fmt.Errorf("workflow %q step %q failed: %w", def.Name, step.ID, res.Error), Events: res.Events}
+		}
+		last = res.Data
+	}
+	return action.Result{Data: Result{StepResults: results, Data: last}}
+}
+
+func stepInput(step Step, initial any, results map[string]action.Result) any {
+	if step.Input != nil {
+		return step.Input
+	}
+	switch len(step.DependsOn) {
+	case 0:
+		return initial
+	case 1:
+		return results[step.DependsOn[0]].Data
+	default:
+		in := make(map[string]any, len(step.DependsOn))
+		for _, dep := range step.DependsOn {
+			in[dep] = results[dep].Data
+		}
+		return in
+	}
+}
+
+func topo(steps []Step) ([]Step, error) {
+	byID := make(map[string]Step, len(steps))
+	for _, step := range steps {
+		if step.ID == "" {
+			return nil, fmt.Errorf("workflow step id is required")
+		}
+		if _, exists := byID[step.ID]; exists {
+			return nil, fmt.Errorf("duplicate workflow step %q", step.ID)
+		}
+		byID[step.ID] = step
+	}
+	var ordered []Step
+	visiting := map[string]bool{}
+	visited := map[string]bool{}
+	var visit func(string) error
+	visit = func(id string) error {
+		if visited[id] {
+			return nil
+		}
+		if visiting[id] {
+			return fmt.Errorf("workflow contains dependency cycle at step %q", id)
+		}
+		step, ok := byID[id]
+		if !ok {
+			return fmt.Errorf("workflow step %q not found", id)
+		}
+		visiting[id] = true
+		for _, dep := range step.DependsOn {
+			if _, ok := byID[dep]; !ok {
+				return fmt.Errorf("workflow step %q depends on unknown step %q", id, dep)
+			}
+			if err := visit(dep); err != nil {
+				return err
+			}
+		}
+		visiting[id] = false
+		visited[id] = true
+		ordered = append(ordered, step)
+		return nil
+	}
+	for _, step := range steps {
+		if err := visit(step.ID); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
+}
+
+// WorkflowAction exposes a workflow definition as an action.
+type WorkflowAction struct {
+	Definition Definition
+	Executor   Executor
+}
+
+func (a WorkflowAction) Spec() action.Spec {
+	return action.Spec{Name: a.Definition.Name, Description: a.Definition.Description}
+}
+
+func (a WorkflowAction) Execute(ctx action.Ctx, input any) action.Result {
+	return a.Executor.Execute(ctx, a.Definition, input)
+}
+
+var _ action.Action = WorkflowAction{}

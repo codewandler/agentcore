@@ -12,6 +12,15 @@ import (
 var rawMessageType = reflect.TypeOf(json.RawMessage{})
 var toolResultType = reflect.TypeOf((*Result)(nil)).Elem()
 
+// ActionBacked is implemented by tools projected from action.Action values. It
+// allows callers to apply action middleware even after they only have the
+// model-facing Tool projection.
+type ActionBacked interface {
+	Tool
+	Action() action.Action
+	WithAction(action.Action) Tool
+}
+
 // ActionOption configures a Tool projection over an action.Action.
 type ActionOption func(*actionTool)
 
@@ -26,6 +35,17 @@ func WithActionResultMapper(mapper func(action.Result) (Result, error)) ActionOp
 	return func(t *actionTool) {
 		if mapper != nil {
 			t.mapResult = mapper
+		}
+	}
+}
+
+// WithActionMiddleware applies action middleware before projecting the action as
+// a tool. This is the preferred way to attach execution middleware to
+// action-backed tools at construction time.
+func WithActionMiddleware(middleware ...action.Middleware) ActionOption {
+	return func(t *actionTool) {
+		if t.action != nil {
+			t.action = action.Apply(t.action, middleware...)
 		}
 	}
 }
@@ -90,6 +110,36 @@ func (t *actionTool) Execute(ctx Ctx, input json.RawMessage) (Result, error) {
 	}
 	res := t.action.Execute(ctx, value)
 	return t.mapResult(res)
+}
+
+// Action returns the underlying action for action-backed tools.
+func (t *actionTool) Action() action.Action {
+	if t == nil {
+		return nil
+	}
+	return t.action
+}
+
+// WithAction returns a copy of t projected from a different action while
+// preserving tool-specific projection options such as guidance and result
+// mapping.
+func (t *actionTool) WithAction(a action.Action) Tool {
+	if t == nil {
+		return FromAction(a)
+	}
+	clone := *t
+	clone.action = a
+	return &clone
+}
+
+// ApplyAction applies action middleware to action-backed tools. Legacy tools are
+// returned unchanged so callers can use this during migration without knowing
+// which tools have already moved to action-backed construction.
+func ApplyAction(t Tool, middleware ...action.Middleware) Tool {
+	if at, ok := t.(ActionBacked); ok {
+		return at.WithAction(action.Apply(at.Action(), middleware...))
+	}
+	return t
 }
 
 func decodeActionInput(typ action.Type, input json.RawMessage) (any, error) {
@@ -175,4 +225,7 @@ func encodeToolActionInput(input any) (json.RawMessage, error) {
 	}
 }
 
-var _ Tool = (*actionTool)(nil)
+var (
+	_ Tool         = (*actionTool)(nil)
+	_ ActionBacked = (*actionTool)(nil)
+)

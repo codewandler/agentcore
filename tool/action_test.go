@@ -103,3 +103,44 @@ func TestToActionRequiresToolCtx(t *testing.T) {
 	require.Error(t, res.Error)
 	require.Contains(t, res.Error.Error(), "requires tool.Ctx")
 }
+
+func TestFromActionAppliesActionMiddlewareOption(t *testing.T) {
+	a := action.NewTyped[string, string](action.Spec{Name: "echo"}, func(_ action.Ctx, input string) (string, error) {
+		return input, nil
+	})
+
+	tl := FromAction(a, WithActionMiddleware(action.HooksMiddleware(prefixHook{prefix: "option:"})))
+	res, err := tl.Execute(minimalCtx{Context: context.Background()}, json.RawMessage(`"value"`))
+	require.NoError(t, err)
+	require.JSONEq(t, `"option:value"`, res.String())
+}
+
+func TestApplyActionAppliesMiddlewareToActionBackedTool(t *testing.T) {
+	a := action.NewTyped[string, string](action.Spec{Name: "echo"}, func(_ action.Ctx, input string) (string, error) {
+		return input, nil
+	})
+
+	tl := ApplyAction(FromAction(a), action.HooksMiddleware(prefixHook{prefix: "apply:"}))
+	require.Implements(t, (*ActionBacked)(nil), tl)
+	res, err := tl.Execute(minimalCtx{Context: context.Background()}, json.RawMessage(`"value"`))
+	require.NoError(t, err)
+	require.JSONEq(t, `"apply:value"`, res.String())
+}
+
+func TestApplyActionLeavesLegacyToolUnchanged(t *testing.T) {
+	legacy := New("legacy", "legacy tool", func(Ctx, struct{}) (Result, error) {
+		return Text("ok"), nil
+	})
+
+	got := ApplyAction(legacy, action.HooksMiddleware(prefixHook{prefix: "ignored:"}))
+	require.Same(t, legacy, got)
+}
+
+type prefixHook struct {
+	action.HooksBase
+	prefix string
+}
+
+func (h prefixHook) OnInput(_ action.Ctx, _ action.Action, input any, _ action.CallState) (any, action.Result, bool) {
+	return h.prefix + input.(string), action.Result{}, false
+}

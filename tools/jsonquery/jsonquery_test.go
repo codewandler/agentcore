@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codewandler/agentsdk/action"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/stretchr/testify/require"
 )
@@ -91,4 +92,26 @@ func TestJSONQuery_Tools(t *testing.T) {
 	require.Len(t, tools, 1)
 	require.Equal(t, "json_query", tools[0].Name())
 	require.True(t, strings.Contains(tools[0].Description(), "JSON"))
+}
+
+func TestJSONQuery_ActionExecutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data.json"), []byte(`{"items":[{"name":"alpha"}]}`), 0644))
+
+	result := Action().Execute(ctx(dir), QueryParams{Path: "data.json", Expr: ".items[].name"})
+	require.NoError(t, result.Error)
+	res, ok := result.Data.(tool.Result)
+	require.True(t, ok)
+	require.False(t, res.IsError(), res.String())
+	require.Contains(t, res.String(), `"alpha"`)
+}
+
+func TestJSONQuery_ActionDeclaresIntent(t *testing.T) {
+	dir := t.TempDir()
+	intent := action.ExtractIntent(Action(), ctx(dir), QueryParams{Path: "data.json", Expr: ".items"})
+	require.Equal(t, "json_query", intent.Action)
+	require.Equal(t, "filesystem_read", intent.Class)
+	require.Equal(t, "high", intent.Confidence)
+	require.Len(t, intent.Operations, 1)
+	require.Equal(t, "workspace", intent.Operations[0].Resource.Locality)
 }

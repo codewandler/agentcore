@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/codewandler/agentsdk/action"
 	"github.com/codewandler/agentsdk/internal/humanize"
 	"github.com/codewandler/agentsdk/tool"
 )
@@ -28,92 +29,104 @@ type QueryParams struct {
 
 func Tools() []tool.Tool { return []tool.Tool{Tool()} }
 
-func Tool() tool.Tool {
-	return tool.New("json_query",
-		"Query a JSON file with a small jq-like path expression. Supports fields, array indexes, and [] wildcards (for example .items[].name).",
-		func(ctx tool.Ctx, p QueryParams) (tool.Result, error) {
-			if strings.TrimSpace(p.Path) == "" {
-				return tool.Error("path cannot be empty"), nil
-			}
-			if strings.TrimSpace(p.Expr) == "" {
-				return tool.Error("expr cannot be empty"), nil
-			}
-			limit := p.MaxResults
-			if limit <= 0 {
-				limit = defaultResultLimit
-			}
-			if limit > maxResultLimit {
-				limit = maxResultLimit
-			}
+func Tool() tool.Tool { return tool.FromAction(Action()) }
 
-			path := resolvePath(p.Path, ctx.WorkDir())
-			info, err := os.Stat(path)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return tool.Errorf("file not found: %s", path), nil
-				}
-				return nil, fmt.Errorf("stat %s: %w", path, err)
-			}
-			if info.IsDir() {
-				return tool.Errorf("path is a directory: %s", path), nil
-			}
-			if info.Size() > maxJSONFileSize {
-				return tool.Errorf("file too large: %s (max %s)", humanize.Size(info.Size()), humanize.Size(maxJSONFileSize)), nil
-			}
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", path, err)
-			}
-			var doc any
-			dec := json.NewDecoder(strings.NewReader(string(raw)))
-			dec.UseNumber()
-			if err := dec.Decode(&doc); err != nil {
-				return tool.Errorf("parse JSON %s: %v", path, err), nil
-			}
-			steps, err := parseExpr(p.Expr)
-			if err != nil {
-				return tool.Errorf("parse expr %q: %v", p.Expr, err), nil
-			}
-			matches := applySteps([]any{doc}, steps)
-			if len(matches) == 0 {
-				return tool.Textf("No matches for %s in %s", p.Expr, path), nil
-			}
+func Action() action.Action {
+	return queryAction{Action: action.NewTyped[QueryParams, tool.Result](action.Spec{
+		Name:        "json_query",
+		Description: "Query a JSON file with a small jq-like path expression. Supports fields, array indexes, and [] wildcards (for example .items[].name).",
+	}, runQuery)}
+}
 
-			rendered := make([]string, 0, min(len(matches), limit))
-			bytes := 0
-			truncatedBytes := false
-			for i, m := range matches {
-				if i >= limit {
-					break
-				}
-				text := renderJSON(m)
-				if bytes+len(text) > maxRenderedJSONBytes {
-					truncatedBytes = true
-					break
-				}
-				bytes += len(text)
-				rendered = append(rendered, text)
-			}
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "Query: %s\nFile: %s\nMatches: %d", p.Expr, path, len(matches))
-			if len(rendered) < len(matches) {
-				fmt.Fprintf(&sb, " (showing %d)", len(rendered))
-			}
-			if truncatedBytes {
-				sb.WriteString(" (output truncated by byte limit)")
-			}
-			sb.WriteString("\n\n")
-			if len(rendered) == 1 {
-				sb.WriteString(rendered[0])
-			} else {
-				for i, item := range rendered {
-					fmt.Fprintf(&sb, "[%d] %s\n", i, item)
-				}
-			}
-			return tool.Text(strings.TrimSpace(sb.String())), nil
-		},
-		queryIntent(),
-	)
+func runQuery(ctx action.Ctx, p QueryParams) (tool.Result, error) {
+	if strings.TrimSpace(p.Path) == "" {
+		return tool.Error("path cannot be empty"), nil
+	}
+	if strings.TrimSpace(p.Expr) == "" {
+		return tool.Error("expr cannot be empty"), nil
+	}
+	limit := p.MaxResults
+	if limit <= 0 {
+		limit = defaultResultLimit
+	}
+	if limit > maxResultLimit {
+		limit = maxResultLimit
+	}
+
+	path := resolvePath(p.Path, workDirFromContext(ctx))
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return tool.Errorf("file not found: %s", path), nil
+		}
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.IsDir() {
+		return tool.Errorf("path is a directory: %s", path), nil
+	}
+	if info.Size() > maxJSONFileSize {
+		return tool.Errorf("file too large: %s (max %s)", humanize.Size(info.Size()), humanize.Size(maxJSONFileSize)), nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var doc any
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&doc); err != nil {
+		return tool.Errorf("parse JSON %s: %v", path, err), nil
+	}
+	steps, err := parseExpr(p.Expr)
+	if err != nil {
+		return tool.Errorf("parse expr %q: %v", p.Expr, err), nil
+	}
+	matches := applySteps([]any{doc}, steps)
+	if len(matches) == 0 {
+		return tool.Textf("No matches for %s in %s", p.Expr, path), nil
+	}
+
+	rendered := make([]string, 0, min(len(matches), limit))
+	bytes := 0
+	truncatedBytes := false
+	for i, m := range matches {
+		if i >= limit {
+			break
+		}
+		text := renderJSON(m)
+		if bytes+len(text) > maxRenderedJSONBytes {
+			truncatedBytes = true
+			break
+		}
+		bytes += len(text)
+		rendered = append(rendered, text)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Query: %s\nFile: %s\nMatches: %d", p.Expr, path, len(matches))
+	if len(rendered) < len(matches) {
+		fmt.Fprintf(&sb, " (showing %d)", len(rendered))
+	}
+	if truncatedBytes {
+		sb.WriteString(" (output truncated by byte limit)")
+	}
+	sb.WriteString("\n\n")
+	if len(rendered) == 1 {
+		sb.WriteString(rendered[0])
+	} else {
+		for i, item := range rendered {
+			fmt.Fprintf(&sb, "[%d] %s\n", i, item)
+		}
+	}
+	return tool.Text(strings.TrimSpace(sb.String())), nil
+}
+
+type workDirContext interface{ WorkDir() string }
+
+func workDirFromContext(ctx action.Ctx) string {
+	if c, ok := ctx.(workDirContext); ok {
+		return c.WorkDir()
+	}
+	return ""
 }
 
 type step struct {
