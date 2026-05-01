@@ -195,7 +195,7 @@ Tasks:
    Output action.Type
    Intent declaration
    action.Ctx
-   action.Result: Data any, Error error, Events []event.Event-like payloads
+   action.Result: Data any, Error error, Events []action.Event where action.Event is an alias for any
    Result contract
    Middleware chain
    ```
@@ -203,7 +203,7 @@ Tasks:
 3. Define datasource as a data boundary accessed by actions, including config schema, record/item schema, provenance, credential/config references, paging/cursor/checkpoint state, and consistency/freshness expectations.
 4. Define how datasources provide or reference standard actions such as `fetch`, `list`, `search`, `sync`, `map`, and `transform`.
 5. Define `action.Action` as the owner of Go-native execution metadata currently mixed into tools: name, description, input/output `action.Type`, intent declaration, `action.Ctx`, `action.Result`, execution function, emitted events, and middleware chain.
-6. Define `action.Type` as the reusable input/output contract value that carries Go `reflect.Type` plus optional schema metadata, with helper methods for creating values, encoding, decoding, validation, and schema projection added as needed.
+6. Define `action.Type` as the reusable input/output contract value that carries Go `reflect.Type` plus optional `*jsonschema.Schema` metadata, with helper methods for creating values, encoding, decoding, validation, and schema projection added as needed.
 7. Move middleware concepts completely to `action.*`; keep `tool` middleware as aliases/adapters during migration.
 8. Define `tool.Tool` as embedding or wrapping `action.Action`, adding LLM-facing concerns such as guidance, activation, provider/tool-call projection, serializable schema constraints, and transcript rendering.
 9. Decide how `tool.Ctx`, `tool.Result`, and `tool.Intent` alias/adapt to `action.Ctx`, `action.Result`, and action intent for compatibility, while keeping tool JSON serialization/schema constraints as tool-specific projection concerns.

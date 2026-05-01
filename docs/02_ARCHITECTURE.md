@@ -85,7 +85,7 @@ Current strengths:
 - `tool.Result` supports deterministic model-facing output and persistence.
 - `tool.Intent` and `IntentProvider` provide side-effect declaration.
 - Middleware can wrap tools for logging, risk gates, timeouts, and approval.
-- Some concepts are not inherently model-only; execution, intent, result, events, context, and middleware should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware. JSON schema/provider projection remains a tool-surface specialization unless an action explicitly provides optional schema metadata.
+- Some concepts are not inherently model-only; execution, intent, result, events, context, and middleware should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware. JSON schema/provider projection remains a tool-surface specialization unless an action explicitly provides optional `*jsonschema.Schema` metadata.
 - `activation.Manager` already models active/inactive tool visibility.
 - `tools/standard` provides useful batteries-included assembly.
 
@@ -429,7 +429,7 @@ Action
   implementation
   intent declaration
   action.Ctx
-  action.Result: Data any, Error error, Events []event.Event-like payloads
+  action.Result: Data any, Error error, Events []action.Event where action.Event is an alias for any
   result contract
   middleware chain
   observability labels
@@ -661,4 +661,4 @@ The current code puts several action-like responsibilities on `tool.Tool`: name,
 
 The trade-off: moving too aggressively risks breaking the clean existing tool API; moving too timidly will duplicate result, intent, middleware, event, and safety machinery in a separate workflow stack. The split should not make actions JSON-first: serializable JSON schemas are required for LLM tools and resource/remote surfaces, but core actions may accept real Go types such as interfaces, channels, readers, handles, or domain objects.
 
-Recommendation: introduce `action.Action`, `action.Type`, `action.Ctx`, `action.Result`, action intent, emitted action events, and action middleware as the central executable layer. `action.Type` should carry the Go `reflect.Type` plus optional schema metadata, and later own helpers for creating values, encoding, decoding, validation, and schema projection. `action.NewTyped[I, O]` should construct input/output `action.Type` values for the typed handler and prefer handlers shaped like `func(action.Ctx, I) (O, error)` so ordinary Go functions can adapt naturally into actions. `action.Result` should stay minimal: `Data any`, `Error error`, and optional event payloads for the runtime to dispatch. Display/rendering concerns should be added later through interfaces implemented by returned data or by surface adapters, not by baking display variants into the core result. Then make `tool.Tool` embed or wrap `action.Action` and add only LLM-facing concerns such as guidance, activation, serializable schema/provider projection, and transcript rendering. Preserve existing `tool.Tool` APIs through aliases and compatibility wrappers while new workflow/action code depends on the action abstraction.
+Recommendation: introduce `action.Action`, `action.Type`, `action.Ctx`, `action.Result`, action intent, emitted action events, and action middleware as the central executable layer. `action.Type` should carry the Go `reflect.Type` plus optional `*jsonschema.Schema` metadata, and later own helpers for creating values, encoding, decoding, validation, and schema projection. `action.NewTyped[I, O]` should construct input/output `action.Type` values for the typed handler and prefer handlers shaped like `func(action.Ctx, I) (O, error)` so ordinary Go functions can adapt naturally into actions. `action.Result` should stay minimal: `Data any`, `Error error`, and optional `[]action.Event` payloads for the runtime to dispatch, where `action.Event` is an alias for `any`. Display/rendering concerns should be added later through interfaces implemented by returned data or by surface adapters, not by baking display variants into the core result. Then make `tool.Tool` embed or wrap `action.Action` and add only LLM-facing concerns such as guidance, activation, serializable schema/provider projection, and transcript rendering. Preserve existing `tool.Tool` APIs through aliases and compatibility wrappers while new workflow/action code depends on the action abstraction.
