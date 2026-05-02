@@ -418,6 +418,21 @@ go test ./channel/... ./terminal/... ./harness/...
 go run ./cmd/agentsdk run apps/engineer
 ```
 
+## Command tree refactor gate
+
+Before adding more broad command namespaces, replace the current handwritten subcommand switch style with the declarative command tree design in `docs/COMMAND_TREE.md`. The intended direction is a builder-style command tree with declared subcommands, args, flags, enum/required constraints, descriptors, and later typed input binding similar to `action.NewTyped`. This is required so terminal slash commands, harness command APIs, generated help/docs, and LLM-safe command projections can share one command contract instead of duplicating brittle parsing logic.
+
+Recommended sequence:
+
+```text
+Add declarative command trees
+Use command trees for harness commands
+Expose command tree descriptors
+Add typed command input binding
+```
+
+Until that lands, avoid adding new command namespaces unless they are part of migrating to the command tree model.
+
 ## Workflow/harness follow-up backlog
 
 Near-term workflow UX and read-model follow-ups:
