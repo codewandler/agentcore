@@ -528,6 +528,39 @@ Live workflow events are telemetry payloads shaped to be compatible with future 
 
 `app.App` workflow helpers accept execution options for run ID generation and live event handling, which lets callers install `workflow.ThreadRecorder` without coupling `workflow.Executor` to persistence. As a transitional session seam, `App.ExecuteWorkflow` also detects the default agent's live thread and composes a recorder automatically, preserving any caller-provided event handler while appending workflow events into the session thread. Thread append integration builds on the run-state model rather than writing unprojectable telemetry. Do not create a separate workflow database until thread events prove insufficient.
 
+### Workflow run read models and harness commands
+
+Workflow execution remains owned by `workflow.Executor` and the transitional `app.App` workflow helpers, but session-scoped workflow history is now read through harness APIs. The current path is intentionally narrow:
+
+```text
+workflow.Executor
+  -> live workflow events
+  -> workflow.ThreadRecorder
+  -> thread.Live append
+  -> workflow.ThreadRunStore projection
+  -> harness.Session read APIs
+  -> terminal-facing /workflow namespace
+```
+
+`workflow.ThreadRunStore` reads workflow events from a scoped thread/branch and projects them into `workflow.RunState` for a single run or `workflow.RunSummary` rows for listing. `harness.Session` exposes that read model through:
+
+```go
+WorkflowRunStore() (*workflow.ThreadRunStore, bool)
+WorkflowRunState(ctx context.Context, runID workflow.RunID) (workflow.RunState, bool, error)
+WorkflowRuns(ctx context.Context) ([]workflow.RunSummary, bool, error)
+```
+
+The terminal path routes through `harness.Session.Send`, so harness can own session-aware workflow commands without making `app.App` aware of terminal/session state. Current commands are:
+
+```text
+/workflow list        # registered workflow definitions
+/workflow show <name> # workflow definition detail
+/workflow runs        # recorded workflow run summaries for this thread-backed session
+/workflow run <id>    # projected run detail for this thread-backed session
+```
+
+Trade-off: `/workflow runs` is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires adding sequence/timestamp metadata to `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
+
 ### Runtime relationship
 
 Workflow belongs to the broader runtime system, but not inside the low-level model/tool loop.
@@ -580,6 +613,8 @@ harness.Service
   hosts datasources/workflows/actions
   supports multiple channels/triggers
 ```
+
+The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends and session-scoped workflow browsing. It intentionally keeps workflow command handling in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?".
 
 ## Package evolution map
 

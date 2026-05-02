@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/codewandler/agentsdk/thread"
 )
@@ -90,6 +91,30 @@ func (s ThreadRunStore) Events(ctx context.Context, runID RunID) ([]any, bool, e
 	return out, true, nil
 }
 
+// Runs returns projected summaries for all workflow runs recorded in the
+// configured thread and branch.
+func (s ThreadRunStore) Runs(ctx context.Context) ([]RunSummary, error) {
+	events, err := s.allEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	states, err := Projector{}.Project(events)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]RunSummary, 0, len(states))
+	for _, state := range states {
+		summaries = append(summaries, RunSummary{
+			ID:           state.ID,
+			WorkflowName: state.WorkflowName,
+			Status:       state.Status,
+			Error:        state.Error,
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].ID < summaries[j].ID })
+	return summaries, nil
+}
+
 // State projects the current state for runID from thread-backed workflow events.
 func (s ThreadRunStore) State(ctx context.Context, runID RunID) (RunState, bool, error) {
 	events, ok, err := s.Events(ctx, runID)
@@ -97,6 +122,42 @@ func (s ThreadRunStore) State(ctx context.Context, runID RunID) (RunState, bool,
 		return RunState{}, ok, err
 	}
 	return Projector{}.ProjectRun(events, runID)
+}
+
+func (s ThreadRunStore) allEvents(ctx context.Context) ([]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.Store == nil {
+		return nil, fmt.Errorf("workflow: thread run store thread store is nil")
+	}
+	threadID := s.ThreadID
+	if threadID == "" && s.Live != nil {
+		threadID = s.Live.ID()
+	}
+	if threadID == "" {
+		return nil, fmt.Errorf("workflow: thread run store thread id is required")
+	}
+	stored, err := s.Store.Read(ctx, thread.ReadParams{ID: threadID})
+	if err != nil {
+		return nil, err
+	}
+	branchEvents, err := stored.EventsForBranch(s.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, 0)
+	for _, event := range branchEvents {
+		payload, ok, err := WorkflowEventForThreadEvent(event)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, payload)
+	}
+	return out, nil
 }
 
 // WorkflowEventForThreadEvent decodes a persistent thread event into its

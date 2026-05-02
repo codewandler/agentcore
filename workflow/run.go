@@ -50,6 +50,14 @@ type RunState struct {
 	Error        string
 }
 
+// RunSummary is the compact read-model view for listing workflow executions.
+type RunSummary struct {
+	ID           RunID
+	WorkflowName string
+	Status       RunStatus
+	Error        string
+}
+
 // StepState is the materialized state of one workflow step.
 type StepState struct {
 	ID         string

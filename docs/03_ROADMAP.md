@@ -277,9 +277,9 @@ Current state to reuse:
 
 Status: partially complete.
 
-Current implementation supports Go-defined sequential workflows over `action.Action`, app-owned workflow execution through `App.ExecuteWorkflow`, workflow-as-action exposure, slash-command workflow triggers through `App.RegisterWorkflowCommand`, and concrete workflow event payload structs returned through `action.Result.Events` plus an optional live event handler. Workflow event definitions are registered in the same `thread.EventDefinition` style used elsewhere so persistence adapters can map concrete payloads into thread events later.
+Current implementation supports Go-defined sequential workflows over `action.Action`, app-owned workflow execution through `App.ExecuteWorkflow`, workflow-as-action exposure, slash-command workflow triggers through `App.RegisterWorkflowCommand`, and concrete workflow event payload structs returned through `action.Result.Events` plus an optional live event handler. Workflow event definitions are registered in the same `thread.EventDefinition` style used elsewhere so persistence adapters can map concrete payloads into thread events.
 
-These workflow events are live telemetry shaped for future persistence. Workflow now has run identity, materialized `workflow.RunState`, step attempt metadata, `workflow.ValueRef` output references, a projector that rebuilds run/step/attempt status and outputs from concrete workflow events, a context-aware `workflow.RunStore` contract, an in-memory implementation, a thread event recorder, and a thread-backed run store scoped to a thread/branch. App-level workflow execution helpers accept run ID and event-handler options so callers can install `workflow.ThreadRecorder` without coupling `workflow.Executor` to persistence; additionally, `App.ExecuteWorkflow` now auto-records workflow events to the default agent's live session thread when one exists. Runtime step dataflow remains Go-native `any`; workflow events and projected state use inline, external, or redacted value references. Remaining work includes richer validation/output contracts and harness-owned multi-session workflow lifecycle.
+These workflow events are live telemetry shaped for persistence. Workflow now has run identity, materialized `workflow.RunState`, `workflow.RunSummary`, step attempt metadata, `workflow.ValueRef` output references, a projector that rebuilds run/step/attempt status and outputs from concrete workflow events, a context-aware `workflow.RunStore` contract, an in-memory implementation, a thread event recorder, and a thread-backed run store scoped to a thread/branch. App-level workflow execution helpers accept run ID and event-handler options so callers can install `workflow.ThreadRecorder` without coupling `workflow.Executor` to persistence; additionally, `App.ExecuteWorkflow` now auto-records workflow events to the default agent's live session thread when one exists. Harness session APIs expose single-run lookup and run-summary listing from the thread-backed projection. Runtime step dataflow remains Go-native `any`; workflow events and projected state use inline, external, or redacted value references. Remaining work includes richer validation/output contracts, chronological/indexed run listing, and harness-owned multi-session workflow lifecycle.
 
 - `runtime.Engine` can run model/tool turns and can be wrapped by prompt/model-turn actions.
 - Existing `tool.Tool` values can be adapted to actions during migration, but new workflow code should depend on `action.Action` through `workflow.ActionRef` resolution.
@@ -317,8 +317,9 @@ Tasks:
 5. Emit workflow/action events to the existing thread event log when a thread is available; emit datasource events for sync/checkpoint state when relevant. ✅ workflow event payloads, `thread.EventDefinition`s, run IDs, `ValueRef` outputs, run-state projection, `workflow.ThreadRecorder`, `workflow.ThreadRunStore`, app execution options, and default-agent live-thread recording through `App.ExecuteWorkflow` exist; broader harness-owned lifecycle remains future work.
 6. Add per-step input/output passing. ✅ initial dependency-output passing exists
 7. Add a minimal workflow run store. ✅ context-aware `workflow.RunStore`, `workflow.MemoryRunStore`, and `workflow.ThreadRunStore` exist
-8. Add basic output validation. Not started
-9. Defer parallel DAG execution until sequential pipeline semantics are proven.
+8. Add workflow run summaries/listing. ✅ `workflow.RunSummary`, `ThreadRunStore.Runs`, `Session.WorkflowRuns`, and `/workflow runs` exist
+9. Add basic output validation. Not started
+10. Defer parallel DAG execution until sequential pipeline semantics are proven.
 
 Acceptance criteria:
 
@@ -332,6 +333,7 @@ Acceptance criteria:
 - Execution is observable through events. ✅ initial in-memory workflow events exist
 - Workflow run event/state access has an explicit store boundary. ✅ context-aware `workflow.RunStore` with memory and thread-backed implementations exists
 - Thread-backed runs can persist workflow events. ✅ `workflow.ThreadRecorder` and `workflow.ThreadRunStore` exist for thread logs; `App.ExecuteWorkflow` auto-records to the default agent live thread when available, while broader harness-owned workflow lifecycle remains future work
+- Thread-backed workflow runs can be listed and inspected through the harness. ✅ `Session.WorkflowRuns`, `Session.WorkflowRunState`, `/workflow runs`, and `/workflow run <id>` exist
 
 Verification:
 
@@ -348,11 +350,14 @@ Current state:
 - `terminal/cli.Load` resolves resources and constructs `app.App` and `agent.Instance`.
 - `app.App` registers resources/plugins and instantiates agents.
 - `agent.Instance` owns runtime/session setup.
+- `harness.Service` and `harness.Session` wrap the existing app/default-agent stack.
+- Harness exposes session-scoped workflow run lookup/listing over the default agent live thread.
+- Terminal send paths route through `harness.Session`, so harness can own session-aware slash-command behavior.
 
 Tasks:
 
-1. Add `harness` package.
-2. First implementation should wrap existing objects:
+1. Add `harness` package. ✅
+2. First implementation should wrap existing objects: ✅
 
    ```text
    harness.Service
@@ -362,16 +367,17 @@ Tasks:
      emits runner events
    ```
 
-3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions.
-4. Keep `terminal/cli.Load` as compatibility wrapper initially.
-5. Add session IDs and thread/session store handling through harness APIs where possible.
+3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions. In progress
+4. Keep `terminal/cli.Load` as compatibility wrapper initially. ✅
+5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ initial session/workflow read APIs exist
 
 Acceptance criteria:
 
 - Harness can load resources using existing `agentdir`/`resource`/`app` paths.
-- Harness can instantiate the default agent through existing `app.App` APIs.
-- Harness can run a turn and expose events.
-- `agentsdk run` behavior remains unchanged.
+- Harness can instantiate the default agent through existing `app.App` APIs. ✅
+- Harness can run a turn and expose events. ✅ initial send path exists; richer event subscription remains future work
+- Harness can expose thread-backed workflow run state/history for the current session. ✅
+- `agentsdk run` behavior remains unchanged. ✅
 
 Verification:
 
@@ -386,8 +392,9 @@ Goal: make the existing terminal stack the first implementation of a channel bou
 
 Current state:
 
-- Terminal code works but directly performs resource/app/agent setup.
+- Terminal code works and still performs resource/app/agent setup through `terminal/cli.Load`.
 - Runner events already map well to terminal rendering.
+- Terminal one-shot and REPL sends route through `harness.Session`, which lets session-scoped commands such as `/workflow runs` use harness APIs.
 
 Tasks:
 
@@ -409,6 +416,35 @@ Verification:
 go test ./channel/... ./terminal/... ./harness/...
 go run ./cmd/agentsdk run apps/engineer
 ```
+
+## Workflow/harness follow-up backlog
+
+Near-term workflow UX and read-model follow-ups:
+
+- Add `/workflow start <name> [input]` once run visibility and failure reporting are stable.
+- Add `/workflow runs --workflow <name>` filtering.
+- Add `/workflow runs --status succeeded|failed|running` filtering.
+- Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.
+- Carry started/completed timestamps and duration in `workflow.RunSummary`.
+- Include richer workflow definition metadata in `/workflow show <name>` when definitions gain input/output schemas, defaults, policy, and step descriptions.
+
+Medium-term workflow lifecycle follow-ups:
+
+- Persist richer run metadata: trigger/source, invoking command, input reference, agent/session identity, started/completed times, duration, and output reference.
+- Add pagination for large thread logs and run lists.
+- Add `/workflow rerun <id>` once inputs and action versioning are represented well enough.
+- Add `/workflow events <id>` for debugging raw workflow event history.
+- Add `/workflow cancel <id>` only after workflows can run asynchronously outside a single synchronous call stack.
+- Decide whether `ThreadRunStore.Runs` should remain pure projection or whether a separate indexed read model is needed for large histories.
+
+Longer-term workflow product follow-ups:
+
+- Durable indexed run store separate from thread projection if thread-log scans become too expensive.
+- Cross-session workflow run lookup for app/operator views.
+- Web/UI workflow run browser.
+- Workflow graph visualization.
+- Approval gates, resumable checkpoints, and human-in-the-loop workflow steps.
+- Trigger-owned workflow starts with durable source metadata.
 
 ## Milestone 8 — Safety policy expansion
 

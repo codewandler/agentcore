@@ -96,6 +96,38 @@ func TestThreadRunStoreKeepsRunIDsSeparate(t *testing.T) {
 	}, events)
 }
 
+func TestThreadRunStoreRunsReturnsProjectedSummaries(t *testing.T) {
+	ctx := context.Background()
+	store, live := newWorkflowThreadStore(t, ctx)
+	runs := ThreadRunStore{Store: store, Live: live, ThreadID: live.ID()}
+
+	require.NoError(t, runs.Append(ctx, "run_b",
+		Started{RunID: "run_b", WorkflowName: "echo"},
+		Failed{RunID: "run_b", WorkflowName: "echo", Error: "boom"},
+	))
+	require.NoError(t, runs.Append(ctx, "run_a",
+		Started{RunID: "run_a", WorkflowName: "ask"},
+		Completed{RunID: "run_a", WorkflowName: "ask", Output: InlineValue("ok")},
+	))
+
+	summaries, err := runs.Runs(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []RunSummary{
+		{ID: "run_a", WorkflowName: "ask", Status: RunSucceeded},
+		{ID: "run_b", WorkflowName: "echo", Status: RunFailed, Error: "boom"},
+	}, summaries)
+}
+
+func TestThreadRunStoreRunsReturnsEmptyWhenNoWorkflowEvents(t *testing.T) {
+	ctx := context.Background()
+	store, live := newWorkflowThreadStore(t, ctx)
+	runs := ThreadRunStore{Store: store, Live: live, ThreadID: live.ID()}
+
+	summaries, err := runs.Runs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, summaries)
+}
+
 func TestThreadRunStoreUnknownRunReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 	store, live := newWorkflowThreadStore(t, ctx)

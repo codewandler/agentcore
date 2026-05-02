@@ -3,7 +3,6 @@ package harness
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,8 +11,6 @@ import (
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/command"
 	"github.com/codewandler/agentsdk/runnertest"
-	"github.com/codewandler/agentsdk/thread"
-	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/workflow"
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/stretchr/testify/require"
@@ -48,7 +45,7 @@ func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
 		app.WithOutput(&bytes.Buffer{}),
 	)
 	require.NoError(t, err)
-	inst, err := application.InstantiateAgent("coder",
+	_, err = application.InstantiateAgent("coder",
 		agent.WithClient(client),
 		agent.WithWorkspace(t.TempDir()),
 		agent.WithSessionStoreDir(t.TempDir()),
@@ -66,12 +63,190 @@ func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
 	require.Equal(t, "workflow answer", result.Data.(workflow.Result).Data)
 	requireHarnessRequestContainsText(t, client.RequestAt(0), "answer through harness")
 
-	store := threadjsonlstore.Open(filepath.Dir(inst.SessionStorePath()))
-	state, ok, err := (workflow.ThreadRunStore{Store: store, ThreadID: thread.ID(application.SessionID())}).State(ctx, "run_harness")
+	state, ok, err := session.WorkflowRunState(ctx, "run_harness")
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, workflow.RunSucceeded, state.Status)
 	require.Equal(t, workflow.InlineValue("workflow answer"), state.Output)
+
+	summaries, ok, err := session.WorkflowRuns(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []workflow.RunSummary{{ID: "run_harness", WorkflowName: "ask_flow", Status: workflow.RunSucceeded}}, summaries)
+
+	cmdResult, err := session.Send(ctx, "/workflow run run_harness")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, cmdResult.Kind)
+	require.Contains(t, cmdResult.Text, "workflow run: run_harness")
+	require.Contains(t, cmdResult.Text, "workflow: ask_flow")
+	require.Contains(t, cmdResult.Text, "status: succeeded")
+	require.Contains(t, cmdResult.Text, "output: workflow answer")
+	require.Contains(t, cmdResult.Text, "- ask: succeeded (ask_agent)")
+
+	runsResult, err := session.Send(ctx, "/workflow runs")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, runsResult.Kind)
+	require.Contains(t, runsResult.Text, "Workflow runs:")
+	require.Contains(t, runsResult.Text, "- run_harness ask_flow succeeded")
+}
+
+func TestSessionWorkflowRunStateMissingLiveThread(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()))
+	require.NoError(t, err)
+
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+	store, ok := session.WorkflowRunStore()
+	require.False(t, ok)
+	require.Nil(t, store)
+
+	state, ok, err := session.WorkflowRunState(context.Background(), "missing")
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Equal(t, workflow.RunState{}, state)
+
+	summaries, ok, err := session.WorkflowRuns(context.Background())
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, summaries)
+
+	result, err := session.Send(context.Background(), "/workflow run missing")
+	require.NoError(t, err)
+	require.Equal(t, "workflow runs require a thread-backed session", result.Text)
+
+	result, err = session.Send(context.Background(), "/workflow runs")
+	require.NoError(t, err)
+	require.Equal(t, "workflow runs require a thread-backed session", result.Text)
+}
+
+func TestSessionWorkflowRunStateNilSessionAndAgent(t *testing.T) {
+	store, ok := (*Session)(nil).WorkflowRunStore()
+	require.False(t, ok)
+	require.Nil(t, store)
+
+	state, ok, err := (*Session)(nil).WorkflowRunState(context.Background(), "run")
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Equal(t, workflow.RunState{}, state)
+
+	summaries, ok, err := (*Session)(nil).WorkflowRuns(context.Background())
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Nil(t, summaries)
+
+	store, ok = (&Session{}).WorkflowRunStore()
+	require.False(t, ok)
+	require.Nil(t, store)
+
+	application, err := app.New(app.WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+	store, ok = (&Session{App: application}).WorkflowRunStore()
+	require.False(t, ok)
+	require.Nil(t, store)
+}
+
+func TestSessionWorkflowCommandUsageAndNotFound(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	result, err := session.Send(context.Background(), "/workflow")
+	require.NoError(t, err)
+	require.Contains(t, result.Text, "usage: /workflow <list|show|runs|run>")
+
+	result, err = session.Send(context.Background(), "/workflow run missing")
+	require.NoError(t, err)
+	require.Equal(t, "workflow run \"missing\" not found", result.Text)
+}
+
+func TestSessionWorkflowListAndShowCommands(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithWorkflows(
+			workflow.Definition{
+				Name:        "ask_flow",
+				Description: "Ask the default agent",
+				Steps: []workflow.Step{
+					{ID: "ask", Action: workflow.ActionRef{Name: "ask_agent"}},
+					{ID: "summarize", Action: workflow.ActionRef{Name: "summarize"}, DependsOn: []string{"ask"}},
+				},
+			},
+			workflow.Definition{Name: "release_notes", Steps: []workflow.Step{{ID: "write", Action: workflow.ActionRef{Name: "write_notes"}}}},
+		),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	result, err := session.Send(context.Background(), "/workflow list")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "Workflows:")
+	require.Contains(t, result.Text, "- ask_flow: Ask the default agent")
+	require.Contains(t, result.Text, "- release_notes")
+
+	result, err = session.Send(context.Background(), "/workflow show ask_flow")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "workflow: ask_flow")
+	require.Contains(t, result.Text, "description: Ask the default agent")
+	require.Contains(t, result.Text, "- ask: ask_agent")
+	require.Contains(t, result.Text, "- summarize: summarize depends_on=ask")
+
+	result, err = session.Send(context.Background(), "/workflow show missing")
+	require.NoError(t, err)
+	require.Equal(t, "workflow \"missing\" not found", result.Text)
+}
+
+func TestSessionWorkflowListNoWorkflows(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	result, err := session.Send(context.Background(), "/workflow list")
+	require.NoError(t, err)
+	require.Equal(t, "No workflows registered.", result.Text)
+}
+
+func TestSessionWorkflowRunsNoRecordedRuns(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	summaries, ok, err := session.WorkflowRuns(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Empty(t, summaries)
+
+	result, err := session.Send(context.Background(), "/workflow runs")
+	require.NoError(t, err)
+	require.Equal(t, "No workflow runs recorded.", result.Text)
 }
 
 func TestDefaultSessionReportsMissingAppAndAgent(t *testing.T) {
