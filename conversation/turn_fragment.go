@@ -76,6 +76,7 @@ func isZeroMessage(message unified.Message) bool {
 	return message.Role == "" &&
 		message.ID == "" &&
 		message.Name == "" &&
+		message.Phase == "" &&
 		len(message.Content) == 0 &&
 		len(message.ToolCalls) == 0 &&
 		len(message.ToolResults) == 0 &&

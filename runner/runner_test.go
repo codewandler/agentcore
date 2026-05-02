@@ -55,6 +55,38 @@ func TestRunTurnCommitsOnlyAfterFinalResponse(t *testing.T) {
 	require.Equal(t, unified.TransportHTTPSSE, execution.Execution.Transport)
 }
 
+func TestRunTurnContinuesAfterCommentaryMessage(t *testing.T) {
+	client := runnertest.NewClient(
+		[]unified.Event{
+			unified.MessageStartEvent{Phase: unified.MessagePhaseCommentary},
+			unified.TextDeltaEvent{Text: "I'll check that."},
+			unified.MessageDoneEvent{Phase: unified.MessagePhaseCommentary},
+			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_commentary"},
+		},
+		[]unified.Event{
+			unified.MessageStartEvent{Phase: unified.MessagePhaseFinalAnswer},
+			unified.TextDeltaEvent{Text: "Done."},
+			unified.MessageDoneEvent{Phase: unified.MessagePhaseFinalAnswer},
+			unified.CompletedEvent{FinishReason: unified.FinishReasonStop, MessageID: "resp_final"},
+		},
+	)
+	sess := newTestHistory("")
+
+	result, err := RunTurn(context.Background(), sess, client, conversation.NewRequest().User("please check").Build())
+	require.NoError(t, err)
+	require.Equal(t, 2, result.Steps)
+	require.Len(t, client.Requests(), 2)
+	require.Len(t, client.RequestAt(1).Messages, 2)
+	require.Equal(t, unified.RoleAssistant, client.RequestAt(1).Messages[1].Role)
+	require.Equal(t, unified.MessagePhaseCommentary, client.RequestAt(1).Messages[1].Phase)
+
+	messages, err := sess.Messages()
+	require.NoError(t, err)
+	require.Len(t, messages, 3)
+	require.Equal(t, unified.MessagePhaseCommentary, messages[1].Phase)
+	require.Equal(t, unified.MessagePhaseFinalAnswer, messages[2].Phase)
+}
+
 func TestRunTurnUsesNativeContinuationProjection(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("next", "resp_2"))
 	sess := newTestHistory("")

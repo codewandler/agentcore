@@ -162,13 +162,14 @@ type wireAssistantTurnEvent struct {
 }
 
 type wireMessage struct {
-	Role        unified.Role       `json:"role"`
-	ID          string             `json:"id,omitempty"`
-	Name        string             `json:"name,omitempty"`
-	Content     []wireContentPart  `json:"content,omitempty"`
-	ToolCalls   []unified.ToolCall `json:"tool_calls,omitempty"`
-	ToolResults []wireToolResult   `json:"tool_results,omitempty"`
-	Meta        map[string]any     `json:"meta,omitempty"`
+	Role        unified.Role         `json:"role"`
+	ID          string               `json:"id,omitempty"`
+	Name        string               `json:"name,omitempty"`
+	Phase       unified.MessagePhase `json:"phase,omitempty"`
+	Content     []wireContentPart    `json:"content,omitempty"`
+	ToolCalls   []unified.ToolCall   `json:"tool_calls,omitempty"`
+	ToolResults []wireToolResult     `json:"tool_results,omitempty"`
+	Meta        map[string]any       `json:"meta,omitempty"`
 }
 
 type wireToolResult struct {
@@ -295,6 +296,7 @@ func messageToWire(msg unified.Message) (wireMessage, error) {
 		Role:        msg.Role,
 		ID:          msg.ID,
 		Name:        msg.Name,
+		Phase:       msg.Phase,
 		Content:     content,
 		ToolCalls:   append([]unified.ToolCall(nil), msg.ToolCalls...),
 		ToolResults: toolResults,
@@ -316,6 +318,7 @@ func (msg wireMessage) unified() unified.Message {
 		Role:        msg.Role,
 		ID:          msg.ID,
 		Name:        msg.Name,
+		Phase:       msg.Phase,
 		Content:     contentPartsFromWire(msg.Content),
 		ToolCalls:   append([]unified.ToolCall(nil), msg.ToolCalls...),
 		ToolResults: toolResults,

@@ -170,6 +170,16 @@ func RunTurn(ctx context.Context, history History, client unified.Client, req co
 		}
 
 		if len(toolCalls) == 0 {
+			if shouldContinueAssistantMessage(assistant) {
+				if err := commitPreparedRequest(ctx, history, prepared); err != nil {
+					fragment.Fail(err)
+					emit(ErrorEvent{Err: err})
+					return result, err
+				}
+				transcript = append(transcript, assistant)
+				recoveryTranscriptDirty = true
+				continue
+			}
 			fragment.AddRequestMessages(transcript...)
 			fragment.SetAssistantMessage(assistant)
 			fragment.SetUsage(usage)
@@ -437,6 +447,7 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 	var routeEvent unified.RouteEvent
 	var executionEvent unified.ProviderExecutionEvent
 	var messageID string
+	var phase unified.MessagePhase
 	var sawCompleted bool
 
 	for {
@@ -449,13 +460,24 @@ func consumeEvents(ctx context.Context, events <-chan unified.Event, emit func(E
 					recordStreamEvent(facts, "stream_closed")
 					return unified.Message{}, "", unified.Usage{}, nil, "", providerIdentity, routeEvent, executionEvent, fmt.Errorf("runner: stream ended without completed event")
 				}
-				return assistantMessage(messageID, text.String(), reasoning.String(), reasoningSignature.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, routeEvent, executionEvent, nil
+				return assistantMessage(messageID, phase, text.String(), reasoning.String(), reasoningSignature.String(), toolCalls), finishReason, usage, toolCalls, messageID, providerIdentity, routeEvent, executionEvent, nil
 			}
 			switch ev := event.(type) {
 			case unified.MessageStartEvent:
 				recordStreamEvent(facts, "message_start")
 				if ev.ID != "" {
 					messageID = ev.ID
+				}
+				if ev.Phase != "" {
+					phase = ev.Phase
+				}
+			case unified.MessageDoneEvent:
+				recordStreamEvent(facts, "message_done")
+				if ev.ID != "" {
+					messageID = ev.ID
+				}
+				if ev.Phase != "" {
+					phase = ev.Phase
 				}
 			case unified.TextDeltaEvent:
 				recordStreamEvent(facts, "text_delta")
@@ -588,7 +610,7 @@ func providerIdentityFromRouteEvent(ev unified.RouteEvent) conversation.Provider
 	}
 }
 
-func assistantMessage(id, text, reasoning string, reasoningSignature string, toolCalls []unified.ToolCall) unified.Message {
+func assistantMessage(id string, phase unified.MessagePhase, text, reasoning string, reasoningSignature string, toolCalls []unified.ToolCall) unified.Message {
 	var content []unified.ContentPart
 	if reasoning != "" || reasoningSignature != "" {
 		content = append(content, unified.ReasoningPart{Text: reasoning, Signature: reasoningSignature})
@@ -599,9 +621,14 @@ func assistantMessage(id, text, reasoning string, reasoningSignature string, too
 	return unified.Message{
 		Role:      unified.RoleAssistant,
 		ID:        id,
+		Phase:     phase,
 		Content:   content,
 		ToolCalls: append([]unified.ToolCall(nil), toolCalls...),
 	}
+}
+
+func shouldContinueAssistantMessage(message unified.Message) bool {
+	return message.Phase == unified.MessagePhaseCommentary
 }
 
 func reusableMessageID(id string) bool {

@@ -10,6 +10,8 @@ match these entries as the project starts publishing releases.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-05-03
+
 ### Added
 
 - Added declarative datasource and workflow resource discovery for
@@ -22,6 +24,12 @@ match these entries as the project starts publishing releases.
 
 - Updated app/example documentation to distinguish first-party dogfood apps from
   small instructional examples.
+- Updated llmadapter to `v1.0.0-rc.29`.
+
+### Fixed
+
+- Preserved assistant message phase metadata and kept `commentary` responses in
+  the active runner transcript instead of treating them as final no-tool turns.
 
 ## [0.32.0] - 2026-04-30
 
