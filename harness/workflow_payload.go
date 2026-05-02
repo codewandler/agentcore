@@ -79,16 +79,39 @@ func (p WorkflowStartPayload) Display(command.DisplayMode) (string, error) {
 	return b.String(), nil
 }
 
+type WorkflowRunFilters struct {
+	WorkflowName string
+	Status       workflow.RunStatus
+}
+
+func (f WorkflowRunFilters) IsZero() bool {
+	return f.WorkflowName == "" && f.Status == ""
+}
+
 type WorkflowRunsPayload struct {
 	Summaries []workflow.RunSummary
+	Filters   WorkflowRunFilters
 }
 
 func (p WorkflowRunsPayload) Display(command.DisplayMode) (string, error) {
 	if len(p.Summaries) == 0 {
+		if !p.Filters.IsZero() {
+			return "No workflow runs matched filters.", nil
+		}
 		return "No workflow runs recorded.", nil
 	}
 	var b strings.Builder
-	b.WriteString("Workflow runs:\n")
+	b.WriteString("Workflow runs:")
+	if !p.Filters.IsZero() {
+		b.WriteString("\nfilters:")
+		if p.Filters.WorkflowName != "" {
+			fmt.Fprintf(&b, " workflow=%s", p.Filters.WorkflowName)
+		}
+		if p.Filters.Status != "" {
+			fmt.Fprintf(&b, " status=%s", p.Filters.Status)
+		}
+	}
+	b.WriteByte('\n')
 	fmt.Fprintf(&b, "%-18s  %-20s  %-10s  %-20s  %s", "RUN ID", "WORKFLOW", "STATUS", "STARTED", "DURATION")
 	for _, summary := range p.Summaries {
 		fmt.Fprintf(&b, "\n%-18s  %-20s  %-10s  %-20s  %s", summary.ID, summary.WorkflowName, summary.Status, formatWorkflowTime(summary.StartedAt), formatWorkflowDuration(summary.Duration))

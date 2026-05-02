@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -48,10 +49,11 @@ func (h WorkflowCommandHandler) Handle(ctx context.Context, params command.Param
 		}
 		return h.workflowStart(ctx, params.Args[1], strings.Join(params.Args[2:], " "))
 	case "runs":
-		if len(params.Args) != 1 {
-			return command.Text("usage: /workflow runs"), nil
+		filters, err := parseWorkflowRunFilters(params)
+		if err != nil {
+			return command.Text(err.Error()), nil
 		}
-		return h.workflowRuns(ctx)
+		return h.workflowRuns(ctx, filters)
 	case "run":
 		if len(params.Args) != 2 {
 			return command.Text("usage: /workflow run <run-id>"), nil
@@ -63,7 +65,7 @@ func (h WorkflowCommandHandler) Handle(ctx context.Context, params command.Param
 }
 
 func workflowCommandUsage() string {
-	return "usage: /workflow <list|show|start|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow start <name> [input]\n  /workflow runs\n  /workflow run <run-id>"
+	return "usage: /workflow <list|show|start|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow start <name> [input]\n  /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]\n  /workflow run <run-id>"
 }
 
 func (h WorkflowCommandHandler) workflowList() command.Result {
@@ -121,7 +123,7 @@ func (h WorkflowCommandHandler) workflowRun(ctx context.Context, runID workflow.
 	return command.Display(WorkflowRunPayload{State: state}), nil
 }
 
-func (h WorkflowCommandHandler) workflowRuns(ctx context.Context) (command.Result, error) {
+func (h WorkflowCommandHandler) workflowRuns(ctx context.Context, filters WorkflowRunFilters) (command.Result, error) {
 	s := h.Session
 	summaries, ok, err := s.WorkflowRuns(ctx)
 	if err != nil {
@@ -130,5 +132,63 @@ func (h WorkflowCommandHandler) workflowRuns(ctx context.Context) (command.Resul
 	if !ok {
 		return command.Text("workflow runs require a thread-backed session"), nil
 	}
-	return command.Display(WorkflowRunsPayload{Summaries: summaries}), nil
+	return command.Display(WorkflowRunsPayload{Summaries: filterWorkflowRuns(summaries, filters), Filters: filters}), nil
+}
+
+func parseWorkflowRunFilters(params command.Params) (WorkflowRunFilters, error) {
+	if len(params.Args) != 1 {
+		return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
+	}
+	var filters WorkflowRunFilters
+	for name, value := range params.Flags {
+		switch name {
+		case "workflow":
+			if value == "" || value == "true" {
+				return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
+			}
+			filters.WorkflowName = value
+		case "status":
+			if value == "" || value == "true" {
+				return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
+			}
+			status, err := parseWorkflowRunStatus(value)
+			if err != nil {
+				return WorkflowRunFilters{}, err
+			}
+			filters.Status = status
+		default:
+			return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
+		}
+	}
+	return filters, nil
+}
+
+func parseWorkflowRunStatus(value string) (workflow.RunStatus, error) {
+	switch workflow.RunStatus(value) {
+	case workflow.RunRunning, workflow.RunSucceeded, workflow.RunFailed:
+		return workflow.RunStatus(value), nil
+	default:
+		return "", fmt.Errorf("workflow runs: unsupported status %q", value)
+	}
+}
+
+func workflowRunsUsage() string {
+	return "usage: /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]"
+}
+
+func filterWorkflowRuns(summaries []workflow.RunSummary, filters WorkflowRunFilters) []workflow.RunSummary {
+	if filters.IsZero() {
+		return summaries
+	}
+	out := make([]workflow.RunSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		if filters.WorkflowName != "" && summary.WorkflowName != filters.WorkflowName {
+			continue
+		}
+		if filters.Status != "" && summary.Status != filters.Status {
+			continue
+		}
+		out = append(out, summary)
+	}
+	return out
 }

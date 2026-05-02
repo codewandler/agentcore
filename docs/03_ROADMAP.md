@@ -334,7 +334,7 @@ Acceptance criteria:
 - Execution is observable through events. ✅ initial in-memory workflow events exist
 - Workflow run event/state access has an explicit store boundary. ✅ context-aware `workflow.RunStore` with memory and thread-backed implementations exists
 - Thread-backed runs can persist workflow events. ✅ `workflow.ThreadRecorder` and `workflow.ThreadRunStore` exist for thread logs; `App.ExecuteWorkflow` auto-records to the default agent live thread when available, while broader harness-owned workflow lifecycle remains future work
-- Thread-backed workflow runs can be started, listed, and inspected through the harness. ✅ `/workflow start <name> [input]`, `Session.WorkflowRuns`, `Session.WorkflowRunState`, `/workflow runs`, and `/workflow run <id>` exist
+- Thread-backed workflow runs can be started, listed, filtered, and inspected through the harness. ✅ `/workflow start <name> [input]`, `Session.WorkflowRuns`, `Session.WorkflowRunState`, `/workflow runs`, `/workflow runs --workflow <name>`, `/workflow runs --status <status>`, and `/workflow run <id>` exist
 
 Verification:
 
@@ -423,8 +423,8 @@ go run ./cmd/agentsdk run apps/engineer
 Near-term workflow UX and read-model follow-ups:
 
 - Make `/workflow start <name> [input]` asynchronous once harness owns workflow lifecycle beyond the current request.
-- Add `/workflow runs --workflow <name>` filtering.
-- Add `/workflow runs --status succeeded|failed|running` filtering.
+- Add `/workflow runs --workflow <name>` filtering. ✅
+- Add `/workflow runs --status succeeded|failed|running` filtering. ✅
 - Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.
 - Carry started/completed timestamps and duration in `workflow.RunSummary`. ✅ basic projected timing exists; richer trigger/source/input metadata remains future work.
 - Introduce structured command/workflow result payloads plus generic renderers (for example `Display(mode)` or a renderer registry for `terminal`, `llm`, and machine-readable modes) so harness commands return data models instead of formatting terminal strings inline.

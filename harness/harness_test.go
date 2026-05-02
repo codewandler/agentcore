@@ -389,6 +389,64 @@ func TestSessionWorkflowStartCommandFailureIncludesRunStatusAndIsQueryable(t *te
 	require.Contains(t, renderCommandResult(t, runResult), "status: failed")
 }
 
+func TestSessionWorkflowRunsCommandFiltersByWorkflowAndStatus(t *testing.T) {
+	ctx := context.Background()
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithActions(
+			action.New(action.Spec{Name: "echo"}, func(action.Ctx, any) action.Result {
+				return action.Result{Data: "ok"}
+			}),
+			action.New(action.Spec{Name: "fail"}, func(action.Ctx, any) action.Result {
+				return action.Result{Error: errors.New("boom")}
+			}),
+		),
+		app.WithWorkflows(
+			workflow.Definition{Name: "okflow", Steps: []workflow.Step{{ID: "echo", Action: workflow.ActionRef{Name: "echo"}}}},
+			workflow.Definition{Name: "failflow", Steps: []workflow.Step{{ID: "fail", Action: workflow.ActionRef{Name: "fail"}}}},
+		),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	_, err = session.Send(ctx, "/workflow start okflow")
+	require.NoError(t, err)
+	_, err = session.Send(ctx, "/workflow start failflow")
+	require.NoError(t, err)
+
+	result, err := session.Send(ctx, "/workflow runs --status succeeded")
+	require.NoError(t, err)
+	text := renderCommandResult(t, result)
+	require.Contains(t, text, "filters:")
+	require.Contains(t, text, "status=succeeded")
+	require.Contains(t, text, "okflow")
+	require.NotContains(t, text, "failflow")
+
+	result, err = session.Send(ctx, "/workflow runs --workflow failflow --status failed")
+	require.NoError(t, err)
+	text = renderCommandResult(t, result)
+	require.Contains(t, text, "workflow=failflow")
+	require.Contains(t, text, "status=failed")
+	require.Contains(t, text, "failflow")
+	require.NotContains(t, text, "okflow")
+
+	result, err = session.Send(ctx, "/workflow runs --workflow missing")
+	require.NoError(t, err)
+	require.Equal(t, "No workflow runs matched filters.", renderCommandResult(t, result))
+
+	result, err = session.Send(ctx, "/workflow runs --status nope")
+	require.NoError(t, err)
+	require.Equal(t, "workflow runs: unsupported status \"nope\"", renderCommandResult(t, result))
+
+	result, err = session.Send(ctx, "/workflow runs --workflow")
+	require.NoError(t, err)
+	require.Equal(t, "usage: /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]", renderCommandResult(t, result))
+}
+
 func TestSessionWorkflowListNoWorkflows(t *testing.T) {
 	application, err := app.New(
 		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),

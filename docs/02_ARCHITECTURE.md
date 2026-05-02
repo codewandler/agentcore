@@ -556,11 +556,12 @@ The terminal path routes through `harness.Session.Send`, so harness can own sess
 /workflow list                 # registered workflow definitions
 /workflow show <name>          # workflow definition detail
 /workflow start <name> [input] # synchronously execute a workflow in this session
-/workflow runs                 # recorded workflow run summaries for this thread-backed session
+/workflow runs [--workflow <name>] [--status <running|succeeded|failed>]
+                               # recorded workflow run summaries for this thread-backed session
 /workflow run <id>             # projected run detail for this thread-backed session
 ```
 
-Trade-off: `/workflow start` is synchronous today: it executes the workflow in the current command request and returns after completion or failure with the run ID. A future async harness lifecycle can keep the same command shape and return `running` once workflows can outlive the request. `/workflow runs` includes projected start/completion timing and duration, but is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires sorting/filtering support on top of `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
+Trade-off: `/workflow start` is synchronous today: it executes the workflow in the current command request and returns after completion or failure with the run ID. A future async harness lifecycle can keep the same command shape and return `running` once workflows can outlive the request. `/workflow runs` includes projected start/completion timing, duration, and harness-side filtering by workflow name and status, but is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires sorting support on top of `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
 
 ### Runtime relationship
 
