@@ -6,11 +6,13 @@ package harness
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/codewandler/agentsdk/action"
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/command"
+	"github.com/codewandler/agentsdk/usage"
 )
 
 type Service struct {
@@ -49,4 +51,32 @@ func (s *Session) ExecuteWorkflow(ctx context.Context, workflowName string, inpu
 		return action.Result{Error: fmt.Errorf("harness: app is required")}
 	}
 	return s.App.ExecuteWorkflow(ctx, workflowName, input, opts...)
+}
+
+func (s *Session) ParamsSummary() string {
+	if s == nil || s.App == nil {
+		return ""
+	}
+	return s.App.ParamsSummary()
+}
+
+func (s *Session) SessionID() string {
+	if s == nil || s.App == nil {
+		return ""
+	}
+	return s.App.SessionID()
+}
+
+func (s *Session) Tracker() *usage.Tracker {
+	if s == nil || s.App == nil {
+		return nil
+	}
+	return s.App.Tracker()
+}
+
+func (s *Session) Out() io.Writer {
+	if s == nil || s.App == nil {
+		return io.Discard
+	}
+	return s.App.Out()
 }

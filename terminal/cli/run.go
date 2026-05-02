@@ -14,6 +14,7 @@ import (
 
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
+	"github.com/codewandler/agentsdk/harness"
 	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/terminal/repl"
@@ -64,6 +65,8 @@ type Config struct {
 type Loaded struct {
 	App       *app.App
 	Agent     *agent.Instance
+	Harness   *harness.Service
+	Session   *harness.Session
 	AgentName string
 	Workspace string
 	In        io.Reader
@@ -208,9 +211,16 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 	if err != nil {
 		return nil, err
 	}
+	service := harness.NewService(application)
+	session, err := service.DefaultSession()
+	if err != nil {
+		return nil, err
+	}
 	return &Loaded{
 		App:       application,
 		Agent:     inst,
+		Harness:   service,
+		Session:   session,
 		AgentName: name,
 		Workspace: workspace,
 		In:        in,
@@ -240,7 +250,7 @@ func Run(ctx context.Context, cfg Config) error {
 			runCtx, cancel = context.WithTimeout(runCtx, cfg.TotalTimeout)
 		}
 		defer cancel()
-		_, err := application.Send(runCtx, cfg.Task)
+		_, err := loaded.Session.Send(runCtx, cfg.Task)
 		fmt.Fprintln(out)
 		ui.PrintSessionUsage(out, application.SessionID(), application.Tracker().Aggregate())
 		if errors.Is(err, agent.ErrMaxStepsReached) {
@@ -254,7 +264,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if prompt == "" || prompt == "agentsdk> " {
 		prompt = fmt.Sprintf("agent(%s)> ", loaded.AgentName)
 	}
-	return repl.Run(ctx, application, in, repl.WithPrompt(prompt))
+	return repl.Run(ctx, loaded.Session, in, repl.WithPrompt(prompt))
 }
 
 // debugMessageObserver returns a RequestObserver that prints each outgoing
