@@ -24,10 +24,9 @@ func TestSessionAgentCommandProjectionShape(t *testing.T) {
 	require.Equal(t, AgentCommandCatalogProviderKey, projection.ContextProviders[0].Key())
 }
 
-func TestSessionAttachAgentProjectionRegistersToolAndContextProvider(t *testing.T) {
+func TestDefaultSessionAttachesAgentCommandProjection(t *testing.T) {
 	session, client := newProjectionTestSession(t)
 
-	require.NoError(t, session.AttachAgentProjection(session.AgentCommandProjection()))
 	require.NoError(t, session.Agent.RunTurn(context.Background(), 1, "hello"))
 
 	request := client.RequestAt(0)
@@ -39,6 +38,8 @@ func TestSessionAttachAgentProjectionIsIdempotent(t *testing.T) {
 	session, client := newProjectionTestSession(t)
 	projection := session.AgentCommandProjection()
 
+	// DefaultSession already attached the command projection; explicit attachment
+	// remains idempotent for callers that attach projections manually.
 	require.NoError(t, session.AttachAgentProjection(projection))
 	require.NoError(t, session.AttachAgentProjection(projection))
 	require.NoError(t, session.Agent.RunTurn(context.Background(), 1, "hello"))

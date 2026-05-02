@@ -41,7 +41,11 @@ func (s *Service) DefaultSession() (*Session, error) {
 	if !ok || inst == nil {
 		return nil, fmt.Errorf("harness: no default agent configured")
 	}
-	return &Session{App: s.App, Agent: inst}, nil
+	session := &Session{App: s.App, Agent: inst}
+	if err := session.AttachAgentProjection(session.AgentCommandProjection()); err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 func (s *Session) Send(ctx context.Context, input string) (command.Result, error) {
