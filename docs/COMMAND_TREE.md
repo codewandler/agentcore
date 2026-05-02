@@ -227,7 +227,28 @@ result, err := session.ExecuteAgentCommandEnvelope(ctx, harness.CommandEnvelope{
 
 Exact per-command schemas are provided through `AgentCommandCatalog()` as context/discovery metadata, while the command tree remains responsible for execution-time validation. This keeps the future tool schema small and avoids one tool per command while still exposing the known command input schemas to the model.
 
-The envelope is tool/action neutral. Agent-facing adapters should call `ExecuteAgentCommandEnvelope`, which enforces `AgentCallable` policy. Trusted SDK, API, or future workflow-action adapters can call `ExecuteCommandEnvelope` and apply their own policy boundary.
+The envelope is tool/action neutral. Agent-facing adapters should call `ExecuteAgentCommandEnvelope`, which enforces `AgentCallable` policy. Trusted SDK and API callers can call `ExecuteCommandEnvelope` and apply their own policy boundary.
+
+Harness sessions also expose a workflow/action adapter:
+
+```go
+action := session.CommandAction() // action name: command.execute
+err := app.RegisterActions(action)
+```
+
+Workflow steps can then call commands through the same envelope:
+
+```go
+workflow.Step{
+    ID:     "session_info",
+    Action: workflow.ActionRef{Name: harness.CommandActionName},
+    Input: map[string]any{
+        "path": []any{"session", "info"},
+    },
+}
+```
+
+The command action uses trusted `ExecuteCommandEnvelope`; do not run untrusted workflow definitions without an outer policy boundary.
 
 ## JSON rendering
 
@@ -286,6 +307,7 @@ Do not keep adding command namespaces with handwritten switch-based subcommand p
 8. Harness command catalog with input schemas: ✅
 9. Policy-aware command catalog filters: ✅
 10. Generic command execution envelope: ✅
+11. Command envelope action adapter: ✅
 
 Recommended commit sequence:
 
