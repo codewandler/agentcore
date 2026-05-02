@@ -1,199 +1,93 @@
 # Cleanup / Restructuring Plan
 
 - **Goal**
-  - Stop feature work.
-  - Remove the recent ownership drift.
-  - Reduce boilerplate instead of adding more seams.
-  - Bring code back in line with:
+  - Stop feature work while cleanup is active.
+  - Remove ownership drift instead of labeling it transitional.
+  - Reduce boilerplate and hidden defaults instead of adding more seams.
+  - Keep code aligned with:
     - `tools/standard` = bundle construction only
     - `toolactivation.Manager` = mutable tool registry / activation state
     - `agent.Instance` = lifecycle façade, not a growing god object
     - `harness.Session` = session/channel boundary
     - `command.Result` = structured result, rendered at boundaries
 
-- **Phase 1 — Fix tool ownership drift**
-  - Replace `agent.Instance.toolset *standard.Toolset` with direct activation ownership:
-    - likely:
-      - `tools *toolactivation.Manager`
-    - or:
-      - `toolActivation *toolactivation.Manager`
-  - Remove:
-    - `tools/standard.Toolset.Register(...)`
-  - Update default tool setup:
-    - from:
-      - `standard.DefaultToolset()`
-    - to:
-      - `toolactivation.New(standard.Tools(standard.DefaultOptions())...)`
-  - Update `agent.WithTools(...)`:
-    - from:
-      - wrapping tools in `standard.NewToolsetFromTools(...)`
-    - to:
-      - initializing `toolactivation.New(tools...)`
-  - Update `agent.WithToolset(...)`:
-    - either:
-      - remove it if no longer justified
-    - or:
-      - keep only as a convenience adapter:
-        - extracts tools/activation state into `agent.Instance`
-        - does not make `standard.Toolset` the lifecycle owner
-  - Replace all agent internal usages:
-    - `a.toolset.ActiveTools()` → `a.tools.ActiveTools()`
-    - `a.toolset.Activation()` → `a.tools`
-    - `a.toolset.Tools()` → `a.tools.AllTools()`
-  - Update context provider factory setup:
-    - `ActiveTools` closure should point at `toolactivation.Manager.ActiveTools`
-  - Update context provider rendering:
-    - tools context should render from `toolactivation.Manager.ActiveTools`
-  - Keep `tools/standard` limited to:
-    - `Tools(opts Options) []tool.Tool`
-    - `DefaultToolset()` only if still useful as bundle convenience
-    - `NewToolsetFromTools(...)` only if tests/users still need activation-backed bundle helper
-  - Run:
-    - `go test ./agent/... ./tools/standard/... ./runtime/... ./harness/...`
-    - `go test ./...`
-  - Commit:
-    - `Move agent tool registry out of standard toolset`
+- **Phase 1 — Fix tool ownership drift** ✅
+  - Completed in:
+    - `a56d9ca Move agent tool registry out of standard toolset`
+    - `1e54f70 Rename tool activation package`
+    - `30f0ac9 Make agent standard tools explicit`
+  - Current state:
+    - `agent.Instance` owns `toolActivation *toolactivation.Manager`.
+    - `agent.WithTools(...)` initializes `toolactivation.New(tools...)` directly.
+    - `tools/standard` exposes bundle helpers only; it owns no mutable lifecycle.
+    - `agent.New` no longer imports or silently installs `tools/standard`.
+    - Hosts pass tools explicitly.
 
-- **Phase 2 — Re-evaluate late-registration APIs after ownership fix**
-  - Inspect whether these are still needed exactly as added:
-    - `agent.Instance.RegisterTools(...)`
-    - `agent.Instance.RegisterContextProviders(...)`
-    - `runtime.Engine.RegisterTools(...)`
-    - `runtime.Engine.RegisterContextProviders(...)`
-  - Keep only APIs that have clear ownership:
-    - `agent.Instance.RegisterTools(...)`
-      - probably keep, backed by `toolactivation.Manager`
-    - `agent.Instance.RegisterContextProviders(...)`
-      - probably keep for session projection attachment
-    - `runtime.Engine.RegisterTools(...)`
-      - reconsider
-      - possibly replace with per-turn active tools from agent only
-    - `runtime.Engine.RegisterContextProviders(...)`
-      - keep only if runtime owns active context manager mutation cleanly
-  - Delete or narrow APIs that are just pass-through boilerplate.
-  - Ensure projection attachment does not require standard toolset knowledge.
-  - Run:
-    - `go test ./runtime/... ./agent/... ./harness/...`
-    - `go test ./...`
-  - Commit if changes are meaningful:
-    - `Narrow agent projection registration seams`
+- **Phase 2 — Re-evaluate late-registration APIs after ownership fix** ✅
+  - Completed in:
+    - `2e66493 Narrow agent projection registration seams`
+  - Current state:
+    - `agent.Instance.RegisterTools(...)` remains, backed by `toolactivation.Manager`.
+    - `agent.Instance.RegisterContextProviders(...)` remains for session projection attachment.
+    - `runtime.Engine.RegisterTools(...)` was removed.
+    - `runtime.Engine.RegisterContextProviders(...)` remains because runtime owns the active context manager for future turns.
+    - Projection attachment has no `tools/standard` knowledge.
 
-- **Phase 3 — Reduce command/rendering boilerplate**
-  - Audit command handlers for `command.Text(...)` usage:
-    - `harness/workflow_command.go`
-    - `harness/session_command.go`
-    - command envelope/tool/action adapters
-  - Classify text usages:
-    - acceptable simple terminal/help text
-    - should become structured payload
-    - should become typed error/result payload
-  - Replace repeated plain-text cases with typed payloads where useful:
-    - missing workflow
-    - missing thread-backed run store
-    - no workflows
-    - no workflow runs
-    - no filtered runs
-  - Avoid creating many tiny one-off structs if it increases boilerplate.
-  - Prefer generic payload shapes if repeated:
-    - `MessagePayload`
-    - `NotFoundPayload`
-    - `UnavailablePayload`
-    - or existing `TextPayload` if genuinely enough
-  - Ensure rendering remains centralized through:
-    - `command.Render(...)`
-    - `command.RenderPayload(...)`
-    - payload `Display(...)`
-  - Do not add inline rendering in `harness.Session`.
-  - Run:
-    - `go test ./command/... ./harness/... ./terminal/repl/...`
-    - `go test ./...`
-  - Commit:
-    - `Reduce command result rendering boilerplate`
+- **Phase 3 — Reduce command/rendering boilerplate** ✅
+  - Completed in:
+    - `de839ec Add structured command notice payloads`
+  - Current state:
+    - repeated workflow command notices use structured `command.Notice`, `command.NotFound`, and `command.Unavailable` payloads.
+    - Rendering remains centralized through `command.Render(...)` / payload display behavior.
 
-- **Phase 4 — Fix one-shot terminal result discard**
-  - Update:
-    - `terminal/cli/run.go`
-  - Change one-shot task execution from:
-    - ignoring returned `command.Result`
-  - To:
-    - render returned display result through `command.Render(result, command.DisplayTerminal)`
-    - print only when non-empty
-  - Preserve normal agent-turn streaming behavior.
-  - Add tests for:
-    - `agentsdk run . /session info` prints result
-    - `agentsdk run . /workflow list` prints result
-    - normal non-command task behavior unchanged
-  - Run:
-    - `go test ./terminal/cli/... ./terminal/repl/... ./harness/...`
-    - `go test ./...`
-  - Commit:
-    - `Render one-shot harness command results`
+- **Phase 4 — Fix one-shot terminal result discard** ✅
+  - Completed in:
+    - `a625066 Render one-shot harness command results`
+  - Current state:
+    - `terminal/cli/run.go` renders returned `command.Result` values for one-shot slash commands.
+    - Normal streamed agent-turn behavior remains unchanged.
 
-- **Phase 5 — Decide auto-attachment policy**
-  - Inspect harness session lifecycle:
-    - `harness.Service.DefaultSession()`
-    - `terminal/cli.Load`
-    - agent instantiation path
-  - Decide whether command projection should be:
-    - explicit only
-    - default-on for harness sessions
-    - opt-in via session option
-  - Prefer default-on only if:
-    - command tool policy is safe
-    - agent-callable catalog excludes unsafe commands
-    - duplicate attachment is idempotent
-    - tests prove default agent sees `session_command`
-  - If default-on:
-    - attach in harness session creation
-    - not in app/agent construction
-  - Add tests:
-    - default harness session includes command tool after attach/default
-    - non-agent-callable commands still rejected
-    - catalog context excludes unsafe commands
-  - Run:
-    - `go test ./harness/... ./agent/... ./command/...`
-    - `go test ./...`
-  - Commit:
-    - `Attach command projection to harness sessions`
-  - If not default-on:
-    - document explicit attachment and stop there
+- **Phase 5 — Decide auto-attachment policy for command projection** ✅
+  - Completed in:
+    - `01d8409 Attach command projection to harness sessions`
+  - Current state:
+    - default harness sessions attach the session command projection.
+    - attachment remains explicit/idempotent at the session seam.
+    - agent-callable command policy still filters unsafe commands.
 
-- **Phase 6 — Clean docs to match actual architecture**
-  - Update:
-    - `docs/02_ARCHITECTURE.md`
-    - `docs/03_ROADMAP.md`
-    - `docs/COMMAND_TREE.md`
-  - Remove stale “future” wording for completed cleanup.
-  - Explicitly document:
-    - `toolactivation.Manager` owns mutable tool registry
-    - `tools/standard` only assembles bundles
-    - session projections are not plugins
-    - one-shot terminal renders command results
-    - any remaining transitional seams and why they remain
-  - Add a short “current drift guardrails” section:
-    - no new harness plugin system
-    - no new command switch namespaces
-    - no new mutable ownership in `tools/standard`
-    - no command output discarded at terminal boundaries
-    - new seams should delete or collapse an old path
-  - Run:
-    - `go test ./...`
-  - Commit:
-    - `Document cleaned ownership boundaries`
+- **Phase 6 — Clean docs to match actual architecture** ✅
+  - Completed in:
+    - `7f2425f Document cleaned ownership boundaries`
+  - Current state:
+    - docs capture ownership guardrails for `toolactivation`, `tools/standard`, command rendering, projections, and plugin/contribution invariants.
 
-- **Phase 7 — Optional deeper cleanup after the above**
-  - Revisit `standard.Toolset`
-    - decide if it should remain public
-    - maybe remove it entirely if `standard.Tools(...)` plus `toolactivation.New(...)` is enough
-  - Revisit `runtime.Engine.RegisterTools(...)`
-    - delete if agent can provide active tools per turn cleanly
-  - Revisit payload display design
+- **Optional deeper cleanup completed so far**
+  - Removed concrete `tools/skills` and `tools/toolmgmt` imports from `runtime`.
+  - Renamed generic `activation` package to explicit `toolactivation`.
+  - Moved terminal event rendering out of `agent` and into `terminal/ui`.
+  - Removed hidden standard-tool defaults from `app.New` and `agent.New`; terminal/example hosts opt into standard bundles explicitly.
+
+- **Remaining cleanup candidates**
+  - Revisit `agent.Instance` responsibilities and move outward only where the slice deletes or simplifies more than it adds:
+    - session lifecycle
+    - context provider lifecycle
+    - capability registry/session ownership
+    - workflow recording
+  - Revisit payload display design:
     - consider renderer registry only if it reduces code
-    - do not add registry if payload `Display(...)` is currently simpler
-  - Revisit `agent.Instance`
-    - identify next responsibilities to move outward:
-      - session lifecycle
-      - context provider lifecycle
-      - tool activation
-      - workflow recording
-  - Commit only if each slice deletes or simplifies more than it adds.
+    - do not add a registry if payload `Display(...)` is currently simpler
+  - Revisit `terminal/cli.Load`:
+    - move shared resource/app/session setup toward harness loading helpers if it deletes duplication
+    - keep terminal as the channel boundary
+  - Revisit `app.App` workflow helper seams:
+    - keep app as registry/composition host
+    - move lifecycle-heavy workflow/session ownership toward harness when there is a concrete replacement path
+
+- **Guardrails for any next slice**
+  - No new harness plugin system beside `app.Plugin`.
+  - No new command switch namespaces; use declarative `command.Tree`.
+  - No mutable lifecycle ownership in `tools/standard`.
+  - No hidden default tool bundles in `app.New` or `agent.New`.
+  - No command output discarded at terminal/channel boundaries.
+  - New seams should delete or collapse an old path.
+  - Commit only after focused and full verification pass.
