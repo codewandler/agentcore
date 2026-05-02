@@ -144,6 +144,7 @@ type Descriptor struct {
 	Args         []ArgDescriptor  `json:"args,omitempty"`
 	Flags        []FlagDescriptor `json:"flags,omitempty"`
 	Input        InputDescriptor  `json:"input"`
+	Executable   bool             `json:"executable,omitempty"`
 	Subcommands  []Descriptor     `json:"subcommands,omitempty"`
 }
 
@@ -724,7 +725,7 @@ func (n *treeNode) commandInputFromMap(path []string, input map[string]any) (Com
 }
 
 func (n *treeNode) descriptor() Descriptor {
-	desc := Descriptor{Name: n.spec.Name, Path: n.path(), Description: n.spec.Description, ArgumentHint: n.spec.ArgumentHint}
+	desc := Descriptor{Name: n.spec.Name, Path: n.path(), Description: n.spec.Description, ArgumentHint: n.spec.ArgumentHint, Executable: n.handler != nil}
 	hints := n.inputHintTypes()
 	for _, arg := range n.args {
 		desc.Args = append(desc.Args, ArgDescriptor{Name: arg.Name, Description: arg.Description, Required: arg.IsRequired, Variadic: arg.IsVariadic})

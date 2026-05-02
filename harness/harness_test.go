@@ -117,6 +117,49 @@ func TestSessionCommandDescriptorsAndStructuredExecute(t *testing.T) {
 	require.Equal(t, "status", payload.Error.Field)
 }
 
+func TestSessionCommandCatalogIncludesExecutableCommandsWithSchemas(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithWorkflows(workflow.Definition{Name: "ask_flow", Description: "Ask the agent", Steps: []workflow.Step{{ID: "ask", Action: workflow.ActionRef{Name: "ask_agent"}}}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	catalog := session.CommandCatalog()
+	require.Len(t, catalog, 6)
+	requireCatalogPath(t, catalog, "workflow", "list")
+	requireCatalogPath(t, catalog, "workflow", "show")
+	start := requireCatalogPath(t, catalog, "workflow", "start")
+	runs := requireCatalogPath(t, catalog, "workflow", "runs")
+	requireCatalogPath(t, catalog, "workflow", "run")
+	requireCatalogPath(t, catalog, "session", "info")
+
+	require.Equal(t, "object", start.InputSchema.Type)
+	require.Equal(t, "string", start.InputSchema.Properties["name"].Type)
+	require.Equal(t, "array", start.InputSchema.Properties["input"].Type)
+	require.Equal(t, []string{"name"}, start.InputSchema.Required)
+	require.Equal(t, []string{"running", "succeeded", "failed"}, runs.InputSchema.Properties["status"].Enum)
+
+	text, err := command.Render(command.Display(catalog), command.DisplayJSON)
+	require.NoError(t, err)
+	require.Contains(t, text, `"inputSchema"`)
+}
+
+func requireCatalogPath(t *testing.T, catalog []CommandCatalogEntry, path ...string) CommandCatalogEntry {
+	t.Helper()
+	for _, entry := range catalog {
+		if strings.Join(entry.Descriptor.Path, "/") == strings.Join(path, "/") {
+			return entry
+		}
+	}
+	require.Failf(t, "missing catalog entry", "path %q not found", strings.Join(path, " "))
+	return CommandCatalogEntry{}
+}
+
 func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
 	ctx := context.Background()
 	client := runnertest.NewClient(runnertest.TextStream("workflow answer"))

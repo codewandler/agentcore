@@ -142,6 +142,7 @@ type Descriptor struct {
     Args         []ArgDescriptor
     Flags        []FlagDescriptor
     Input        InputDescriptor
+    Executable   bool
     Subcommands  []Descriptor
 }
 
@@ -161,6 +162,7 @@ type InputFieldDescriptor struct {
 
 func (t *Tree) Descriptor() Descriptor
 func (s *harness.Session) CommandDescriptors() []command.Descriptor
+func (s *harness.Session) CommandCatalog() []harness.CommandCatalogEntry
 ```
 
 Example descriptor input for `/workflow runs`:
@@ -190,6 +192,19 @@ Example descriptor input for `/workflow runs`:
 ```
 
 Input descriptors are populated from declared `command.Arg(...)` and `command.Flag(...)` specs. That keeps the command tree declaration canonical for validation, help, typed binding, and non-terminal execution surfaces. Variadic args are exposed as `array`; scalar args and flags default to `string`, and `command.TypedInput[T]()` can enrich those defaults with typed-handler field metadata.
+
+Descriptors also expose `executable` for nodes with handlers. Harness sessions use that metadata to provide a flattened command catalog of executable commands plus their input schemas:
+
+```go
+type CommandCatalogEntry struct {
+    Descriptor  command.Descriptor
+    InputSchema command.JSONSchema
+}
+
+catalog := session.CommandCatalog()
+```
+
+Namespace-only nodes such as `/workflow` are omitted from the catalog unless they become executable. Leaf commands such as `/workflow start`, `/workflow runs`, and `/session info` are included with `inputSchema` generated from their descriptors.
 
 ## JSON rendering
 
@@ -245,6 +260,7 @@ Do not keep adding command namespaces with handwritten switch-based subcommand p
 5. JSON rendering for structured command payloads/descriptors: ✅
 6. Typed input descriptor type hints: ✅
 7. JSON Schema projection for command inputs: ✅
+8. Harness command catalog with input schemas: ✅
 
 Recommended commit sequence:
 

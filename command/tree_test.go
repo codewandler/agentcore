@@ -157,6 +157,19 @@ func TestTreeDescriptorIncludesSubcommandsArgsFlagsAndEnums(t *testing.T) {
 	require.Equal(t, []ArgDescriptor{{Name: "name", Description: "Workflow name", Required: true}}, desc.Subcommands[1].Args)
 }
 
+func TestTreeDescriptorMarksExecutableNodes(t *testing.T) {
+	tree, err := NewTree("workflow").
+		Sub("runs", func(context.Context, Invocation) (Result, error) { return Text("runs"), nil }).
+		Sub("help", nil).
+		Build()
+	require.NoError(t, err)
+
+	desc := tree.Descriptor()
+	require.False(t, desc.Executable)
+	require.True(t, desc.Subcommands[0].Executable)
+	require.False(t, desc.Subcommands[1].Executable)
+}
+
 func TestTreeDescriptorIncludesStructuredInputFields(t *testing.T) {
 	tree, err := NewTree("workflow", Description("Inspect workflows")).
 		Sub("start", nil,
