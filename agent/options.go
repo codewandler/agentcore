@@ -5,12 +5,12 @@ import (
 	"io"
 	"time"
 
+	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/capability"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/agentsdk/tool"
-	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/llmadapter/adapt"
 	"github.com/codewandler/llmadapter/adapterconfig"
 	"github.com/codewandler/llmadapter/unified"
@@ -175,12 +175,8 @@ func WithModelPolicy(policy ModelPolicy) Option {
 	return func(a *Instance) { a.modelPolicy = policy }
 }
 
-func WithToolset(toolset *standard.Toolset) Option {
-	return func(a *Instance) { a.toolset = toolset }
-}
-
 func WithTools(tools []tool.Tool) Option {
-	return func(a *Instance) { a.toolset = standard.NewToolsetFromTools(tools...) }
+	return func(a *Instance) { a.toolActivation = activation.New(tools...) }
 }
 
 func WithEventHandlerFactory(factory func(*Instance, int) runner.EventHandler) Option {

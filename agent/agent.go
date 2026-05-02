@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
@@ -70,7 +71,7 @@ type Instance struct {
 	modelCompatibility       modelCompatibilityState
 	runtime                  *agentruntime.Engine
 	tracker                  *usage.Tracker
-	toolset                  *standard.Toolset
+	toolActivation           *activation.Manager
 	inference                InferenceOptions
 	maxSteps                 int
 	out                      io.Writer
@@ -138,8 +139,8 @@ func New(opts ...Option) (*Instance, error) {
 	if abs, err := filepath.Abs(a.workspace); err == nil {
 		a.workspace = abs
 	}
-	if a.toolset == nil {
-		a.toolset = standard.DefaultToolset()
+	if a.toolActivation == nil {
+		a.toolActivation = activation.New(standard.DefaultTools()...)
 	}
 	a.applySpecTools()
 	if a.tracker == nil {
@@ -273,6 +274,13 @@ func (a *Instance) MaterializedSystem() string {
 	return a.systemBuilder(a.workspace, a.system)
 }
 
+func (a *Instance) activeTools() []tool.Tool {
+	if a == nil || a.toolActivation == nil {
+		return nil
+	}
+	return a.toolActivation.ActiveTools()
+}
+
 // RegisterTools adds tools to the running agent for future turns.
 // Existing tool names are left unchanged so repeated registration is idempotent.
 func (a *Instance) RegisterTools(tools ...tool.Tool) error {
@@ -282,14 +290,14 @@ func (a *Instance) RegisterTools(tools ...tool.Tool) error {
 	if len(tools) == 0 {
 		return nil
 	}
-	if a.toolset == nil {
-		a.toolset = standard.NewToolsetFromTools()
+	if a.toolActivation == nil {
+		a.toolActivation = activation.New()
 	}
-	if err := a.toolset.Register(tools...); err != nil {
+	if err := a.toolActivation.Register(tools...); err != nil {
 		return err
 	}
 	if a.runtime != nil {
-		return a.runtime.RegisterTools(a.toolset.ActiveTools()...)
+		return a.runtime.RegisterTools(tools...)
 	}
 	return nil
 }
@@ -336,15 +344,11 @@ func (a *Instance) RegisterContextProviders(providers ...agentcontext.Provider) 
 }
 
 func (a *Instance) applySpecTools() {
-	if a == nil || a.toolset == nil || len(a.specTools) == 0 {
+	if a == nil || a.toolActivation == nil || len(a.specTools) == 0 {
 		return
 	}
-	activation := a.toolset.Activation()
-	if activation == nil {
-		return
-	}
-	activation.Deactivate("*")
-	activation.Activate(a.specTools...)
+	a.toolActivation.Deactivate("*")
+	a.toolActivation.Activate(a.specTools...)
 }
 
 func (a *Instance) initSkills() error {
@@ -500,7 +504,7 @@ func (a *Instance) RunTurn(ctx context.Context, turnID int, task string) error {
 		ctx,
 		task,
 		agentruntime.WithTurnMaxSteps(a.maxSteps),
-		agentruntime.WithTurnTools(a.toolset.ActiveTools()),
+		agentruntime.WithTurnTools(a.activeTools()),
 		agentruntime.WithTurnProviderIdentity(a.providerIdentity),
 		agentruntime.WithTurnEventHandler(handler),
 	)
@@ -758,7 +762,7 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 		agentruntime.WithMaxOutputTokens(a.inference.MaxTokens),
 		agentruntime.WithTemperature(a.inference.Temperature),
 		agentruntime.WithSystem(a.MaterializedSystem()),
-		agentruntime.WithTools(a.toolset.ActiveTools()),
+		agentruntime.WithTools(a.activeTools()),
 		agentruntime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
 		agentruntime.WithCachePolicy(unified.CachePolicyOn),
 		agentruntime.WithMaxSteps(a.maxSteps),
@@ -771,7 +775,7 @@ func (a *Instance) baseRuntimeOptions(includeSessionID bool) []agentruntime.Opti
 			return agentruntime.NewToolContext(ctx,
 				agentruntime.WithToolWorkDir(a.workspace),
 				agentruntime.WithToolSessionID(a.sessionID),
-				agentruntime.WithToolActivation(a.toolset.Activation()),
+				agentruntime.WithToolActivation(a.toolActivation),
 				agentruntime.WithToolSkillActivation(a.skillState),
 			)
 		}),
@@ -983,8 +987,8 @@ func (a *Instance) replaySkillEvents(events []thread.Event) error {
 
 // runContextProviderFactories calls each registered factory with the current
 // agent state and appends the resulting providers to extraContextProviders.
-// This runs once during New, after initSkills, so skill repo/state and toolset
-// are available.
+// This runs once during New, after initSkills, so skill repo/state and tool
+// activation are available.
 func (a *Instance) runContextProviderFactories() {
 	if len(a.contextProviderFactories) == 0 {
 		return
@@ -996,8 +1000,8 @@ func (a *Instance) runContextProviderFactories() {
 		Model:           a.inference.Model,
 		Effort:          string(a.inference.Effort),
 	}
-	if a.toolset != nil {
-		info.ActiveTools = a.toolset.ActiveTools
+	if a.toolActivation != nil {
+		info.ActiveTools = a.toolActivation.ActiveTools
 	}
 	for _, factory := range a.contextProviderFactories {
 		if factory != nil {
@@ -1041,8 +1045,8 @@ func (a *Instance) contextProviders() []agentcontext.Provider {
 		ContextWindow: a.contextWindow,
 		Effort:        string(a.inference.Effort),
 	}))
-	if a.toolset != nil {
-		addIfNotOverridden(contextproviders.Tools(a.toolset.ActiveTools()...))
+	if a.toolActivation != nil {
+		addIfNotOverridden(contextproviders.Tools(a.toolActivation.ActiveTools()...))
 	}
 	if a.skillRepo != nil || a.skillState != nil {
 		addIfNotOverridden(contextproviders.SkillInventoryProvider(contextproviders.SkillInventory{

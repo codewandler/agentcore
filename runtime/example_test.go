@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
@@ -27,12 +28,12 @@ func (exampleClient) Request(_ context.Context, _ unified.Request) (<-chan unifi
 }
 
 func ExampleNew() {
-	toolset := standard.DefaultToolset()
+	tools := activation.New(standard.DefaultTools()...)
 	var text string
 	agent, err := runtime.New(exampleClient{},
 		runtime.WithModel("default"),
 		runtime.WithSystem("You are a concise coding assistant."),
-		runtime.WithTools(toolset.ActiveTools()),
+		runtime.WithTools(tools.ActiveTools()),
 		runtime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
 		runtime.WithCachePolicy(unified.CachePolicyOn),
 		runtime.WithMaxSteps(8),
@@ -40,7 +41,7 @@ func ExampleNew() {
 			return runtime.NewToolContext(ctx,
 				runtime.WithToolWorkDir("."),
 				runtime.WithToolSessionID("example-session"),
-				runtime.WithToolActivation(toolset.Activation()),
+				runtime.WithToolActivation(tools),
 			)
 		}),
 		runtime.WithEventHandler(func(event runner.Event) {
@@ -60,11 +61,11 @@ func ExampleNew() {
 }
 
 func ExampleHistoryOptions() {
-	toolset := standard.DefaultToolset()
+	tools := activation.New(standard.DefaultTools()...)
 	opts := runtime.HistoryOptions(
 		runtime.WithHistoryOptions(runtime.WithHistorySessionID("example-session")),
 		runtime.WithModel("default"),
-		runtime.WithTools(toolset.ActiveTools()),
+		runtime.WithTools(tools.ActiveTools()),
 		runtime.WithCachePolicy(unified.CachePolicyOn),
 	)
 	history := runtime.NewHistory(opts...)
@@ -75,7 +76,7 @@ func ExampleHistoryOptions() {
 
 func ExampleOpenThreadEngine() {
 	ctx := context.Background()
-	toolset := standard.DefaultToolset()
+	tools := activation.New(standard.DefaultTools()...)
 	store := thread.NewMemoryStore()
 	registry, err := capability.NewRegistry(planner.Factory{})
 	if err != nil {
@@ -92,7 +93,7 @@ func ExampleOpenThreadEngine() {
 		exampleClient{},
 		registry,
 		runtime.WithModel("default"),
-		runtime.WithTools(toolset.ActiveTools()),
+		runtime.WithTools(tools.ActiveTools()),
 		runtime.WithCapabilities(capability.AttachSpec{
 			CapabilityName: planner.CapabilityName,
 			InstanceID:     "planner_1",

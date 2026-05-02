@@ -2,7 +2,6 @@
 package standard
 
 import (
-	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/tool"
 	"github.com/codewandler/agentsdk/tools/filesystem"
 	"github.com/codewandler/agentsdk/tools/git"
@@ -46,83 +45,6 @@ type Options struct {
 	// When non-nil, the phone tool is included. If SIPAddr is empty,
 	// dial operations must provide sip_endpoint.
 	PhoneConfig *phone.Config
-}
-
-// Toolset groups a standard tool bundle with the activation manager that owns
-// its active/inactive state.
-type Toolset struct {
-	tools      []tool.Tool
-	activation *activation.Manager
-}
-
-// NewToolset returns a standard tool bundle with all tools initially active.
-func NewToolset(opts Options) *Toolset {
-	return NewToolsetFromTools(Tools(opts)...)
-}
-
-// NewToolsetFromTools returns an activation-backed toolset for an explicit list
-// of tools.
-func NewToolsetFromTools(tools ...tool.Tool) *Toolset {
-	return &Toolset{
-		tools:      append([]tool.Tool(nil), tools...),
-		activation: activation.New(tools...),
-	}
-}
-
-// DefaultToolset returns the default lightweight terminal-agent toolset.
-func DefaultToolset() *Toolset {
-	return NewToolset(DefaultOptions())
-}
-
-// Register adds tools to the bundle and marks newly registered tools active.
-func (s *Toolset) Register(tools ...tool.Tool) error {
-	if s == nil {
-		return nil
-	}
-	if s.activation == nil {
-		s.activation = activation.New()
-	}
-	seen := make(map[string]bool, len(s.tools))
-	for _, existing := range s.tools {
-		if existing != nil {
-			seen[existing.Name()] = true
-		}
-	}
-	for _, t := range tools {
-		if t == nil {
-			continue
-		}
-		if seen[t.Name()] {
-			continue
-		}
-		s.tools = append(s.tools, t)
-		seen[t.Name()] = true
-	}
-	return s.activation.Register(tools...)
-}
-
-// Tools returns all tools in the bundle.
-func (s *Toolset) Tools() []tool.Tool {
-	if s == nil {
-		return nil
-	}
-	return append([]tool.Tool(nil), s.tools...)
-}
-
-// Activation returns the activation manager for the bundle.
-func (s *Toolset) Activation() *activation.Manager {
-	if s == nil {
-		return nil
-	}
-	return s.activation
-}
-
-// ActiveTools returns the currently active tools in bundle order.
-func (s *Toolset) ActiveTools() []tool.Tool {
-	if s == nil || s.activation == nil {
-		return nil
-	}
-	return s.activation.ActiveTools()
 }
 
 // Tools returns the common coding-agent tools plus optional extras.

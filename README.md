@@ -40,6 +40,7 @@ Use `runtime` as the high-level turn loop, `tools/standard` for the default tool
 import (
     "context"
 
+    "github.com/codewandler/agentsdk/activation"
     "github.com/codewandler/agentsdk/runner"
     "github.com/codewandler/agentsdk/runtime"
     "github.com/codewandler/agentsdk/tool"
@@ -57,12 +58,12 @@ if err != nil {
 }
 identity, _, _ := runtime.RouteIdentity(auto, sourceAPI, model)
 
-toolset := standard.DefaultToolset()
+toolActivation := activation.New(standard.DefaultTools()...)
 agent, err := runtime.New(auto.Client,
     runtime.WithProviderIdentity(identity),
     runtime.WithModel(model),
     runtime.WithSystem("You are a concise coding assistant."),
-    runtime.WithTools(toolset.ActiveTools()),
+    runtime.WithTools(toolActivation.ActiveTools()),
     runtime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
     runtime.WithCachePolicy(unified.CachePolicyOn),
     runtime.WithCacheKey("session-id"),
@@ -71,7 +72,7 @@ agent, err := runtime.New(auto.Client,
         return runtime.NewToolContext(ctx,
             runtime.WithToolWorkDir("."),
             runtime.WithToolSessionID("session-id"),
-            runtime.WithToolActivation(toolset.Activation()),
+            runtime.WithToolActivation(toolActivation),
             // Add runtime.WithToolSkillActivation(state) when your app wires
             // mutable skill activation state into the model tool context.
         )
@@ -126,7 +127,7 @@ agent, stored, err := runtime.OpenThreadEngine(ctx,
     runtime.WithProviderIdentity(identity),
     runtime.WithModel(model),
     runtime.WithSystem("You are a concise coding assistant."),
-    runtime.WithTools(toolset.ActiveTools()),
+    runtime.WithTools(toolActivation.ActiveTools()),
     runtime.WithToolChoice(unified.ToolChoice{Mode: unified.ToolChoiceAuto}),
     runtime.WithCapabilities(capability.AttachSpec{
         CapabilityName: planner.CapabilityName,
@@ -314,7 +315,7 @@ Use `runtime.NewToolContext` when tools need a work directory, session ID, or ex
 toolCtx := runtime.NewToolContext(ctx,
     runtime.WithToolWorkDir(workDir),
     runtime.WithToolSessionID(sessionID),
-    runtime.WithToolActivation(toolset.Activation()),
+    runtime.WithToolActivation(toolActivation),
 )
 ```
 
