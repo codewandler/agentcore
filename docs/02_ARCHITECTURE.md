@@ -247,6 +247,35 @@ Evolution:
 - `app.App` registers datasources/workflows/actions the same way it registers commands/tools/skills today.
 - `app.App` currently exposes workflow execution and workflow-command helpers as pragmatic integration seams; when a default agent has a live session thread, `App.ExecuteWorkflow` records workflow events to that thread. Long-term harness/session code should own process, channel, and execution lifecycle while reusing app composition instead of bypassing it.
 
+
+### Plugin and session projection invariant
+
+Do not introduce a second, independent harness plugin system alongside `app.Plugin`. Session-scoped surfaces such as harness command tools and their context providers are valid extension points, but they should not create a parallel `harness.Plugin` concept with separate lifecycle semantics.
+
+The near-term pattern is a **session projection**, not a plugin: a harness session may project session-owned capabilities into agent-facing surfaces such as `tool.Tool` values and `agentcontext.Provider` values. For example, the command layer can project the same declarative command tree into:
+
+```text
+harness command tree
+  -> terminal slash command
+  -> structured command envelope
+  -> workflow command action
+  -> agent command tool
+  -> agent command catalog context provider
+```
+
+The invariant is that packaging/contribution remains unified. App/resource/plugin composition should not fork into `app.Plugin` plus unrelated `harness.Plugin`. If session-scoped contributions become pluginizable later, the resolution should be to evolve the existing plugin model or move plugin ownership upward into `harness.Service` as the host, with facets for app-level and session-level contributions under one plugin concept.
+
+A likely intermediate seam is:
+
+```go
+type AgentProjection struct {
+    Tools            []tool.Tool
+    ContextProviders []agentcontext.Provider
+}
+```
+
+This lets `harness.Session` attach session-owned agent projections without prematurely naming a second plugin system. Once harness owns more lifecycle, that projection can become a session-level facet of the unified plugin/contribution model.
+
 ### Terminal as current channel
 
 Current packages:

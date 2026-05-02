@@ -16,6 +16,8 @@ The roadmap should therefore be read as an evolution plan, not a greenfield buil
 6. Let real apps validate abstractions before generalizing them; document them publicly as hypothetical or anonymized case studies.
 7. Keep compatibility shims or migration notes for public API moves.
 
+Plugin/contribution invariant: do not introduce a second, unrelated harness plugin system alongside `app.Plugin`. Session-owned features may be projected into agent-facing tools/context providers through explicit session projection seams, but packaging should remain one conceptual plugin/contribution model. If session-scoped contributions need pluginization later, evolve the existing plugin model or move plugin ownership upward into `harness.Service` with app-level and session-level facets under one concept.
+
 ## Current foundation to reuse
 
 Before adding anything, recognize the reusable pieces already present:
@@ -372,6 +374,8 @@ Tasks:
 3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions. In progress
 4. Keep `terminal/cli.Load` as compatibility wrapper initially. ✅
 5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ `Session.Info`, `Session.AgentName`, `Session.ThreadID`, `/session info`, and workflow read APIs exist
+
+6. Expose session-owned agent projections without creating a second plugin system. ✅ command tools and command-catalog context provider exist; automatic late attachment to running agents remains next work
 
 Acceptance criteria:
 
