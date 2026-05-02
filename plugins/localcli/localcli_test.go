@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultAgentIsLocalCLIProfileSpec(t *testing.T) {
+func TestDefaultAgentIsLocalCLIPluginSpec(t *testing.T) {
 	spec := DefaultAgent()
 	require.Equal(t, "default", spec.Name)
 	require.Contains(t, spec.System, "terminal")
@@ -25,14 +25,14 @@ func TestPluginContributesToolsAndPlannerFactory(t *testing.T) {
 }
 
 func TestPluginForName(t *testing.T) {
-	plugin, err := PluginForName(PluginName, nil)
+	plugin, err := PluginForName(t.Context(), PluginName, nil)
 	require.NoError(t, err)
 	require.Equal(t, PluginName, plugin.Name())
 
-	plugin, err = PluginForName("planner", nil)
+	plugin, err = PluginForName(t.Context(), "planner", nil)
 	require.NoError(t, err)
 	require.Equal(t, "planner", plugin.Name())
 
-	_, err = PluginForName("missing", nil)
+	_, err = PluginForName(t.Context(), "missing", nil)
 	require.ErrorContains(t, err, "not registered")
 }

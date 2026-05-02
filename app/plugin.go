@@ -2,6 +2,8 @@
 package app
 
 import (
+	"context"
+
 	"github.com/codewandler/agentsdk/action"
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/agentcontext"
@@ -17,6 +19,21 @@ import (
 // optional contribution interfaces below.
 type Plugin interface {
 	Name() string
+}
+
+// PluginFactory creates named plugins from app/resource or host configuration.
+// The context lets hosts bind request/session/environment values without adding
+// another plugin concept; factories can adjust returned plugin contributions from
+// that context when needed.
+type PluginFactory interface {
+	PluginForName(ctx context.Context, name string, config map[string]any) (Plugin, error)
+}
+
+// PluginFactoryFunc adapts a function into a [PluginFactory].
+type PluginFactoryFunc func(ctx context.Context, name string, config map[string]any) (Plugin, error)
+
+func (f PluginFactoryFunc) PluginForName(ctx context.Context, name string, config map[string]any) (Plugin, error) {
+	return f(ctx, name, config)
 }
 
 type CommandsPlugin interface {

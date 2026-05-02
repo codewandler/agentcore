@@ -1,7 +1,8 @@
-// Package localcli defines the built-in local terminal profile.
+// Package localcli defines the built-in local terminal plugin.
 package localcli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/codewandler/agentsdk/agent"
@@ -29,7 +30,7 @@ import (
 const PluginName = "local_cli"
 
 // Plugin contributes the local terminal tool catalog/defaults and planner
-// capability factory. It is a named use-case/environment profile, not a generic
+// capability factory. It is a named use-case/environment plugin, not a generic
 // standard bundle.
 type Plugin struct{}
 
@@ -70,9 +71,13 @@ func (p *Plugin) CapabilityFactories() []capability.Factory {
 	return plannerplugin.New().CapabilityFactories()
 }
 
-// PluginForName creates a built-in plugin available to the local CLI host. The
-// caller chooses which names are active through app/resource config or CLI flags.
-func PluginForName(name string, _ map[string]any) (app.Plugin, error) {
+// Factory creates built-in plugins available to the local CLI host. The caller
+// chooses which names are active through app/resource config or CLI flags.
+type Factory struct{}
+
+func NewFactory() Factory { return Factory{} }
+
+func (Factory) PluginForName(_ context.Context, name string, _ map[string]any) (app.Plugin, error) {
 	switch name {
 	case PluginName:
 		return New(), nil
@@ -81,6 +86,11 @@ func PluginForName(name string, _ map[string]any) (app.Plugin, error) {
 	default:
 		return nil, fmt.Errorf("localcli: plugin %q not registered", name)
 	}
+}
+
+// PluginForName creates a built-in plugin available to the local CLI host.
+func PluginForName(ctx context.Context, name string, config map[string]any) (app.Plugin, error) {
+	return NewFactory().PluginForName(ctx, name, config)
 }
 
 type localToolSet struct {

@@ -42,8 +42,9 @@ type CommandConfig struct {
 	ModelCompleter ModelCompleter
 	Profile        Profile
 
-	AgentOptions []agent.Option
-	AppOptions   []app.Option
+	AgentOptions  []agent.Option
+	AppOptions    []app.Option
+	PluginFactory app.PluginFactory
 
 	In  io.Reader
 	Out io.Writer
@@ -79,7 +80,7 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 		debugMessage     bool
 		includeGlobal    bool
 		pluginNames      []string
-		noDefaultProfile bool
+		noDefaultPlugins bool
 		sourceAPIFlag    = cfg.Profile.Defaults.SourceAPI
 		useCaseFlag      string
 		approvedOnly     = cfg.Profile.Defaults.ModelPolicy.ApprovedOnly
@@ -183,7 +184,8 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 				AgentOptions:       append([]agent.Option(nil), cfg.AgentOptions...),
 				AppOptions:         append([]app.Option(nil), cfg.AppOptions...),
 				PluginNames:        append([]string(nil), pluginNames...),
-				NoDefaultProfile:   noDefaultProfile,
+				NoDefaultPlugins:   noDefaultPlugins,
+				PluginFactory:      cfg.PluginFactory,
 				DiscoveryPolicy:    cfg.DiscoveryPolicy,
 				In:                 firstReader(cfg.In, os.Stdin),
 				Out:                firstWriter(cfg.Out, cmd.OutOrStdout()),
@@ -194,7 +196,7 @@ func NewCommand(cfg CommandConfig) *cobra.Command {
 		},
 	}
 	addCoreFlags(cmd, cfg, &agentName, &workspace, &systemPrompt)
-	addResourceFlags(cmd, cfg, &includeGlobal, &pluginNames, &noDefaultProfile)
+	addResourceFlags(cmd, cfg, &includeGlobal, &pluginNames, &noDefaultPlugins)
 	addInferenceFlags(cmd, cfg, &inference, &thinkingFlag, &effortFlag, &sourceAPIFlag)
 	addRuntimeFlags(cmd, cfg, &maxSteps, &totalTimeout, &toolTimeout)
 	addSessionFlags(cmd, cfg, &session, &continueLast, &sessionsDir)
@@ -265,7 +267,7 @@ func addCoreFlags(cmd *cobra.Command, cfg CommandConfig, agentName *string, work
 	annotateFlags(cmd, GroupCore, names...)
 }
 
-func addResourceFlags(cmd *cobra.Command, cfg CommandConfig, includeGlobal *bool, pluginNames *[]string, noDefaultProfile *bool) {
+func addResourceFlags(cmd *cobra.Command, cfg CommandConfig, includeGlobal *bool, pluginNames *[]string, noDefaultPlugins *bool) {
 	if !cfg.Profile.groupEnabled(GroupResources) {
 		return
 	}
@@ -276,12 +278,12 @@ func addResourceFlags(cmd *cobra.Command, cfg CommandConfig, includeGlobal *bool
 		names = append(names, "include-global")
 	}
 	if !cfg.Profile.flagDisabled("plugin") {
-		f.StringSliceVar(pluginNames, "plugin", nil, "Activate named app plugin/profile (repeatable)")
+		f.StringSliceVar(pluginNames, "plugin", nil, "Activate named app plugin (repeatable)")
 		names = append(names, "plugin")
 	}
-	if !cfg.Profile.flagDisabled("no-default-profile") {
-		f.BoolVar(noDefaultProfile, "no-default-profile", false, "Disable the built-in local_cli fallback profile")
-		names = append(names, "no-default-profile")
+	if !cfg.Profile.flagDisabled("no-default-plugins") {
+		f.BoolVar(noDefaultPlugins, "no-default-plugins", false, "Disable the built-in local_cli fallback plugin")
+		names = append(names, "no-default-plugins")
 	}
 	annotateFlags(cmd, GroupResources, names...)
 }

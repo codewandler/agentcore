@@ -26,7 +26,9 @@ import (
 	"github.com/codewandler/agentsdk/thread"
 	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
-	"github.com/codewandler/agentsdk/tools/standard"
+	"github.com/codewandler/agentsdk/tools/git"
+	"github.com/codewandler/agentsdk/tools/toolmgmt"
+	"github.com/codewandler/agentsdk/tools/web"
 	"github.com/codewandler/agentsdk/workflow"
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/stretchr/testify/require"
@@ -500,7 +502,7 @@ func TestAppInstantiateAndSendRoutesToDefaultAgent(t *testing.T) {
 	require.Contains(t, renderCommandResult(t, contextResult), "provider: time")
 }
 
-func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
+func TestAppExplicitSpecCanSelectOptionalLocalCLITools(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
 	app, err := New(
 		WithAgentSpec(agent.Spec{
@@ -509,7 +511,7 @@ func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
 			Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
 			Tools:     []string{"git_status", "web_search"},
 		}),
-		WithCatalogTools(standard.CatalogTools()...),
+		WithPlugin(testToolCatalogPlugin{}),
 		WithOutput(&bytes.Buffer{}),
 	)
 	require.NoError(t, err)
@@ -521,7 +523,7 @@ func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAppDefaultSpecUsesConfiguredDefaultTools(t *testing.T) {
+func TestAppDefaultSpecUsesConfiguredLocalCLIPluginTools(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
 	app, err := New(
 		WithAgentSpec(agent.Spec{
@@ -529,8 +531,7 @@ func TestAppDefaultSpecUsesConfiguredDefaultTools(t *testing.T) {
 			System:    "You code.",
 			Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
 		}),
-		WithDefaultTools(standard.DefaultTools()...),
-		WithCatalogTools(standard.CatalogTools()...),
+		WithPlugin(testToolCatalogPlugin{}),
 		WithOutput(&bytes.Buffer{}),
 	)
 	require.NoError(t, err)
@@ -1201,4 +1202,24 @@ func agentTurnInput(t *testing.T, result command.Result) string {
 	input, ok := command.AgentTurnInput(result)
 	require.True(t, ok)
 	return input
+}
+
+type testToolCatalogPlugin struct{}
+
+func (testToolCatalogPlugin) Name() string { return "test_tools" }
+
+func (testToolCatalogPlugin) DefaultTools() []tool.Tool {
+	var tools []tool.Tool
+	tools = append(tools, git.Tools()...)
+	tools = append(tools, web.Tools(nil)...)
+	tools = append(tools, toolmgmt.Tools()...)
+	return tools
+}
+
+func (testToolCatalogPlugin) CatalogTools() []tool.Tool {
+	var tools []tool.Tool
+	tools = append(tools, git.Tools()...)
+	tools = append(tools, web.SearchTool(nil))
+	tools = append(tools, toolmgmt.Tools()...)
+	return tools
 }

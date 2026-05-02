@@ -17,7 +17,7 @@ import (
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/command"
 	"github.com/codewandler/agentsdk/harness"
-	"github.com/codewandler/agentsdk/profiles/localcli"
+	"github.com/codewandler/agentsdk/plugins/localcli"
 	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/terminal/repl"
@@ -55,7 +55,8 @@ type Config struct {
 	Prompt           string
 
 	PluginNames      []string
-	NoDefaultProfile bool
+	NoDefaultPlugins bool
+	PluginFactory    app.PluginFactory
 
 	AgentOptions    []agent.Option
 	AppOptions      []app.Option
@@ -129,7 +130,7 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(resolved.Bundle.AgentSpecs) == 0 && strings.TrimSpace(cfg.AgentName) == "" && !cfg.NoDefaultProfile {
+	if len(resolved.Bundle.AgentSpecs) == 0 && strings.TrimSpace(cfg.AgentName) == "" && !cfg.NoDefaultPlugins {
 		spec := localcli.DefaultAgent()
 		resolved.Bundle.AgentSpecs = append(resolved.Bundle.AgentSpecs, spec)
 		resolved.DefaultAgent = spec.Name
@@ -179,7 +180,7 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 		app.WithAgentVerbose(cfg.Verbose),
 		app.WithAgentOptions(agent.WithEventHandlerFactory(ui.AgentEventHandlerFactory(out))),
 	}
-	pluginOpts, err := pluginOptions(resolved, cfg)
+	pluginOpts, err := pluginOptions(ctx, resolved, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -240,12 +241,12 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 	}, nil
 }
 
-func pluginOptions(resolved agentdir.Resolution, cfg Config) ([]app.Option, error) {
+func pluginOptions(ctx context.Context, resolved agentdir.Resolution, cfg Config) ([]app.Option, error) {
 	refs := append([]agentdir.PluginRef(nil), resolved.ManifestPluginRefs()...)
 	for _, name := range cfg.PluginNames {
 		refs = append(refs, agentdir.PluginRef{Name: name})
 	}
-	if !cfg.NoDefaultProfile {
+	if !cfg.NoDefaultPlugins {
 		refs = append([]agentdir.PluginRef{{Name: localcli.PluginName}}, refs...)
 	}
 	seen := map[string]bool{}
@@ -256,7 +257,11 @@ func pluginOptions(resolved agentdir.Resolution, cfg Config) ([]app.Option, erro
 			continue
 		}
 		seen[name] = true
-		plugin, err := localcli.PluginForName(name, ref.Config)
+		factory := cfg.PluginFactory
+		if factory == nil {
+			factory = localcli.NewFactory()
+		}
+		plugin, err := factory.PluginForName(ctx, name, ref.Config)
 		if err != nil {
 			return nil, err
 		}

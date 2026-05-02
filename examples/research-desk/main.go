@@ -11,7 +11,7 @@ import (
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/agentdir"
 	"github.com/codewandler/agentsdk/app"
-	"github.com/codewandler/agentsdk/profiles/localcli"
+	"github.com/codewandler/agentsdk/plugins/localcli"
 	"github.com/codewandler/agentsdk/terminal/repl"
 	"github.com/codewandler/agentsdk/terminal/ui"
 	"github.com/spf13/cobra"

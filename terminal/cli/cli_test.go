@@ -86,7 +86,7 @@ func TestRunStartsREPLWithoutTask(t *testing.T) {
 	require.Contains(t, out.String(), "session")
 }
 
-func TestRunUsesLocalCLIProfileAgentWhenNoSpecsFound(t *testing.T) {
+func TestRunUsesLocalCLIPluginAgentWhenNoSpecsFound(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
 	var out bytes.Buffer
 
@@ -103,7 +103,7 @@ func TestRunUsesLocalCLIProfileAgentWhenNoSpecsFound(t *testing.T) {
 	require.Len(t, client.Requests(), 1)
 }
 
-func TestRunUsesLocalCLIProfileAgentEvenWhenEmptyManifestNamesDefault(t *testing.T) {
+func TestRunUsesLocalCLIPluginAgentEvenWhenEmptyManifestNamesDefault(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
 
 	err := Run(t.Context(), Config{
@@ -121,12 +121,12 @@ func TestRunUsesLocalCLIProfileAgentEvenWhenEmptyManifestNamesDefault(t *testing
 	require.Len(t, client.Requests(), 1)
 }
 
-func TestRunCanDisableDefaultProfile(t *testing.T) {
+func TestRunCanDisableDefaultPlugins(t *testing.T) {
 	err := Run(t.Context(), Config{
 		Resources:        ResolvedResources(agentdir.Resolution{}),
 		Task:             "hello",
 		Workspace:        t.TempDir(),
-		NoDefaultProfile: true,
+		NoDefaultPlugins: true,
 		AgentOptions:     []agent.Option{agent.WithClient(runnertest.NewClient())},
 		Out:              &bytes.Buffer{},
 		Err:              &bytes.Buffer{},

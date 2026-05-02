@@ -85,7 +85,9 @@ context providers, and skill sources behind the `app.Plugin` interface.
 - `plugins/gitplugin` — git tools + git context provider.
 - `plugins/skillplugin` — skill tool + discovery + skill inventory context.
 - `plugins/toolmgmtplugin` — tool management tools + active-tools context.
-- `plugins/standard` — pre-assembled plugin sets for common configurations.
+- `plugins/plannerplugin` — planner capability factory.
+
+Named host/plugin composition lives under `plugins/`; for example, `plugins/localcli` assembles the local terminal plugin.
 
 Plugin interfaces are defined in `app/plugin.go`. There are two context
 provider facets:
@@ -93,7 +95,7 @@ provider facets:
 - `ContextProvidersPlugin` — app-scoped, stateless providers created at
   registration time.
 - `AgentContextPlugin` — agent-scoped, factory-based providers that receive
-  per-agent state (skill repo, toolset) during instantiation.
+  per-agent state during instantiation.
 
 See `.agents/plans/PLAN-plugin-architecture-and-bundling.md` for the full
 design rationale.

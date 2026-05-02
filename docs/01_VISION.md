@@ -88,7 +88,7 @@ As a **builder**, it should eventually generate full agentic apps from requireme
 
 agentsdk should not become a monolithic SaaS product or a pile of product-specific integrations inside the core runtime.
 
-There is no context-free default agent or standard tool set. Defaults should be named by product/use case or execution environment — for example `development`, `local_cli`, `research`, or a first-party app such as `apps/engineer`. The terminal channel may load an embedded local CLI app profile for convenience, but that profile should be expressed as declarative app/resource configuration and plugin references, not as hardcoded imports of concrete tool/capability packages inside `terminal/cli` or `agent`.
+There is no context-free default agent or standard tool set. Defaults should be named by product/use case or execution environment — for example `development`, `local_cli`, `research`, or a first-party app such as `apps/engineer`. The terminal channel may load a local CLI plugin for convenience, but that plugin should be selected through plugin references, not by hardcoded imports of concrete tool/capability packages inside `agent` or generic runtime packages.
 
 The core should stay reusable. Helpdesk systems, issue trackers, chat systems, email, browser automation, hosted web UIs, deployment targets, and cloud-specific integrations should be modeled as adapters, plugins, bundled apps, or generated application code unless they are genuinely universal primitives.
 

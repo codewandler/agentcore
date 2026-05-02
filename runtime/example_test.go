@@ -8,11 +8,11 @@ import (
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
+	"github.com/codewandler/agentsdk/plugins/localcli"
 	"github.com/codewandler/agentsdk/runner"
 	"github.com/codewandler/agentsdk/runtime"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/agentsdk/tool"
-	"github.com/codewandler/agentsdk/profiles/localcli"
 	"github.com/codewandler/agentsdk/toolactivation"
 	"github.com/codewandler/llmadapter/unified"
 )

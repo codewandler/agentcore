@@ -75,7 +75,6 @@ Current packages:
 - `tool`
 - `toolactivation`
 - `tools/*`
-- `tools/standard`
 - `toolmw`
 
 Current strengths:
@@ -87,7 +86,6 @@ Current strengths:
 - Middleware can wrap tools for logging, risk gates, timeouts, and approval.
 - Some concepts are not inherently model-only; execution, intent, result, events, context, and middleware should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware. JSON schema/provider projection remains a tool-surface specialization unless an action explicitly provides optional `*jsonschema.Schema` metadata.
 - `toolactivation.Manager` already models active/inactive tool visibility.
-- `tools/standard` still exists as transitional batteries-included assembly, but it is not a clean architecture concept: there is no context-free standard tool set.
 
 Evolution:
 
@@ -97,7 +95,7 @@ Evolution:
 - Treat `tool.Tool` as embedding or wrapping `action.Action`, adding only LLM-facing concerns such as guidance, provider/tool-call projection, activation/visibility, and transcript rendering.
 - Keep `tool` as public compatibility API during migration, with aliases for `tool.Ctx`, `tool.Result`, `tool.Intent`, and middleware where practical.
 - Keep generic local tools under `tools/` while adding action-backed constructors over time.
-- Replace `tools/standard` and `plugins/standard` with named use-case/environment plugins or app profiles (`development`, `local_cli`, `research`, first-party apps). Until deleted, any standard package must remain construction-only and must not own mutable activation or lifecycle.
+- Compose tool defaults through named use-case/environment plugins (`development`, `local_cli`, `research`, first-party apps), not generic standard bundles.
 - Move product/service/environment-specific integrations toward adapters or integration packages as they appear.
 
 ### Turn runtime
@@ -279,7 +277,7 @@ Default harness sessions attach the command projection automatically, which make
 
 ### Default composition invariant
 
-Generic packages must not define product defaults. `agent` should not define the default terminal/development/research agent, `runtime` should not install default tools or capabilities, and `app.New` should not silently install bundles. Terminal may provide a local CLI fallback for convenience, but that fallback should be a declared app/profile/resource bundle plus plugin references. Concrete plugins are registered by the host; active plugins are selected by app/resource configuration or explicit CLI flags.
+Generic packages must not define product defaults. `agent` should not define the default terminal/development/research agent, `runtime` should not install default tools or capabilities, and `app.New` should not silently install bundles. Terminal may provide a local CLI fallback for convenience, but that fallback should be a declared app/plugin/resource bundle plus plugin references. Concrete plugins are registered by the host; active plugins are selected by app/resource configuration or explicit CLI flags.
 
 ### Terminal as current channel
 
@@ -668,7 +666,6 @@ The first harness implementation already wraps `app.App` and the default `agent.
 | `action` | New top-level package for surface-neutral execution: Action, Ctx, Result, Intent, Middleware. |
 | `tool` | Keep as public LLM-facing tool API; embed/wrap `action.Action` and alias/adapt action concepts for compatibility. |
 | `tools/*` | Keep generic tools; expose some as actions where useful. |
-| `tools/standard` / `plugins/standard` | Transitional smell; replace with named use-case/environment plugins or app profiles, then delete when no longer used. |
 | `toolmw` | Keep; gradually become part of broader safety architecture. |
 | `runtime` | Keep turn runtime; remove concrete tool dependencies over time. |
 | `runner` | Keep low-level model/tool loop. |
@@ -705,8 +702,8 @@ Observed top-level dependency issues:
 
 1. `agent` still imports many high-level and low-level packages: runtime, runner, thread/jsonlstore, usage, skill, context providers, and llmadapter routing. It no longer imports terminal UI, concrete planner construction, or the standard tool bundle; terminal rendering is attached through event handler factories and hosts pass explicit tools/capability registries.
 2. `runtime` no longer imports concrete model-callable tool packages such as `tools/skills` or `tools/toolmgmt`; tool and skill activation state is injected through neutral state-owner packages.
-3. `terminal` no longer imports `tools/standard` or concrete planner plugin wiring for defaults. It activates a named `local_cli` profile by default, accepts manifest/CLI plugin refs, and can disable the default profile with `--no-default-profile`.
-4. `app` no longer imports `tools/standard`; app hosts/plugins provide default and catalog tools explicitly, and capability factories now flow through plugin facets.
+3. `terminal` no longer imports generic standard bundles or concrete planner plugin wiring for defaults. It activates the named `local_cli` plugin by default, accepts manifest/CLI plugin refs, and can disable default plugins with `--no-default-plugins`.
+4. `app` no longer imports generic standard bundles; app hosts/plugins provide default and catalog tools explicitly, and capability factories now flow through plugin facets.
 
 Migration strategy:
 

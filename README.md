@@ -34,7 +34,7 @@ Portable tool definitions, conversation/runtime helpers, markdown utilities, and
 
 ## Recommended Runtime Stack
 
-Use `runtime` as the high-level turn loop, `tools/standard` for the default tool bundle, and `llmadapter` auto mux for provider selection.
+Use `runtime` as the high-level turn loop, explicit tool bundles selected by the host/plugin, and `llmadapter` auto mux for provider selection.
 
 ```go
 import (
@@ -44,7 +44,8 @@ import (
     "github.com/codewandler/agentsdk/runner"
     "github.com/codewandler/agentsdk/runtime"
     "github.com/codewandler/agentsdk/tool"
-    "github.com/codewandler/agentsdk/tools/standard"
+    "github.com/codewandler/agentsdk/tools/filesystem"
+    "github.com/codewandler/agentsdk/tools/shell"
     "github.com/codewandler/llmadapter/adapt"
     "github.com/codewandler/llmadapter/unified"
 )
@@ -58,7 +59,8 @@ if err != nil {
 }
 identity, _, _ := runtime.RouteIdentity(auto, sourceAPI, model)
 
-toolActivation := toolactivation.New(standard.DefaultTools()...)
+tools := append(shell.Tools(), filesystem.Tools()...)
+toolActivation := toolactivation.New(tools...)
 agent, err := runtime.New(auto.Client,
     runtime.WithProviderIdentity(identity),
     runtime.WithModel(model),
@@ -405,7 +407,6 @@ Use these directly when `runtime.Agent` is too high level:
 | `tools/jsonquery` | JSON file query tool with field, index, and wildcard selectors |
 | `tools/notify` | Desktop notification and TTS tools |
 | `tools/shell` | Bash command execution with streaming and timeout |
-| `tools/standard` | Default tool bundle assembly; mutable activation is owned by `toolactivation.Manager` |
 | `tools/todo` | Todo/task list tools |
 | `tools/toolmgmt` | Tool list, activate, and deactivate management tools |
 | `tools/turn` | Turn-done signaling tool |
@@ -423,7 +424,7 @@ Use these directly when `runtime.Agent` is too high level:
 
 ## Status
 
-Under active development, extracted from flai as a portable foundation. The current shape is proven through `miniagent`, which uses `runtime`, `conversation`, `usage`, `tools/standard`, and `llmadapter` auto mux helpers.
+Under active development, extracted from flai as a portable foundation. The current shape is proven through `miniagent`, which uses `runtime`, `conversation`, `usage`, explicit plugin/tool composition, and `llmadapter` auto mux helpers.
 
 ## License
 

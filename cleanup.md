@@ -5,7 +5,6 @@
   - Remove ownership drift instead of labeling it transitional.
   - Reduce boilerplate and hidden defaults instead of adding more seams.
   - Keep code aligned with:
-    - `tools/standard` = bundle construction only
     - `toolactivation.Manager` = mutable tool registry / activation state
     - `agent.Instance` = lifecycle façade, not a growing god object
     - `harness.Session` = session/channel boundary
@@ -19,8 +18,8 @@
   - Current state:
     - `agent.Instance` owns `toolActivation *toolactivation.Manager`.
     - `agent.WithTools(...)` initializes `toolactivation.New(tools...)` directly.
-    - `tools/standard` exposes bundle helpers only; it owns no mutable lifecycle.
-    - `agent.New` no longer imports or silently installs `tools/standard`.
+    - `tools/standard` has since been deleted; named plugins own composition.
+    - `agent.New` no longer imports or silently installs generic tool bundles.
     - Hosts pass tools explicitly.
 
 - **Phase 2 — Re-evaluate late-registration APIs after ownership fix** ✅
@@ -31,7 +30,7 @@
     - `agent.Instance.RegisterContextProviders(...)` remains for session projection attachment.
     - `runtime.Engine.RegisterTools(...)` was removed.
     - `runtime.Engine.RegisterContextProviders(...)` remains because runtime owns the active context manager for future turns.
-    - Projection attachment has no `tools/standard` knowledge.
+    - Projection attachment has no generic standard-bundle knowledge.
 
 - **Phase 3 — Reduce command/rendering boilerplate** ✅
   - Completed in:
@@ -59,13 +58,15 @@
   - Completed in:
     - `7f2425f Document cleaned ownership boundaries`
   - Current state:
-    - docs capture ownership guardrails for `toolactivation`, `tools/standard`, command rendering, projections, and plugin/contribution invariants.
+    - docs capture ownership guardrails for `toolactivation`, named plugin composition, command rendering, projections, and plugin/contribution invariants.
 
 - **Optional deeper cleanup completed so far**
   - Removed concrete `tools/skills` and `tools/toolmgmt` imports from `runtime`.
   - Renamed generic `activation` package to explicit `toolactivation`.
   - Moved terminal event rendering out of `agent` and into `terminal/ui`.
-  - Removed hidden standard-tool defaults from `app.New` and `agent.New`; terminal/example hosts opt into standard bundles explicitly.
+  - Removed hidden standard-tool defaults from `app.New` and `agent.New`.
+  - Deleted generic `tools/standard` and `plugins/standard`; local terminal composition now lives in `plugins/localcli`.
+  - Added context-aware `app.PluginFactory` so hosts can resolve named plugin refs from `context.Context` plus config without introducing a separate profile system.
 
 - **Remaining cleanup candidates**
   - Revisit `agent.Instance` responsibilities and move outward only where the slice deletes or simplifies more than it adds:
@@ -86,7 +87,8 @@
 - **Guardrails for any next slice**
   - No new harness plugin system beside `app.Plugin`.
   - No new command switch namespaces; use declarative `command.Tree`.
-  - No mutable lifecycle ownership in `tools/standard`.
+  - No generic `tools/standard` or `plugins/standard` default composition packages.
+  - No separate profile system for plugin composition; named composition is still `app.Plugin` plus `app.PluginFactory`.
   - No hidden default tool bundles in `app.New` or `agent.New`.
   - No command output discarded at terminal/channel boundaries.
   - New seams should delete or collapse an old path.
