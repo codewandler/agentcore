@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+// ContextKey is the tool context Extra key used to pass mutable skill activation
+// state to skill tool projections.
+const ContextKey = "agentsdk.skill_activation_state"
+
 // Status reports how a skill is activated in the current session state.
 type Status string
 

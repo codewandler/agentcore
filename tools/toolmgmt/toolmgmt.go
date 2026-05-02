@@ -7,12 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/toolactivation"
 )
-
-// KeyActivationState is the Extra() key under which tools_* look up the ActivationState.
-const KeyActivationState = "agentsdk.activation_state"
 
 // ToolListParams has no fields — tools_list always returns everything.
 type ToolListParams struct{}
@@ -29,14 +26,14 @@ type ToolDeactivateParams struct {
 
 // activation extracts the ActivationState from ctx.Extra(), returning a clear
 // error when it is missing (mis-configured injection).
-func activationState(ctx tool.Ctx) (activation.State, error) {
-	v, ok := ctx.Extra()[KeyActivationState]
+func activationState(ctx tool.Ctx) (toolactivation.State, error) {
+	v, ok := ctx.Extra()[toolactivation.ContextKey]
 	if !ok {
-		return nil, fmt.Errorf("tools_* tools require %s in Extra(); check agent wiring", KeyActivationState)
+		return nil, fmt.Errorf("tools_* tools require %s in Extra(); check agent wiring", toolactivation.ContextKey)
 	}
-	state, ok := v.(activation.State)
+	state, ok := v.(toolactivation.State)
 	if !ok {
-		return nil, fmt.Errorf("%s has unexpected type %T", KeyActivationState, v)
+		return nil, fmt.Errorf("%s has unexpected type %T", toolactivation.ContextKey, v)
 	}
 	return state, nil
 }

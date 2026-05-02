@@ -73,7 +73,7 @@ A future harness should not throw this away. It should extract and name the reus
 Current packages:
 
 - `tool`
-- `activation`
+- `toolactivation`
 - `tools/*`
 - `tools/standard`
 - `toolmw`
@@ -86,7 +86,7 @@ Current strengths:
 - `tool.Intent` and `IntentProvider` provide side-effect declaration.
 - Middleware can wrap tools for logging, risk gates, timeouts, and approval.
 - Some concepts are not inherently model-only; execution, intent, result, events, context, and middleware should move into a top-level `action` package centered on `action.Action`, `action.Ctx`, `action.Result`, action intent, and action middleware. JSON schema/provider projection remains a tool-surface specialization unless an action explicitly provides optional `*jsonschema.Schema` metadata.
-- `activation.Manager` already models active/inactive tool visibility.
+- `toolactivation.Manager` already models active/inactive tool visibility.
 - `tools/standard` provides useful batteries-included assembly without owning mutable runtime activation state.
 
 Evolution:
@@ -97,7 +97,7 @@ Evolution:
 - Treat `tool.Tool` as embedding or wrapping `action.Action`, adding only LLM-facing concerns such as guidance, provider/tool-call projection, activation/visibility, and transcript rendering.
 - Keep `tool` as public compatibility API during migration, with aliases for `tool.Ctx`, `tool.Result`, `tool.Intent`, and middleware where practical.
 - Keep generic local tools under `tools/` while adding action-backed constructors over time.
-- Treat `tools/standard` as an app/bundle construction package only; mutable activation belongs in `activation.Manager` owned by the agent/session host.
+- Treat `tools/standard` as an app/bundle construction package only; mutable activation belongs in `toolactivation.Manager` owned by the agent/session host.
 - Move product/service/environment-specific integrations toward adapters or integration packages as they appear.
 
 ### Turn runtime
@@ -663,7 +663,7 @@ The first harness implementation already wraps `app.App` and the default `agent.
 | `action` | New top-level package for surface-neutral execution: Action, Ctx, Result, Intent, Middleware. |
 | `tool` | Keep as public LLM-facing tool API; embed/wrap `action.Action` and alias/adapt action concepts for compatibility. |
 | `tools/*` | Keep generic tools; expose some as actions where useful. |
-| `tools/standard` | Keep as bundle construction helpers only; mutable activation belongs to `activation.Manager`. |
+| `tools/standard` | Keep as bundle construction helpers only; mutable activation belongs to `toolactivation.Manager`. |
 | `toolmw` | Keep; gradually become part of broader safety architecture. |
 | `runtime` | Keep turn runtime; remove concrete tool dependencies over time. |
 | `runner` | Keep low-level model/tool loop. |
@@ -686,7 +686,7 @@ The first harness implementation already wraps `app.App` and the default `agent.
 
 Current cleanup work is enforcing these boundaries:
 
-- `activation.Manager` owns mutable tool registry and active/inactive state.
+- `toolactivation.Manager` owns mutable tool registry and active/inactive state.
 - `tools/standard` only assembles tool bundles; it must not own runtime lifecycle or mutable registration.
 - Session projections are not plugins; do not introduce `harness.Plugin` beside `app.Plugin`.
 - New commands belong in declarative `command.Tree` definitions, not handwritten switch namespaces.

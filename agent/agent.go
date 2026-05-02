@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/agentcontext"
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
@@ -26,6 +25,7 @@ import (
 	"github.com/codewandler/agentsdk/thread"
 	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/toolactivation"
 	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/agentsdk/usage"
 	"github.com/codewandler/llmadapter/adapt"
@@ -71,7 +71,7 @@ type Instance struct {
 	modelCompatibility       modelCompatibilityState
 	runtime                  *agentruntime.Engine
 	tracker                  *usage.Tracker
-	toolActivation           *activation.Manager
+	toolActivation           *toolactivation.Manager
 	inference                InferenceOptions
 	maxSteps                 int
 	out                      io.Writer
@@ -140,7 +140,7 @@ func New(opts ...Option) (*Instance, error) {
 		a.workspace = abs
 	}
 	if a.toolActivation == nil {
-		a.toolActivation = activation.New(standard.DefaultTools()...)
+		a.toolActivation = toolactivation.New(standard.DefaultTools()...)
 	}
 	a.applySpecTools()
 	if a.tracker == nil {
@@ -291,7 +291,7 @@ func (a *Instance) RegisterTools(tools ...tool.Tool) error {
 		return nil
 	}
 	if a.toolActivation == nil {
-		a.toolActivation = activation.New()
+		a.toolActivation = toolactivation.New()
 	}
 	if err := a.toolActivation.Register(tools...); err != nil {
 		return err

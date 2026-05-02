@@ -10,8 +10,6 @@ import (
 	"github.com/codewandler/agentsdk/tool"
 )
 
-const KeyActivationState = "agentsdk.skill_activation_state"
-
 type actionParams struct {
 	Actions []Action `json:"actions" jsonschema:"description=List of skill activation actions,required"`
 }
@@ -135,13 +133,13 @@ func skillTool() tool.Tool {
 }
 
 func activationState(ctx tool.Ctx) (*skill.ActivationState, error) {
-	v, ok := ctx.Extra()[KeyActivationState]
+	v, ok := ctx.Extra()[skill.ContextKey]
 	if !ok {
-		return nil, fmt.Errorf("skill tool requires %q in Extra(); check agent wiring", KeyActivationState)
+		return nil, fmt.Errorf("skill tool requires %q in Extra(); check agent wiring", skill.ContextKey)
 	}
 	state, ok := v.(*skill.ActivationState)
 	if !ok {
-		return nil, fmt.Errorf("%q has unexpected type %T", KeyActivationState, v)
+		return nil, fmt.Errorf("%q has unexpected type %T", skill.ContextKey, v)
 	}
 	return state, nil
 }

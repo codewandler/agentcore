@@ -6,7 +6,7 @@
   - Reduce boilerplate instead of adding more seams.
   - Bring code back in line with:
     - `tools/standard` = bundle construction only
-    - `activation.Manager` = mutable tool registry / activation state
+    - `toolactivation.Manager` = mutable tool registry / activation state
     - `agent.Instance` = lifecycle façade, not a growing god object
     - `harness.Session` = session/channel boundary
     - `command.Result` = structured result, rendered at boundaries
@@ -14,21 +14,21 @@
 - **Phase 1 — Fix tool ownership drift**
   - Replace `agent.Instance.toolset *standard.Toolset` with direct activation ownership:
     - likely:
-      - `tools *activation.Manager`
+      - `tools *toolactivation.Manager`
     - or:
-      - `toolActivation *activation.Manager`
+      - `toolActivation *toolactivation.Manager`
   - Remove:
     - `tools/standard.Toolset.Register(...)`
   - Update default tool setup:
     - from:
       - `standard.DefaultToolset()`
     - to:
-      - `activation.New(standard.Tools(standard.DefaultOptions())...)`
+      - `toolactivation.New(standard.Tools(standard.DefaultOptions())...)`
   - Update `agent.WithTools(...)`:
     - from:
       - wrapping tools in `standard.NewToolsetFromTools(...)`
     - to:
-      - initializing `activation.New(tools...)`
+      - initializing `toolactivation.New(tools...)`
   - Update `agent.WithToolset(...)`:
     - either:
       - remove it if no longer justified
@@ -41,9 +41,9 @@
     - `a.toolset.Activation()` → `a.tools`
     - `a.toolset.Tools()` → `a.tools.AllTools()`
   - Update context provider factory setup:
-    - `ActiveTools` closure should point at `activation.Manager.ActiveTools`
+    - `ActiveTools` closure should point at `toolactivation.Manager.ActiveTools`
   - Update context provider rendering:
-    - tools context should render from `activation.Manager.ActiveTools`
+    - tools context should render from `toolactivation.Manager.ActiveTools`
   - Keep `tools/standard` limited to:
     - `Tools(opts Options) []tool.Tool`
     - `DefaultToolset()` only if still useful as bundle convenience
@@ -62,7 +62,7 @@
     - `runtime.Engine.RegisterContextProviders(...)`
   - Keep only APIs that have clear ownership:
     - `agent.Instance.RegisterTools(...)`
-      - probably keep, backed by `activation.Manager`
+      - probably keep, backed by `toolactivation.Manager`
     - `agent.Instance.RegisterContextProviders(...)`
       - probably keep for session projection attachment
     - `runtime.Engine.RegisterTools(...)`
@@ -165,7 +165,7 @@
     - `docs/COMMAND_TREE.md`
   - Remove stale “future” wording for completed cleanup.
   - Explicitly document:
-    - `activation.Manager` owns mutable tool registry
+    - `toolactivation.Manager` owns mutable tool registry
     - `tools/standard` only assembles bundles
     - session projections are not plugins
     - one-shot terminal renders command results
@@ -184,7 +184,7 @@
 - **Phase 7 — Optional deeper cleanup after the above**
   - Revisit `standard.Toolset`
     - decide if it should remain public
-    - maybe remove it entirely if `standard.Tools(...)` plus `activation.New(...)` is enough
+    - maybe remove it entirely if `standard.Tools(...)` plus `toolactivation.New(...)` is enough
   - Revisit `runtime.Engine.RegisterTools(...)`
     - delete if agent can provide active tools per turn cleanly
   - Revisit payload display design

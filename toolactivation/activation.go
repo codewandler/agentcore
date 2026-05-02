@@ -1,5 +1,5 @@
-// Package activation manages the set of tools visible to an agent at runtime.
-package activation
+// Package toolactivation manages the set of tools visible to an agent at runtime.
+package toolactivation
 
 import (
 	"path/filepath"
@@ -7,6 +7,10 @@ import (
 
 	"github.com/codewandler/agentsdk/tool"
 )
+
+// ContextKey is the tool context Extra key used to pass mutable tool activation
+// state to tool-management projections.
+const ContextKey = "agentsdk.activation_state"
 
 // State manages which tools are active or inactive.
 type State interface {

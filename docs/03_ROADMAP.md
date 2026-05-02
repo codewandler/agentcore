@@ -27,7 +27,7 @@ Before adding anything, recognize the reusable pieces already present:
 | `runtime.Engine`, `runner.RunTurn` | model/tool turn execution; workflow model-step action implementation. |
 | `conversation`, `thread`, `thread/jsonlstore` | durable session and future datasource/workflow/action event persistence. |
 | `runtime.ThreadRuntime` | thread-bound capability and context replay; future harness sessions. |
-| `tool`, `activation`, `tools/*`, `toolmw` | model-callable schema/projection plus reusable execution, intent, middleware, risk assessment patterns to migrate into action; `activation.Manager` owns mutable tool activation. |
+| `tool`, `toolactivation`, `tools/*`, `toolmw` | model-callable schema/projection plus reusable execution, intent, middleware, risk assessment patterns to migrate into action; `toolactivation.Manager` owns mutable tool activation state. |
 | `capability`, `capabilities/planner` | attachable stateful agent/session features; planner remains a capability because it is event-sourced session state plus context plus action/tool projection, not a workflow. |
 | `agentcontext` | selected context for turns and future workflow steps. |
 | `skill` | instruction/reference resources; not a workflow replacement. |

@@ -40,7 +40,7 @@ Use `runtime` as the high-level turn loop, `tools/standard` for the default tool
 import (
     "context"
 
-    "github.com/codewandler/agentsdk/activation"
+    "github.com/codewandler/agentsdk/toolactivation"
     "github.com/codewandler/agentsdk/runner"
     "github.com/codewandler/agentsdk/runtime"
     "github.com/codewandler/agentsdk/tool"
@@ -58,7 +58,7 @@ if err != nil {
 }
 identity, _, _ := runtime.RouteIdentity(auto, sourceAPI, model)
 
-toolActivation := activation.New(standard.DefaultTools()...)
+toolActivation := toolactivation.New(standard.DefaultTools()...)
 agent, err := runtime.New(auto.Client,
     runtime.WithProviderIdentity(identity),
     runtime.WithModel(model),
@@ -375,7 +375,7 @@ Use these directly when `runtime.Agent` is too high level:
 
 | Package | Purpose |
 |---------|---------|
-| `activation` | Reusable tool activation manager with glob-based activate/deactivate |
+| `toolactivation` | Reusable tool activation manager with glob-based activate/deactivate |
 | `agent` | Agent resource definitions, model policy, and evidence evaluation |
 | `agentcontext` | Context manager, context providers, render records, and fingerprinting |
 | `agentcontext/contextproviders` | Built-in context providers including environment, git, time, file, command, and project inventory |
@@ -405,7 +405,7 @@ Use these directly when `runtime.Agent` is too high level:
 | `tools/jsonquery` | JSON file query tool with field, index, and wildcard selectors |
 | `tools/notify` | Desktop notification and TTS tools |
 | `tools/shell` | Bash command execution with streaming and timeout |
-| `tools/standard` | Default tool bundle assembly; mutable activation is owned by `activation.Manager` |
+| `tools/standard` | Default tool bundle assembly; mutable activation is owned by `toolactivation.Manager` |
 | `tools/todo` | Todo/task list tools |
 | `tools/toolmgmt` | Tool list, activate, and deactivate management tools |
 | `tools/turn` | Turn-done signaling tool |

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/agentcontext/contextproviders"
 	"github.com/codewandler/agentsdk/capabilities/planner"
 	"github.com/codewandler/agentsdk/capability"
@@ -13,6 +12,7 @@ import (
 	"github.com/codewandler/agentsdk/runtime"
 	"github.com/codewandler/agentsdk/thread"
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/toolactivation"
 	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/llmadapter/unified"
 )
@@ -28,7 +28,7 @@ func (exampleClient) Request(_ context.Context, _ unified.Request) (<-chan unifi
 }
 
 func ExampleNew() {
-	tools := activation.New(standard.DefaultTools()...)
+	tools := toolactivation.New(standard.DefaultTools()...)
 	var text string
 	agent, err := runtime.New(exampleClient{},
 		runtime.WithModel("default"),
@@ -61,7 +61,7 @@ func ExampleNew() {
 }
 
 func ExampleHistoryOptions() {
-	tools := activation.New(standard.DefaultTools()...)
+	tools := toolactivation.New(standard.DefaultTools()...)
 	opts := runtime.HistoryOptions(
 		runtime.WithHistoryOptions(runtime.WithHistorySessionID("example-session")),
 		runtime.WithModel("default"),
@@ -76,7 +76,7 @@ func ExampleHistoryOptions() {
 
 func ExampleOpenThreadEngine() {
 	ctx := context.Background()
-	tools := activation.New(standard.DefaultTools()...)
+	tools := toolactivation.New(standard.DefaultTools()...)
 	store := thread.NewMemoryStore()
 	registry, err := capability.NewRegistry(planner.Factory{})
 	if err != nil {

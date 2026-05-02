@@ -4,10 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/codewandler/agentsdk/activation"
 	"github.com/codewandler/agentsdk/skill"
-	"github.com/codewandler/agentsdk/tools/skills"
-	"github.com/codewandler/agentsdk/tools/toolmgmt"
+	"github.com/codewandler/agentsdk/toolactivation"
 )
 
 type ToolContext struct {
@@ -54,12 +52,12 @@ func WithToolExtra(key string, value any) ToolContextOption {
 	}
 }
 
-func WithToolActivation(state activation.State) ToolContextOption {
-	return WithToolExtra(toolmgmt.KeyActivationState, state)
+func WithToolActivation(state toolactivation.State) ToolContextOption {
+	return WithToolExtra(toolactivation.ContextKey, state)
 }
 
 func WithToolSkillActivation(state *skill.ActivationState) ToolContextOption {
-	return WithToolExtra(skills.KeyActivationState, state)
+	return WithToolExtra(skill.ContextKey, state)
 }
 
 func WithToolExtras(values map[string]any) ToolContextOption {
