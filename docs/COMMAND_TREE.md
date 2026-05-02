@@ -139,6 +139,7 @@ type Descriptor struct {
     Path         []string
     Description  string
     ArgumentHint string
+    Policy       command.Policy
     Args         []ArgDescriptor
     Flags        []FlagDescriptor
     Input        InputDescriptor
@@ -202,9 +203,11 @@ type CommandCatalogEntry struct {
 }
 
 catalog := session.CommandCatalog()
+agentCatalog := session.CommandCatalog(harness.CommandCatalogAgentCallable())
+userCatalog := session.CommandCatalog(harness.CommandCatalogUserCallable())
 ```
 
-Namespace-only nodes such as `/workflow` are omitted from the catalog unless they become executable. Leaf commands such as `/workflow start`, `/workflow runs`, and `/session info` are included with `inputSchema` generated from their descriptors.
+Namespace-only nodes such as `/workflow` are omitted from the catalog unless they become executable. Leaf commands such as `/workflow start`, `/workflow runs`, and `/session info` are included with `inputSchema` generated from their descriptors. Policy filters can project only agent-callable or user-callable commands from the same catalog model.
 
 ## JSON rendering
 
@@ -261,6 +264,7 @@ Do not keep adding command namespaces with handwritten switch-based subcommand p
 6. Typed input descriptor type hints: ✅
 7. JSON Schema projection for command inputs: ✅
 8. Harness command catalog with input schemas: ✅
+9. Policy-aware command catalog filters: ✅
 
 Recommended commit sequence:
 

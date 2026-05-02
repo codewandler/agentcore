@@ -21,9 +21,9 @@ type Spec struct {
 
 // Policy describes who may invoke a command.
 type Policy struct {
-	UserCallable  bool
-	AgentCallable bool
-	Internal      bool
+	UserCallable  bool `json:"userCallable,omitempty"`
+	AgentCallable bool `json:"agentCallable,omitempty"`
+	Internal      bool `json:"internal,omitempty"`
 }
 
 // Params carries parsed arguments from a slash command invocation.

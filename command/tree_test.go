@@ -274,4 +274,6 @@ func TestTreeBuilderSupportsAliasesAndPolicy(t *testing.T) {
 	tree, err := NewTree("workflow", Alias("wf"), WithPolicy(Policy{AgentCallable: true})).Build()
 	require.NoError(t, err)
 	require.Equal(t, Spec{Name: "workflow", Aliases: []string{"wf"}, Policy: Policy{AgentCallable: true}}, tree.Spec())
+	require.Equal(t, Policy{AgentCallable: true}, tree.Descriptor().Policy)
+	require.True(t, tree.Descriptor().AgentCallable())
 }

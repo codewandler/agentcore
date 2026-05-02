@@ -141,11 +141,22 @@ type Descriptor struct {
 	Path         []string         `json:"path"`
 	Description  string           `json:"description,omitempty"`
 	ArgumentHint string           `json:"argumentHint,omitempty"`
+	Policy       Policy           `json:"-"`
 	Args         []ArgDescriptor  `json:"args,omitempty"`
 	Flags        []FlagDescriptor `json:"flags,omitempty"`
 	Input        InputDescriptor  `json:"input"`
 	Executable   bool             `json:"executable,omitempty"`
 	Subcommands  []Descriptor     `json:"subcommands,omitempty"`
+}
+
+// UserCallable reports whether this command descriptor should be available in user-facing UIs.
+func (d Descriptor) UserCallable() bool {
+	return Spec{Policy: d.Policy}.UserCallable()
+}
+
+// AgentCallable reports whether this command descriptor may be projected to agent/tool invocation.
+func (d Descriptor) AgentCallable() bool {
+	return Spec{Policy: d.Policy}.AgentCallable()
 }
 
 // ArgDescriptor describes one positional argument.
@@ -725,7 +736,7 @@ func (n *treeNode) commandInputFromMap(path []string, input map[string]any) (Com
 }
 
 func (n *treeNode) descriptor() Descriptor {
-	desc := Descriptor{Name: n.spec.Name, Path: n.path(), Description: n.spec.Description, ArgumentHint: n.spec.ArgumentHint, Executable: n.handler != nil}
+	desc := Descriptor{Name: n.spec.Name, Path: n.path(), Description: n.spec.Description, ArgumentHint: n.spec.ArgumentHint, Policy: n.spec.Policy, Executable: n.handler != nil}
 	hints := n.inputHintTypes()
 	for _, arg := range n.args {
 		desc.Args = append(desc.Args, ArgDescriptor{Name: arg.Name, Description: arg.Description, Required: arg.IsRequired, Variadic: arg.IsVariadic})
