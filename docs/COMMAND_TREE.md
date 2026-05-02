@@ -186,6 +186,16 @@ Example descriptor input for `/workflow runs`:
 
 Input descriptors are populated from declared `command.Arg(...)` and `command.Flag(...)` specs. That keeps the command tree declaration canonical for validation, help, typed binding, and non-terminal execution surfaces. Variadic args are exposed as `array`; scalar args and flags are exposed as `string` until explicit richer type metadata is added.
 
+## JSON rendering
+
+Command display payloads can be rendered as machine-readable JSON through the generic command renderer:
+
+```go
+text, err := command.Render(command.Display(tree.Descriptor()), command.DisplayJSON)
+```
+
+`DisplayJSON` uses the structured payload directly instead of terminal `Display(...)` strings, so descriptor consumers get stable JSON with lower-camel field names such as `input.fields`, `enumValues`, and `subcommands`.
+
 This enables future surfaces from the same command model:
 
 - terminal slash commands;
@@ -203,6 +213,7 @@ Do not keep adding command namespaces with handwritten switch-based subcommand p
 2. Existing harness command namespaces (`/workflow`, `/session`) migrated onto it: ✅
 3. Command descriptors/introspection exposed through harness sessions: ✅
 4. Typed command input binding: ✅
+5. JSON rendering for structured command payloads/descriptors: ✅
 
 Recommended commit sequence:
 
@@ -211,6 +222,7 @@ Add declarative command trees
 Use command trees for harness commands
 Expose command tree descriptors
 Add typed command input binding
+Add JSON command payload rendering
 ```
 
 During migration, keep terminal behavior stable where behavior is intentional, but do not preserve dirty parsing patterns. The current `command.Parse` tokenizer remains the terminal slash syntax parser; command validation and command metadata now live in the declarative tree.

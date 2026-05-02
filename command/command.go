@@ -3,6 +3,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -90,12 +91,12 @@ type Displayable interface {
 // text. It is still structured so command.Result does not need text-specific
 // fields.
 type TextPayload struct {
-	Text string
+	Text string `json:"text"`
 }
 
 // AgentTurnPayload asks the caller to run Input as an agent turn.
 type AgentTurnPayload struct {
-	Input string
+	Input string `json:"input"`
 }
 
 // Result is the typed outcome of a command execution. Payload carries the
@@ -137,6 +138,9 @@ func Render(result Result, mode DisplayMode) (string, error) {
 
 // RenderPayload renders one structured command payload for mode.
 func RenderPayload(payload any, mode DisplayMode) (string, error) {
+	if mode == DisplayJSON {
+		return RenderJSON(payload)
+	}
 	switch p := payload.(type) {
 	case nil:
 		return "", nil
@@ -152,6 +156,15 @@ func RenderPayload(payload any, mode DisplayMode) (string, error) {
 	default:
 		return "", fmt.Errorf("command: no renderer for payload %T", payload)
 	}
+}
+
+// RenderJSON renders payload as indented JSON for machine-readable command surfaces.
+func RenderJSON(payload any) (string, error) {
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // AgentTurnInput returns the prompt carried by an agent-turn result.

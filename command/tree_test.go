@@ -191,6 +191,33 @@ func TestTreeDescriptorInputEnumValuesAreDefensiveCopies(t *testing.T) {
 	require.Equal(t, "running", desc.Subcommands[0].Flags[0].EnumValues[0])
 }
 
+func TestTreeDescriptorRendersAsJSON(t *testing.T) {
+	tree, err := NewTree("workflow", Description("Inspect workflows")).
+		Sub("runs", nil,
+			Description("List runs"),
+			Flag("status").Describe("Run status").Enum("running", "succeeded", "failed"),
+		).
+		Build()
+	require.NoError(t, err)
+
+	text, err := Render(Display(tree.Descriptor()), DisplayJSON)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+		"name": "workflow",
+		"path": ["workflow"],
+		"description": "Inspect workflows",
+		"input": {},
+		"subcommands": [{
+			"name": "runs",
+			"path": ["workflow", "runs"],
+			"description": "List runs",
+			"flags": [{"name": "status", "description": "Run status", "enumValues": ["running", "succeeded", "failed"]}],
+			"input": {"fields": [{"name": "status", "source": "flag", "type": "string", "description": "Run status", "enumValues": ["running", "succeeded", "failed"]}]}
+		}]
+	}`, text)
+}
+
 func TestTreeRejectsDuplicateAndInvalidSpecs(t *testing.T) {
 	_, err := NewTree("workflow").
 		Sub("show", nil).

@@ -97,6 +97,25 @@ func TestCommandRunToolOnlyRunsAgentCallableCommands(t *testing.T) {
 	require.Contains(t, blocked.String(), "not callable")
 }
 
+func TestRenderPayloadJSONRendersStructuredPayload(t *testing.T) {
+	text, err := Render(Text("hello"), DisplayJSON)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"text":"hello"}`, text)
+}
+
+func TestRenderPayloadJSONBypassesDisplayableTerminalRendering(t *testing.T) {
+	payload := HelpPayload{Descriptor: Descriptor{Name: "workflow", Path: []string{"workflow"}}}
+
+	terminal, err := Render(Display(payload), DisplayTerminal)
+	require.NoError(t, err)
+	require.Contains(t, terminal, "usage: /workflow")
+
+	jsonText, err := Render(Display(payload), DisplayJSON)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"descriptor":{"name":"workflow","path":["workflow"],"input":{}}}`, jsonText)
+}
+
 func renderCommandResult(t *testing.T, result Result) string {
 	t.Helper()
 	text, err := Render(result, DisplayTerminal)

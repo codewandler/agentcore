@@ -132,46 +132,46 @@ type CommandInput struct {
 
 // Descriptor describes a command tree node for help, UI, and machine-readable discovery.
 type Descriptor struct {
-	Name         string
-	Path         []string
-	Description  string
-	ArgumentHint string
-	Args         []ArgDescriptor
-	Flags        []FlagDescriptor
-	Input        InputDescriptor
-	Subcommands  []Descriptor
+	Name         string           `json:"name"`
+	Path         []string         `json:"path"`
+	Description  string           `json:"description,omitempty"`
+	ArgumentHint string           `json:"argumentHint,omitempty"`
+	Args         []ArgDescriptor  `json:"args,omitempty"`
+	Flags        []FlagDescriptor `json:"flags,omitempty"`
+	Input        InputDescriptor  `json:"input"`
+	Subcommands  []Descriptor     `json:"subcommands,omitempty"`
 }
 
 // ArgDescriptor describes one positional argument.
 type ArgDescriptor struct {
-	Name        string
-	Description string
-	Required    bool
-	Variadic    bool
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Variadic    bool   `json:"variadic,omitempty"`
 }
 
 // FlagDescriptor describes one named flag.
 type FlagDescriptor struct {
-	Name        string
-	Description string
-	Required    bool
-	EnumValues  []string
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	EnumValues  []string `json:"enumValues,omitempty"`
 }
 
 // InputDescriptor describes a command node's structured input shape.
 type InputDescriptor struct {
-	Fields []InputFieldDescriptor
+	Fields []InputFieldDescriptor `json:"fields,omitempty"`
 }
 
 // InputFieldDescriptor describes one structured command input field.
 type InputFieldDescriptor struct {
-	Name        string
-	Source      InputSource
-	Type        InputType
-	Description string
-	Required    bool
-	Variadic    bool
-	EnumValues  []string
+	Name        string      `json:"name"`
+	Source      InputSource `json:"source"`
+	Type        InputType   `json:"type"`
+	Description string      `json:"description,omitempty"`
+	Required    bool        `json:"required,omitempty"`
+	Variadic    bool        `json:"variadic,omitempty"`
+	EnumValues  []string    `json:"enumValues,omitempty"`
 }
 
 // InputSource identifies where an input field comes from.
@@ -210,10 +210,10 @@ const (
 
 // ValidationError describes invalid command input or an invalid command spec.
 type ValidationError struct {
-	Path    []string
-	Code    ValidationErrorCode
-	Field   string
-	Message string
+	Path    []string            `json:"path,omitempty"`
+	Code    ValidationErrorCode `json:"code"`
+	Field   string              `json:"field,omitempty"`
+	Message string              `json:"message,omitempty"`
 }
 
 func (e ValidationError) Error() string {
@@ -228,8 +228,8 @@ func (e ValidationError) Error() string {
 
 // HelpPayload displays descriptor-derived command usage, optionally with a validation error.
 type HelpPayload struct {
-	Descriptor Descriptor
-	Error      *ValidationError
+	Descriptor Descriptor       `json:"descriptor"`
+	Error      *ValidationError `json:"error,omitempty"`
 }
 
 func (p HelpPayload) Display(DisplayMode) (string, error) {
