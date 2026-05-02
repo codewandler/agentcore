@@ -124,10 +124,6 @@ func WithOutput(w io.Writer) Option {
 	return func(a *Instance) { a.out = w }
 }
 
-func WithTerminalUI(enabled bool) Option {
-	return func(a *Instance) { a.terminalUI = enabled }
-}
-
 func WithWorkspace(dir string) Option {
 	return func(a *Instance) { a.workspace = dir }
 }

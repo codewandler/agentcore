@@ -12,6 +12,7 @@ import (
 	"github.com/codewandler/agentsdk/agentdir"
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/terminal/repl"
+	"github.com/codewandler/agentsdk/terminal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -115,10 +116,11 @@ func newResearchApp() (*app.App, error) {
 		app.WithDefaultSkillSourceDiscovery(app.SkillSourceDiscovery{WorkspaceDir: "."}),
 		app.WithAgentWorkspace("."),
 		app.WithAgentOutput(os.Stdout),
-		app.WithAgentTerminalUI(true),
-		app.WithAgentVerbose(true),
-		app.WithAgentOptions(agent.WithModelPolicy(agent.ModelPolicy{
-			UseCase: agent.ModelUseCaseAgenticCoding,
-		})),
+		app.WithAgentOptions(
+			agent.WithEventHandlerFactory(ui.AgentEventHandlerFactory(os.Stdout)),
+			agent.WithModelPolicy(agent.ModelPolicy{
+				UseCase: agent.ModelUseCaseAgenticCoding,
+			}),
+		),
 	)
 }

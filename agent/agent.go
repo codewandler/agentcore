@@ -21,7 +21,6 @@ import (
 	"github.com/codewandler/agentsdk/runner"
 	agentruntime "github.com/codewandler/agentsdk/runtime"
 	"github.com/codewandler/agentsdk/skill"
-	"github.com/codewandler/agentsdk/terminal/ui"
 	"github.com/codewandler/agentsdk/thread"
 	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
@@ -75,7 +74,6 @@ type Instance struct {
 	inference                InferenceOptions
 	maxSteps                 int
 	out                      io.Writer
-	terminalUI               bool
 	workspace                string
 	toolTimeout              time.Duration
 	system                   string
@@ -492,9 +490,6 @@ func (a *Instance) Reset() {
 func (a *Instance) RunTurn(ctx context.Context, turnID int, task string) error {
 	if a == nil || a.runtime == nil {
 		return fmt.Errorf("agent: runtime is not initialized")
-	}
-	if a.verbose {
-		ui.PrintResolvedModel(a.Out(), strings.TrimSpace(fmt.Sprintf("input=%s  instance=%s  resolved=%s%s", a.inference.Model, a.resolvedProvider, a.resolvedModel, a.modelCompatibilitySummary())))
 	}
 	handler := a.newEventHandler(turnID)
 	_, err := a.runtime.RunTurn(
@@ -1094,31 +1089,12 @@ func (a *Instance) reasoningConfig() (unified.ReasoningConfig, bool) {
 }
 
 func (a *Instance) newEventHandler(turnID int) runner.EventHandler {
-	var display *ui.EventDisplay
-	if a.terminalUI && a.out != nil && a.out != io.Discard {
-		display = ui.NewEventDisplay(a.out,
-			ui.WithTracker(a.tracker),
-			ui.WithTurnID(strconv.Itoa(turnID)),
-			ui.WithSessionID(a.sessionID),
-			ui.WithFallbackModel(a.inference.Model),
-			ui.WithRouteState(usage.RouteState{Provider: a.resolvedProvider, Model: a.resolvedModel}),
-		)
-	}
 	extra := runner.EventHandler(nil)
 	if a.eventHandlerFactory != nil {
 		extra = a.eventHandlerFactory(a, turnID)
 	}
 	return func(event runner.Event) {
-		if display != nil {
-			display.Handle(event)
-		} else {
-			a.recordEvent(turnID, event)
-		}
-		if ev, ok := event.(runner.RouteEvent); ok {
-			a.providerIdentity = ev.ProviderIdentity
-			a.resolvedProvider = ev.ProviderIdentity.ProviderName
-			a.resolvedModel = ev.ProviderIdentity.NativeModel
-		}
+		a.recordEvent(turnID, event)
 		if extra != nil {
 			extra(event)
 		}

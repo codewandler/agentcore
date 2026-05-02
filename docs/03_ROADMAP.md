@@ -704,8 +704,8 @@ Goal: reduce coupling after new boundaries have proven useful.
 
 Tasks:
 
-1. Remove concrete tool imports from `runtime`.
-2. Move terminal-specific behavior out of `agent`.
+1. Remove concrete tool imports from `runtime`. ✅
+2. Move terminal-specific event rendering out of `agent` into the terminal boundary. ✅
 3. Shrink `agent.Instance` toward a compatibility façade over harness/session/runtime pieces.
 4. Move default-heavy app wiring out of `app.New` where appropriate.
 5. Keep `tools/standard` as bundle construction only; split broad standard bundles into `bundles/` later only if it deletes complexity.

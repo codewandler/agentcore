@@ -691,6 +691,7 @@ Current cleanup work is enforcing these boundaries:
 - Session projections are not plugins; do not introduce `harness.Plugin` beside `app.Plugin`.
 - New commands belong in declarative `command.Tree` definitions, not handwritten switch namespaces.
 - Channel boundaries must render returned `command.Result` values instead of discarding them or formatting inside harness handlers.
+- Terminal event rendering lives in `terminal/*`; `agent.Instance` records runner events and delegates presentation through event handler factories.
 - New seams should delete or collapse old paths; avoid labeling permanent complexity as "transitional" without paying it down.
 
 ## Current coupling issues to reduce

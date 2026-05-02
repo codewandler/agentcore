@@ -171,8 +171,8 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 		app.WithDefaultSkillSourceDiscovery(app.SkillSourceDiscovery{WorkspaceDir: workspace, IncludeGlobalUserResources: policy.IncludeGlobalUserResources}),
 		app.WithAgentWorkspace(workspace),
 		app.WithAgentOutput(out),
-		app.WithAgentTerminalUI(true),
 		app.WithAgentVerbose(cfg.Verbose),
+		app.WithAgentOptions(agent.WithEventHandlerFactory(ui.AgentEventHandlerFactory(out))),
 	}
 	if cfg.ToolTimeout > 0 {
 		appOpts = append(appOpts, app.WithAgentToolTimeout(cfg.ToolTimeout))
@@ -251,6 +251,11 @@ func Run(ctx context.Context, cfg Config) error {
 			runCtx, cancel = context.WithTimeout(runCtx, cfg.TotalTimeout)
 		}
 		defer cancel()
+		if cfg.Verbose {
+			if summary := loaded.Session.ParamsSummary(); summary != "" {
+				fmt.Fprintf(out, "%s[%s]%s\n", ui.Dim, summary, ui.Reset)
+			}
+		}
 		result, err := loaded.Session.Send(runCtx, cfg.Task)
 		if renderErr := renderOneShotResult(out, result); renderErr != nil && err == nil {
 			err = renderErr

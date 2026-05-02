@@ -241,10 +241,6 @@ func WithAgentOutput(out io.Writer) Option {
 	return WithAgentOptions(agent.WithOutput(out))
 }
 
-func WithAgentTerminalUI(enabled bool) Option {
-	return WithAgentOptions(agent.WithTerminalUI(enabled))
-}
-
 func WithTools(tools ...tool.Tool) Option {
 	return func(c *config) { c.tools = append(c.tools, tools...) }
 }
