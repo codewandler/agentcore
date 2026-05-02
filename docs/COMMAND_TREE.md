@@ -2,7 +2,7 @@
 
 ## Problem
 
-The current command implementation is intentionally simple, but it should not be the long-term SDK surface. Harness commands such as `/workflow` currently hide subcommands, positional arguments, flags, and validation inside handwritten switch statements and ad hoc parsing. That creates several problems:
+The original command implementation was intentionally simple, but it was not the long-term SDK surface. Handwritten harness command namespaces such as `/workflow` hid subcommands, positional arguments, flags, and validation inside switch statements and ad hoc parsing. That creates several problems:
 
 - subcommands are invisible to the type system;
 - command help, docs, and API schemas cannot be generated reliably;
@@ -10,11 +10,11 @@ The current command implementation is intentionally simple, but it should not be
 - terminal slash commands, HTTP command APIs, and LLM-callable command projections would each need bespoke mapping;
 - every new command namespace increases later migration cost.
 
-Until this is addressed, avoid adding more broad command namespaces in the current switch/parse style.
+The first command-tree implementation now lives in `command.Tree`, and current harness `/workflow` and `/session` commands are tree-backed. Avoid adding more broad command namespaces outside this tree model.
 
 ## Direction
 
-Commands should become a declarative, channel-neutral command tree: similar in spirit to Cobra, but smaller and SDK-native. The command package should know about:
+Commands now have a declarative, channel-neutral command tree in the existing `command` package: similar in spirit to Cobra, but smaller and SDK-native. The command package knows about:
 
 - root command names such as `workflow`, `session`, `agent`, or `thread`;
 - nested subcommands such as `workflow runs`, `workflow show`, `agent list`;
@@ -28,54 +28,45 @@ Terminal slash syntax should be one input projection over this tree, not the can
 
 ## Target shape
 
-A builder-style API is preferred because it stays readable for SDK consumers:
+The current API reuses existing `command.Spec` and keeps `Tree` compatible with the existing `command.Command` interface:
 
 ```go
-workflowTree := command.NewTree("workflow").
-    Description("Inspect and run workflows").
-    Sub("list", workflowListHandler).
-    Sub("show", workflowShowHandler,
-        command.Arg("name").Required().Description("Workflow name"),
-    ).
-    Sub("start", workflowStartHandler,
-        command.Arg("name").Required(),
-        command.Arg("input").Variadic(),
-    ).
-    Sub("runs", workflowRunsHandler,
-        command.Flag("workflow").String().Description("Workflow name"),
-        command.Flag("status").Enum("running", "succeeded", "failed"),
-    ).
-    Sub("run", workflowRunHandler,
-        command.Arg("run_id").Required(),
-    )
-```
+workflowTree := command.NewTree(command.Spec{
+    Name:        "workflow",
+    Description: "Inspect and run workflows",
+})
 
-A functional style is also acceptable if it fits existing package conventions better:
-
-```go
-command.Group(command.Spec{Name: "workflow", Description: "Inspect and run workflows"},
-    command.Leaf(command.Spec{Name: "list"}, workflowListHandler),
-    command.Leaf(command.Spec{Name: "show"}, workflowShowHandler,
-        command.Arg("name", command.Required()),
-    ),
-    command.Leaf(command.Spec{Name: "runs"}, workflowRunsHandler,
-        command.Flag("workflow"),
-        command.Flag("status", command.Enum("running", "succeeded", "failed")),
-    ),
+_, err := workflowTree.AddSub(
+    command.Spec{Name: "runs", Description: "List workflow runs"},
+    workflowRunsHandler,
+    command.Flag("workflow").Describe("Workflow name"),
+    command.Flag("status").Enum("running", "succeeded", "failed"),
 )
 ```
 
-The builder API is currently the preferred direction.
+Handlers receive validated structured invocation data rather than raw slash-parser leftovers:
+
+```go
+type TreeHandler func(context.Context, command.Invocation) (command.Result, error)
+
+func workflowRunsHandler(ctx context.Context, inv command.Invocation) (command.Result, error) {
+    workflowName := inv.Flag("workflow")
+    status := inv.Flag("status")
+    // no manual flag parsing
+}
+```
+
+The tree still implements the existing flat command contract:
+
+```go
+var _ command.Command = (*command.Tree)(nil)
+```
+
+`command.Parse` remains the terminal slash tokenizer; the tree owns subcommand dispatch, declared args/flags, validation, descriptors, and generated usage.
 
 ## Typed input direction
 
-The first slice may keep handlers as:
-
-```go
-type Handler func(context.Context, command.Params) (command.Result, error)
-```
-
-but the target should support typed command inputs, similar to `action.NewTyped`:
+The current tree slice stops at named invocation values. A later slice should add typed command inputs, similar to `action.NewTyped`:
 
 ```go
 type WorkflowRunsInput struct {
@@ -101,19 +92,21 @@ Some commands may wrap actions. Other commands, such as `/session info`, are cha
 
 ## Descriptor and schema direction
 
-A running harness should eventually be able to expose all supported command shapes through descriptors:
+A running harness can expose supported command shapes through descriptors:
 
 ```go
 type Descriptor struct {
-    Name        string
-    Path        []string
-    Description string
-    Args        []ArgSpec
-    Flags       []FlagSpec
-    // later: InputType / JSON Schema / output payload metadata
+    Name         string
+    Path         []string
+    Description  string
+    ArgumentHint string
+    Args         []ArgDescriptor
+    Flags        []FlagDescriptor
+    Subcommands  []Descriptor
 }
 
-func (t *Tree) Descriptors() []Descriptor
+func (t *Tree) Descriptor() Descriptor
+func (s *harness.Session) CommandDescriptors() []command.Descriptor
 ```
 
 Example descriptor for `/workflow runs`:
@@ -147,12 +140,12 @@ This enables future surfaces from the same command model:
 
 ## Migration plan
 
-Do not keep adding command namespaces with handwritten switch-based subcommand parsing. The next command-related work should be one of:
+Do not keep adding command namespaces with handwritten switch-based subcommand parsing. Current state:
 
-1. Add the declarative command tree core in `command`.
-2. Migrate existing harness command namespaces (`/workflow`, `/session`) onto it.
-3. Add command descriptors/introspection.
-4. Add typed command input binding.
+1. Declarative command tree core in `command`: ✅
+2. Existing harness command namespaces (`/workflow`, `/session`) migrated onto it: ✅
+3. Command descriptors/introspection exposed through harness sessions: ✅
+4. Typed command input binding: future work.
 
 Recommended commit sequence:
 
@@ -163,4 +156,4 @@ Expose command tree descriptors
 Add typed command input binding
 ```
 
-During migration, keep existing terminal behavior stable. The current `command.Parse` tokenizer can remain as the terminal slash syntax parser, but command validation and command metadata should move into the declarative tree.
+During migration, keep terminal behavior stable where behavior is intentional, but do not preserve dirty parsing patterns. The current `command.Parse` tokenizer remains the terminal slash syntax parser; command validation and command metadata now live in the declarative tree.

@@ -550,7 +550,7 @@ WorkflowRunState(ctx context.Context, runID workflow.RunID) (workflow.RunState, 
 WorkflowRuns(ctx context.Context) ([]workflow.RunSummary, bool, error)
 ```
 
-The terminal path routes through `harness.Session.Send`, so harness can own session-aware workflow commands without making `app.App` aware of terminal/session state. Current commands are:
+The terminal path routes through `harness.Session.Send`, so harness can own session-aware workflow commands without making `app.App` aware of terminal/session state. Harness commands are declared through `command.Tree`; slash syntax is one projection over the same tree used for descriptors and structured command execution. Current commands are:
 
 ```text
 /workflow list                 # registered workflow definitions
@@ -560,6 +560,15 @@ The terminal path routes through `harness.Session.Send`, so harness can own sess
                                # recorded workflow run summaries for this thread-backed session
 /workflow run <id>             # projected run detail for this thread-backed session
 ```
+
+The same command model is exposed programmatically through:
+
+```go
+CommandDescriptors() []command.Descriptor
+ExecuteCommand(ctx context.Context, path []string, input map[string]any) (command.Result, error)
+```
+
+`ExecuteCommand` dispatches against the command tree directly and does not stringify structured input into slash-command text. This keeps terminal, future HTTP/JSON APIs, generated help, and LLM-safe projections aligned on one command contract.
 
 Trade-off: `/workflow start` is synchronous today: it executes the workflow in the current command request and returns after completion or failure with the run ID. A future async harness lifecycle can keep the same command shape and return `running` once workflows can outlive the request. `/workflow runs` includes projected start/completion timing, duration, and harness-side filtering by workflow name and status, but is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires sorting support on top of `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
 
@@ -616,7 +625,7 @@ harness.Service
   supports multiple channels/triggers
 ```
 
-The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends, session metadata, and session-scoped workflow browsing. It intentionally keeps command namespaces such as `/workflow` and `/session` in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?". Workflow command parsing lives behind a small harness command handler rather than directly on `Session`, keeping the session API focused on capabilities and read models.
+The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends, session metadata, and session-scoped workflow browsing. It intentionally keeps command namespaces such as `/workflow` and `/session` in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?". Harness command namespaces are now declarative `command.Tree` definitions; `Session.Send`, `Session.CommandDescriptors`, and `Session.ExecuteCommand` all use the same tree-backed command model instead of separate switch-based parsing paths.
 
 ## Package evolution map
 
@@ -635,7 +644,7 @@ The first harness implementation already wraps `app.App` and the default `agent.
 | `capabilities/planner` | Keep as built-in capability and dogfood example of event-sourced session state plus context plus action/tool projection. |
 | `agentcontext` | Keep context provider/render model; reuse for workflow steps. |
 | `skill` | Keep instruction/reference resource model. |
-| `command` | Keep slash command and channel-result model; keep `command.Tool` as the deliberate agent-callable projection/compatibility bridge; add action-backed command adapters where useful without making every command model-callable. |
+| `command` | Keep slash command and channel-result model; use `command.Tree` for declarative subcommands, args, flags, validation, descriptors, and structured command execution; keep `command.Tool` as the deliberate agent-callable projection/compatibility bridge; add action-backed command adapters where useful without making every command model-callable. |
 | `resource` | Extend contribution bundle with datasources/workflows/actions. |
 | `agentdir` | Extend loader for `.agents/datasources` and `.agents/workflows`. |
 | `app` | Keep composition root; add datasource/workflow/action registries; later hosted by harness. |

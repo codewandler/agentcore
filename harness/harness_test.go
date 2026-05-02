@@ -70,7 +70,47 @@ func TestSessionInfoCommandReportsHarnessMetadata(t *testing.T) {
 
 	result, err = session.Send(context.Background(), "/session nope")
 	require.NoError(t, err)
-	require.Equal(t, "usage: /session [info]", renderCommandResult(t, result))
+	text = renderCommandResult(t, result)
+	require.Contains(t, text, "unknown subcommand \"nope\"")
+	require.Contains(t, text, "usage: /session <info>")
+	require.Contains(t, text, "/session info")
+}
+
+func TestSessionCommandDescriptorsAndStructuredExecute(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithWorkflows(workflow.Definition{Name: "ask_flow", Description: "Ask the agent", Steps: []workflow.Step{{ID: "ask", Action: workflow.ActionRef{Name: "ask_agent"}}}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	descriptors := session.CommandDescriptors()
+	require.Len(t, descriptors, 2)
+	require.Equal(t, "workflow", descriptors[0].Name)
+	require.Equal(t, []string{"workflow"}, descriptors[0].Path)
+	require.Equal(t, []string{"workflow", "list"}, descriptors[0].Subcommands[0].Path)
+	require.Equal(t, "session", descriptors[1].Name)
+	require.Equal(t, []string{"session", "info"}, descriptors[1].Subcommands[0].Path)
+
+	result, err := session.ExecuteCommand(context.Background(), []string{"/workflow", "list"}, nil)
+	require.NoError(t, err)
+	require.Contains(t, renderCommandResult(t, result), "- ask_flow: Ask the agent")
+
+	result, err = session.ExecuteCommand(context.Background(), []string{"session", "info"}, nil)
+	require.NoError(t, err)
+	require.Contains(t, renderCommandResult(t, result), "agent: coder")
+
+	result, err = session.ExecuteCommand(context.Background(), []string{"workflow", "runs"}, map[string]any{"status": "nope"})
+	require.NoError(t, err)
+	payload, ok := result.Payload.(command.HelpPayload)
+	require.True(t, ok)
+	require.NotNil(t, payload.Error)
+	require.Equal(t, command.ValidationInvalidFlagValue, payload.Error.Code)
+	require.Equal(t, "status", payload.Error.Field)
 }
 
 func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
@@ -215,7 +255,13 @@ func TestSessionWorkflowCommandUsageAndNotFound(t *testing.T) {
 
 	result, err := session.Send(context.Background(), "/workflow")
 	require.NoError(t, err)
-	require.Contains(t, renderCommandResult(t, result), "usage: /workflow <list|show|start|runs|run>")
+	text := renderCommandResult(t, result)
+	require.Contains(t, text, "usage: /workflow <list|show|start|runs|run>")
+	require.Contains(t, text, "/workflow list")
+	require.Contains(t, text, "/workflow show <name>")
+	require.Contains(t, text, "/workflow start <name> [input...]")
+	require.Contains(t, text, "/workflow runs [--workflow <workflow>] [--status <running|succeeded|failed>]")
+	require.Contains(t, text, "/workflow run <run-id>")
 
 	result, err = session.Send(context.Background(), "/workflow run missing")
 	require.NoError(t, err)
@@ -330,7 +376,9 @@ func TestSessionWorkflowStartCommandUsageAndMissingWorkflow(t *testing.T) {
 
 	result, err := session.Send(context.Background(), "/workflow start")
 	require.NoError(t, err)
-	require.Equal(t, "usage: /workflow start <name> [input]", renderCommandResult(t, result))
+	text := renderCommandResult(t, result)
+	require.Contains(t, text, "missing required argument \"name\"")
+	require.Contains(t, text, "usage: /workflow start <name> [input...]")
 
 	result, err = session.Send(context.Background(), "/workflow start missing")
 	require.NoError(t, err)
@@ -440,11 +488,15 @@ func TestSessionWorkflowRunsCommandFiltersByWorkflowAndStatus(t *testing.T) {
 
 	result, err = session.Send(ctx, "/workflow runs --status nope")
 	require.NoError(t, err)
-	require.Equal(t, "workflow runs: unsupported status \"nope\"", renderCommandResult(t, result))
+	text = renderCommandResult(t, result)
+	require.Contains(t, text, "invalid value \"nope\" for --status")
+	require.Contains(t, text, "usage: /workflow runs [--workflow <workflow>] [--status <running|succeeded|failed>]")
 
 	result, err = session.Send(ctx, "/workflow runs --workflow")
 	require.NoError(t, err)
-	require.Equal(t, "usage: /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]", renderCommandResult(t, result))
+	text = renderCommandResult(t, result)
+	require.Contains(t, text, "missing value for --workflow")
+	require.Contains(t, text, "usage: /workflow runs [--workflow <workflow>] [--status <running|succeeded|failed>]")
 }
 
 func TestSessionWorkflowListNoWorkflows(t *testing.T) {
@@ -504,6 +556,25 @@ func TestSessionReportsMissingApp(t *testing.T) {
 
 	result := (*Session)(nil).ExecuteWorkflow(context.Background(), "missing", nil)
 	require.ErrorContains(t, result.Error, "app is required")
+}
+
+func TestSessionExecuteCommandReportsInvalidPathAndUnknownRoot(t *testing.T) {
+	application, err := app.New(app.WithAgentSpec(agent.Spec{Name: "coder"}), app.WithOutput(&bytes.Buffer{}))
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	_, err = session.ExecuteCommand(context.Background(), nil, nil)
+	var validation command.ValidationError
+	require.ErrorAs(t, err, &validation)
+	require.Equal(t, command.ValidationInvalidSpec, validation.Code)
+
+	_, err = session.ExecuteCommand(context.Background(), []string{"missing"}, nil)
+	var unknown command.ErrUnknown
+	require.ErrorAs(t, err, &unknown)
+	require.Equal(t, "missing", unknown.Name)
 }
 
 func requireHarnessRequestContainsText(t *testing.T, req unified.Request, want string) {

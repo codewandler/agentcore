@@ -48,13 +48,99 @@ func (s *Session) Send(ctx context.Context, input string) (command.Result, error
 	if s == nil || s.App == nil {
 		return command.Result{}, fmt.Errorf("harness: app is required")
 	}
-	if isWorkflowCommand(input) {
-		return WorkflowCommandHandler{Session: s}.HandleInput(ctx, input)
-	}
-	if isSessionCommand(input) {
-		return SessionCommandHandler{Session: s}.HandleInput(ctx, input)
+	trimmed := strings.TrimSpace(input)
+	if strings.HasPrefix(trimmed, "/") {
+		name, params, err := command.Parse(trimmed)
+		if err != nil {
+			return command.Result{}, err
+		}
+		if tree, ok, err := s.commandTree(name); err != nil {
+			return command.Result{}, err
+		} else if ok {
+			return tree.Execute(ctx, params)
+		}
 	}
 	return s.App.Send(ctx, input)
+}
+
+func (s *Session) CommandDescriptors() []command.Descriptor {
+	trees, err := s.commandTrees()
+	if err != nil {
+		return nil
+	}
+	descriptors := make([]command.Descriptor, 0, len(trees))
+	for _, tree := range trees {
+		if tree != nil {
+			descriptors = append(descriptors, tree.Descriptor())
+		}
+	}
+	return descriptors
+}
+
+func (s *Session) ExecuteCommand(ctx context.Context, path []string, input map[string]any) (command.Result, error) {
+	if s == nil || s.App == nil {
+		return command.Result{}, fmt.Errorf("harness: app is required")
+	}
+	path = commandPath(path)
+	root, ok := commandRoot(path)
+	if !ok {
+		return command.Result{}, command.ValidationError{Code: command.ValidationInvalidSpec, Message: "harness: command path is required"}
+	}
+	tree, ok, err := s.commandTree(root)
+	if err != nil {
+		return command.Result{}, err
+	}
+	if !ok {
+		return command.Result{}, command.ErrUnknown{Name: root}
+	}
+	return tree.ExecuteMap(ctx, path, input)
+}
+
+func (s *Session) commandTrees() ([]*command.Tree, error) {
+	workflowTree, err := NewWorkflowCommand(s)
+	if err != nil {
+		return nil, err
+	}
+	sessionTree, err := NewSessionCommand(s)
+	if err != nil {
+		return nil, err
+	}
+	return []*command.Tree{workflowTree, sessionTree}, nil
+}
+
+func (s *Session) commandTree(name string) (*command.Tree, bool, error) {
+	name = strings.TrimPrefix(strings.TrimSpace(name), "/")
+	if name == "" {
+		return nil, false, nil
+	}
+	trees, err := s.commandTrees()
+	if err != nil {
+		return nil, false, err
+	}
+	for _, tree := range trees {
+		if tree != nil && tree.Spec().Name == name {
+			return tree, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func commandPath(path []string) []string {
+	clean := make([]string, 0, len(path))
+	for _, part := range path {
+		part = strings.TrimPrefix(strings.TrimSpace(part), "/")
+		if part != "" {
+			clean = append(clean, part)
+		}
+	}
+	return clean
+}
+
+func commandRoot(path []string) (string, bool) {
+	if len(path) == 0 {
+		return "", false
+	}
+	return path[0], true
 }
 
 func (s *Session) ExecuteWorkflow(ctx context.Context, workflowName string, input any, opts ...app.WorkflowExecutionOption) action.Result {

@@ -2,9 +2,7 @@ package harness
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/command"
@@ -15,57 +13,52 @@ type WorkflowCommandHandler struct {
 	Session *Session
 }
 
-func isWorkflowCommand(input string) bool {
-	input = strings.TrimSpace(input)
-	return input == "/workflow" || strings.HasPrefix(input, "/workflow ")
+func NewWorkflowCommand(session *Session) (*command.Tree, error) {
+	h := WorkflowCommandHandler{Session: session}
+	tree := command.NewTree(command.Spec{Name: "workflow", Description: "Inspect and run workflows"})
+	if _, err := tree.AddSub(command.Spec{Name: "list", Description: "List workflows"}, h.workflowListCommand); err != nil {
+		return nil, err
+	}
+	if _, err := tree.AddSub(command.Spec{Name: "show", Description: "Show workflow"}, h.workflowShowCommand, command.Arg("name").Required()); err != nil {
+		return nil, err
+	}
+	if _, err := tree.AddSub(command.Spec{Name: "start", Description: "Start workflow"}, h.workflowStartCommand, command.Arg("name").Required(), command.Arg("input").Variadic()); err != nil {
+		return nil, err
+	}
+	if _, err := tree.AddSub(command.Spec{Name: "runs", Description: "List workflow runs"}, h.workflowRunsCommand,
+		command.Flag("workflow"),
+		command.Flag("status").Enum(string(workflow.RunRunning), string(workflow.RunSucceeded), string(workflow.RunFailed)),
+	); err != nil {
+		return nil, err
+	}
+	if _, err := tree.AddSub(command.Spec{Name: "run", Description: "Show workflow run"}, h.workflowRunCommand, command.Arg("run-id").Required()); err != nil {
+		return nil, err
+	}
+	return tree, nil
 }
 
-func (h WorkflowCommandHandler) HandleInput(ctx context.Context, input string) (command.Result, error) {
-	_, params, err := command.Parse(input)
-	if err != nil {
-		return command.Result{}, err
-	}
-	return h.Handle(ctx, params)
+func (h WorkflowCommandHandler) workflowListCommand(context.Context, command.Invocation) (command.Result, error) {
+	return h.workflowList(), nil
 }
 
-func (h WorkflowCommandHandler) Handle(ctx context.Context, params command.Params) (command.Result, error) {
-	if len(params.Args) == 0 {
-		return command.Text(workflowCommandUsage()), nil
-	}
-	switch params.Args[0] {
-	case "list":
-		if len(params.Args) != 1 {
-			return command.Text("usage: /workflow list"), nil
-		}
-		return h.workflowList(), nil
-	case "show":
-		if len(params.Args) != 2 {
-			return command.Text("usage: /workflow show <name>"), nil
-		}
-		return h.workflowShow(params.Args[1]), nil
-	case "start":
-		if len(params.Args) < 2 {
-			return command.Text("usage: /workflow start <name> [input]"), nil
-		}
-		return h.workflowStart(ctx, params.Args[1], strings.Join(params.Args[2:], " "))
-	case "runs":
-		filters, err := parseWorkflowRunFilters(params)
-		if err != nil {
-			return command.Text(err.Error()), nil
-		}
-		return h.workflowRuns(ctx, filters)
-	case "run":
-		if len(params.Args) != 2 {
-			return command.Text("usage: /workflow run <run-id>"), nil
-		}
-		return h.workflowRun(ctx, workflow.RunID(params.Args[1]))
-	default:
-		return command.Text(workflowCommandUsage()), nil
-	}
+func (h WorkflowCommandHandler) workflowShowCommand(_ context.Context, inv command.Invocation) (command.Result, error) {
+	return h.workflowShow(inv.Arg("name")), nil
 }
 
-func workflowCommandUsage() string {
-	return "usage: /workflow <list|show|start|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow start <name> [input]\n  /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]\n  /workflow run <run-id>"
+func (h WorkflowCommandHandler) workflowStartCommand(ctx context.Context, inv command.Invocation) (command.Result, error) {
+	return h.workflowStart(ctx, inv.Arg("name"), inv.Arg("input"))
+}
+
+func (h WorkflowCommandHandler) workflowRunCommand(ctx context.Context, inv command.Invocation) (command.Result, error) {
+	return h.workflowRun(ctx, workflow.RunID(inv.Arg("run-id")))
+}
+
+func (h WorkflowCommandHandler) workflowRunsCommand(ctx context.Context, inv command.Invocation) (command.Result, error) {
+	filters := WorkflowRunFilters{
+		WorkflowName: inv.Flag("workflow"),
+		Status:       workflow.RunStatus(inv.Flag("status")),
+	}
+	return h.workflowRuns(ctx, filters)
 }
 
 func (h WorkflowCommandHandler) workflowList() command.Result {
@@ -110,6 +103,9 @@ func (h WorkflowCommandHandler) workflowStart(ctx context.Context, workflowName 
 
 func (h WorkflowCommandHandler) workflowRun(ctx context.Context, runID workflow.RunID) (command.Result, error) {
 	s := h.Session
+	if s == nil {
+		return command.Text("workflow runs require a thread-backed session"), nil
+	}
 	state, ok, err := s.WorkflowRunState(ctx, runID)
 	if err != nil {
 		return command.Result{}, err
@@ -125,6 +121,9 @@ func (h WorkflowCommandHandler) workflowRun(ctx context.Context, runID workflow.
 
 func (h WorkflowCommandHandler) workflowRuns(ctx context.Context, filters WorkflowRunFilters) (command.Result, error) {
 	s := h.Session
+	if s == nil {
+		return command.Text("workflow runs require a thread-backed session"), nil
+	}
 	summaries, ok, err := s.WorkflowRuns(ctx)
 	if err != nil {
 		return command.Result{}, err
@@ -133,47 +132,6 @@ func (h WorkflowCommandHandler) workflowRuns(ctx context.Context, filters Workfl
 		return command.Text("workflow runs require a thread-backed session"), nil
 	}
 	return command.Display(WorkflowRunsPayload{Summaries: filterWorkflowRuns(summaries, filters), Filters: filters}), nil
-}
-
-func parseWorkflowRunFilters(params command.Params) (WorkflowRunFilters, error) {
-	if len(params.Args) != 1 {
-		return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
-	}
-	var filters WorkflowRunFilters
-	for name, value := range params.Flags {
-		switch name {
-		case "workflow":
-			if value == "" || value == "true" {
-				return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
-			}
-			filters.WorkflowName = value
-		case "status":
-			if value == "" || value == "true" {
-				return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
-			}
-			status, err := parseWorkflowRunStatus(value)
-			if err != nil {
-				return WorkflowRunFilters{}, err
-			}
-			filters.Status = status
-		default:
-			return WorkflowRunFilters{}, errors.New(workflowRunsUsage())
-		}
-	}
-	return filters, nil
-}
-
-func parseWorkflowRunStatus(value string) (workflow.RunStatus, error) {
-	switch workflow.RunStatus(value) {
-	case workflow.RunRunning, workflow.RunSucceeded, workflow.RunFailed:
-		return workflow.RunStatus(value), nil
-	default:
-		return "", fmt.Errorf("workflow runs: unsupported status %q", value)
-	}
-}
-
-func workflowRunsUsage() string {
-	return "usage: /workflow runs [--workflow <name>] [--status <running|succeeded|failed>]"
 }
 
 func filterWorkflowRuns(summaries []workflow.RunSummary, filters WorkflowRunFilters) []workflow.RunSummary {

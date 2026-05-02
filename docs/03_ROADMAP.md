@@ -29,7 +29,7 @@ Before adding anything, recognize the reusable pieces already present:
 | `capability`, `capabilities/planner` | attachable stateful agent/session features; planner remains a capability because it is event-sourced session state plus context plus action/tool projection, not a workflow. |
 | `agentcontext` | selected context for turns and future workflow steps. |
 | `skill` | instruction/reference resources; not a workflow replacement. |
-| `command` | slash commands, caller policy, channel-result semantics, `command.Tool` as the agent-callable projection/compatibility bridge, and possible action-backed command adapters. |
+| `command` | slash commands, caller policy, channel-result semantics, `command.Tree` for declarative subcommands/args/flags/validation/descriptors, `command.Tool` as the agent-callable projection/compatibility bridge, and possible action-backed command adapters. |
 | `agentdir`, `resource` | datasource/workflow/action resource discovery should extend this. |
 | `app`, `plugins/*` | datasource/workflow/action registration should extend this plugin/app model. |
 | `terminal/*` | first channel; should migrate onto harness/session APIs. |
@@ -354,6 +354,7 @@ Current state:
 - `harness.Service` and `harness.Session` wrap the existing app/default-agent stack.
 - Harness exposes session metadata plus session-scoped workflow run lookup/listing over the default agent live thread.
 - Terminal send paths route through `harness.Session`, so harness can own session-aware slash-command namespaces such as `/session` and `/workflow`.
+- Harness commands are backed by declarative `command.Tree` definitions and exposed through `Session.CommandDescriptors` and `Session.ExecuteCommand` for structured, non-stringified command execution.
 
 Tasks:
 
@@ -420,18 +421,25 @@ go run ./cmd/agentsdk run apps/engineer
 
 ## Command tree refactor gate
 
-Before adding more broad command namespaces, replace the current handwritten subcommand switch style with the declarative command tree design in `docs/COMMAND_TREE.md`. The intended direction is a builder-style command tree with declared subcommands, args, flags, enum/required constraints, descriptors, and later typed input binding similar to `action.NewTyped`. This is required so terminal slash commands, harness command APIs, generated help/docs, and LLM-safe command projections can share one command contract instead of duplicating brittle parsing logic.
+Status: initial gate complete.
 
-Recommended sequence:
+The current command model has a declarative `command.Tree` in the existing `command` package. It supports subcommands, declared positional args, declared flags, enum/required validation, generated usage/help from descriptors, structured invocation handlers, and structured execution without converting input maps into slash-command strings. Harness `/workflow` and `/session` are tree-backed, and sessions expose:
 
-```text
-Add declarative command trees
-Use command trees for harness commands
-Expose command tree descriptors
-Add typed command input binding
+```go
+func (s *Session) CommandDescriptors() []command.Descriptor
+func (s *Session) ExecuteCommand(ctx context.Context, path []string, input map[string]any) (command.Result, error)
 ```
 
-Until that lands, avoid adding new command namespaces unless they are part of migrating to the command tree model.
+Remaining command-tree follow-ups:
+
+```text
+Add typed command input binding similar to action.NewTyped
+Expose output payload metadata in descriptors
+Project selected command trees into LLM-safe tool schemas where policy allows
+Add more channels over Session.ExecuteCommand instead of adding channel-specific parsers
+```
+
+Do not add new broad command namespaces outside the command tree model.
 
 ## Workflow/harness follow-up backlog
 
@@ -442,7 +450,7 @@ Near-term workflow UX and read-model follow-ups:
 - Add `/workflow runs --status succeeded|failed|running` filtering. ✅
 - Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.
 - Carry started/completed timestamps and duration in `workflow.RunSummary`. ✅ basic projected timing exists; richer trigger/source/input metadata remains future work.
-- Introduce structured command/workflow result payloads plus generic renderers (for example `Display(mode)` or a renderer registry for `terminal`, `llm`, and machine-readable modes) so harness commands return data models instead of formatting terminal strings inline.
+- Continue reducing presentation-specific command formatting by expanding structured payloads/renderers. Initial structured command result payloads and `Display(mode)` rendering exist; richer output payload descriptors and renderer registry remain future work.
 - Include richer workflow definition metadata in `/workflow show <name>` when definitions gain input/output schemas, defaults, policy, and step descriptions.
 
 Medium-term workflow lifecycle follow-ups:
