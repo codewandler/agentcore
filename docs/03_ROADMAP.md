@@ -318,8 +318,9 @@ Tasks:
 6. Add per-step input/output passing. ✅ initial dependency-output passing exists
 7. Add a minimal workflow run store. ✅ context-aware `workflow.RunStore`, `workflow.MemoryRunStore`, and `workflow.ThreadRunStore` exist
 8. Add workflow run summaries/listing. ✅ `workflow.RunSummary`, `ThreadRunStore.Runs`, `Session.WorkflowRuns`, and `/workflow runs` exist
-9. Add basic output validation. Not started
-10. Defer parallel DAG execution until sequential pipeline semantics are proven.
+9. Add harness workflow start command. ✅ `/workflow start <name> [input]` synchronously executes workflows and returns the run ID
+10. Add basic output validation. Not started
+11. Defer parallel DAG execution until sequential pipeline semantics are proven.
 
 Acceptance criteria:
 
@@ -333,7 +334,7 @@ Acceptance criteria:
 - Execution is observable through events. ✅ initial in-memory workflow events exist
 - Workflow run event/state access has an explicit store boundary. ✅ context-aware `workflow.RunStore` with memory and thread-backed implementations exists
 - Thread-backed runs can persist workflow events. ✅ `workflow.ThreadRecorder` and `workflow.ThreadRunStore` exist for thread logs; `App.ExecuteWorkflow` auto-records to the default agent live thread when available, while broader harness-owned workflow lifecycle remains future work
-- Thread-backed workflow runs can be listed and inspected through the harness. ✅ `Session.WorkflowRuns`, `Session.WorkflowRunState`, `/workflow runs`, and `/workflow run <id>` exist
+- Thread-backed workflow runs can be started, listed, and inspected through the harness. ✅ `/workflow start <name> [input]`, `Session.WorkflowRuns`, `Session.WorkflowRunState`, `/workflow runs`, and `/workflow run <id>` exist
 
 Verification:
 
@@ -421,7 +422,7 @@ go run ./cmd/agentsdk run apps/engineer
 
 Near-term workflow UX and read-model follow-ups:
 
-- Add `/workflow start <name> [input]` once run visibility and failure reporting are stable.
+- Make `/workflow start <name> [input]` asynchronous once harness owns workflow lifecycle beyond the current request.
 - Add `/workflow runs --workflow <name>` filtering.
 - Add `/workflow runs --status succeeded|failed|running` filtering.
 - Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.

@@ -121,6 +121,11 @@ func (s *Session) handleWorkflowCommand(ctx context.Context, input string) (comm
 			return command.Text("usage: /workflow show <name>"), nil
 		}
 		return s.workflowShow(params.Args[1]), nil
+	case "start":
+		if len(params.Args) < 2 {
+			return command.Text("usage: /workflow start <name> [input]"), nil
+		}
+		return s.workflowStart(ctx, params.Args[1], strings.Join(params.Args[2:], " "))
 	case "runs":
 		if len(params.Args) != 1 {
 			return command.Text("usage: /workflow runs"), nil
@@ -137,7 +142,7 @@ func (s *Session) handleWorkflowCommand(ctx context.Context, input string) (comm
 }
 
 func workflowCommandUsage() string {
-	return "usage: /workflow <list|show|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow runs\n  /workflow run <run-id>"
+	return "usage: /workflow <list|show|start|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow start <name> [input]\n  /workflow runs\n  /workflow run <run-id>"
 }
 
 func (s *Session) renderWorkflowList() string {
@@ -168,6 +173,34 @@ func (s *Session) workflowShow(name string) command.Result {
 		return command.Text(fmt.Sprintf("workflow %q not found", name))
 	}
 	return command.Text(renderWorkflowDefinition(def))
+}
+
+func (s *Session) workflowStart(ctx context.Context, workflowName string, input string) (command.Result, error) {
+	if s == nil || s.App == nil {
+		return command.Result{}, fmt.Errorf("harness: app is required")
+	}
+	if _, ok := s.App.Workflow(workflowName); !ok {
+		return command.Text(fmt.Sprintf("workflow %q not found", workflowName)), nil
+	}
+	runID := workflow.NewRunID()
+	result := s.ExecuteWorkflow(ctx, workflowName, input, app.WithWorkflowRunID(runID))
+	if result.Error != nil {
+		return command.Text(fmt.Sprintf("workflow failed: %s\nrun: %s\nerror: %v", workflowName, runID, result.Error)), nil
+	}
+	return command.Text(renderWorkflowStartResult(workflowName, runID, result.Data)), nil
+}
+
+func renderWorkflowStartResult(workflowName string, runID workflow.RunID, data any) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "workflow completed: %s\n", workflowName)
+	fmt.Fprintf(&b, "run: %s", runID)
+	if wfResult, ok := data.(workflow.Result); ok {
+		data = wfResult.Data
+	}
+	if data != nil {
+		fmt.Fprintf(&b, "\noutput: %v", data)
+	}
+	return b.String()
 }
 
 func (s *Session) workflowRun(ctx context.Context, runID workflow.RunID) (command.Result, error) {

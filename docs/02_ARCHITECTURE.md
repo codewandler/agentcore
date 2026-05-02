@@ -553,13 +553,14 @@ WorkflowRuns(ctx context.Context) ([]workflow.RunSummary, bool, error)
 The terminal path routes through `harness.Session.Send`, so harness can own session-aware workflow commands without making `app.App` aware of terminal/session state. Current commands are:
 
 ```text
-/workflow list        # registered workflow definitions
-/workflow show <name> # workflow definition detail
-/workflow runs        # recorded workflow run summaries for this thread-backed session
-/workflow run <id>    # projected run detail for this thread-backed session
+/workflow list                 # registered workflow definitions
+/workflow show <name>          # workflow definition detail
+/workflow start <name> [input] # synchronously execute a workflow in this session
+/workflow runs                 # recorded workflow run summaries for this thread-backed session
+/workflow run <id>             # projected run detail for this thread-backed session
 ```
 
-Trade-off: `/workflow runs` is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires adding sequence/timestamp metadata to `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
+Trade-off: `/workflow start` is synchronous today: it executes the workflow in the current command request and returns after completion or failure with the run ID. A future async harness lifecycle can keep the same command shape and return `running` once workflows can outlive the request. `/workflow runs` is currently sorted deterministically by run ID, not by execution time. Chronological ordering requires adding sequence/timestamp metadata to `RunSummary` or introducing a separate indexed read model. Until then, the read model favors simple projection from the append-only thread log over a second workflow database.
 
 ### Runtime relationship
 
