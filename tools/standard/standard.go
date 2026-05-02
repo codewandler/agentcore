@@ -74,6 +74,33 @@ func DefaultToolset() *Toolset {
 	return NewToolset(DefaultOptions())
 }
 
+// Register adds tools to the bundle and marks newly registered tools active.
+func (s *Toolset) Register(tools ...tool.Tool) error {
+	if s == nil {
+		return nil
+	}
+	if s.activation == nil {
+		s.activation = activation.New()
+	}
+	seen := make(map[string]bool, len(s.tools))
+	for _, existing := range s.tools {
+		if existing != nil {
+			seen[existing.Name()] = true
+		}
+	}
+	for _, t := range tools {
+		if t == nil {
+			continue
+		}
+		if seen[t.Name()] {
+			continue
+		}
+		s.tools = append(s.tools, t)
+		seen[t.Name()] = true
+	}
+	return s.activation.Register(tools...)
+}
+
 // Tools returns all tools in the bundle.
 func (s *Toolset) Tools() []tool.Tool {
 	if s == nil {

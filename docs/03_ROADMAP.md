@@ -375,7 +375,7 @@ Tasks:
 4. Keep `terminal/cli.Load` as compatibility wrapper initially. ✅
 5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ `Session.Info`, `Session.AgentName`, `Session.ThreadID`, `/session info`, and workflow read APIs exist
 
-6. Expose session-owned agent projections without creating a second plugin system. ✅ command tools and command-catalog context provider exist; automatic late attachment to running agents remains next work
+6. Expose session-owned agent projections without creating a second plugin system. ✅ `harness.AgentProjection`, `Session.AgentCommandProjection`, explicit `Session.AttachAgentProjection`, and agent/runtime late registration APIs exist for command tools and command-catalog context providers. Automatic default attachment remains a follow-up decision.
 
 Acceptance criteria:
 

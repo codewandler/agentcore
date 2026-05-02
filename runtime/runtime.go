@@ -97,6 +97,57 @@ func (e *Engine) ThreadRuntime() *ThreadRuntime {
 	return e.threadRuntime
 }
 
+// RegisterTools adds tools to the engine's base tool list for future turns.
+// Existing tool names are left unchanged so repeated registration is idempotent.
+func (e *Engine) RegisterTools(tools ...tool.Tool) error {
+	if e == nil {
+		return fmt.Errorf("runtime: engine is nil")
+	}
+	seen := make(map[string]bool, len(e.tools))
+	for _, existing := range e.tools {
+		if existing != nil {
+			seen[existing.Name()] = true
+		}
+	}
+	for _, t := range tools {
+		if t == nil {
+			continue
+		}
+		if seen[t.Name()] {
+			continue
+		}
+		e.tools = append(e.tools, t)
+		seen[t.Name()] = true
+	}
+	return nil
+}
+
+// RegisterContextProviders adds providers to the engine's active context manager
+// for future turns.
+func (e *Engine) RegisterContextProviders(providers ...agentcontext.Provider) error {
+	if e == nil {
+		return fmt.Errorf("runtime: engine is nil")
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	if e.threadRuntime != nil {
+		manager := e.threadRuntime.ContextManager()
+		if manager == nil {
+			return fmt.Errorf("runtime: thread runtime has no context manager")
+		}
+		return manager.Register(providers...)
+	}
+	if e.threadContexts == nil {
+		manager, err := agentcontext.NewManager()
+		if err != nil {
+			return err
+		}
+		e.threadContexts = manager
+	}
+	return e.threadContexts.Register(providers...)
+}
+
 // ContextState returns a human-readable summary of the last committed context
 // manager render state.
 func (e *Engine) ContextState() string {

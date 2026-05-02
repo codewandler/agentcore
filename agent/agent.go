@@ -273,6 +273,68 @@ func (a *Instance) MaterializedSystem() string {
 	return a.systemBuilder(a.workspace, a.system)
 }
 
+// RegisterTools adds tools to the running agent for future turns.
+// Existing tool names are left unchanged so repeated registration is idempotent.
+func (a *Instance) RegisterTools(tools ...tool.Tool) error {
+	if a == nil {
+		return fmt.Errorf("agent: instance is nil")
+	}
+	if len(tools) == 0 {
+		return nil
+	}
+	if a.toolset == nil {
+		a.toolset = standard.NewToolsetFromTools()
+	}
+	if err := a.toolset.Register(tools...); err != nil {
+		return err
+	}
+	if a.runtime != nil {
+		return a.runtime.RegisterTools(a.toolset.ActiveTools()...)
+	}
+	return nil
+}
+
+// RegisterContextProviders adds context providers to the running agent for
+// future turns. Provider keys already present on the agent are skipped so
+// repeated registration is idempotent.
+func (a *Instance) RegisterContextProviders(providers ...agentcontext.Provider) error {
+	if a == nil {
+		return fmt.Errorf("agent: instance is nil")
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	seen := make(map[agentcontext.ProviderKey]bool)
+	for _, provider := range a.contextProviders() {
+		if provider != nil {
+			seen[provider.Key()] = true
+		}
+	}
+	newProviders := make([]agentcontext.Provider, 0, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			return fmt.Errorf("agent: context provider is nil")
+		}
+		key := provider.Key()
+		if key == "" {
+			return fmt.Errorf("agent: context provider key is required")
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		newProviders = append(newProviders, provider)
+	}
+	if len(newProviders) == 0 {
+		return nil
+	}
+	a.extraContextProviders = append(a.extraContextProviders, newProviders...)
+	if a.runtime != nil {
+		return a.runtime.RegisterContextProviders(newProviders...)
+	}
+	return nil
+}
+
 func (a *Instance) applySpecTools() {
 	if a == nil || a.toolset == nil || len(a.specTools) == 0 {
 		return
