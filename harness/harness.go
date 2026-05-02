@@ -185,7 +185,7 @@ func (s *Session) workflowStart(ctx context.Context, workflowName string, input 
 	runID := workflow.NewRunID()
 	result := s.ExecuteWorkflow(ctx, workflowName, input, app.WithWorkflowRunID(runID))
 	if result.Error != nil {
-		return command.Text(fmt.Sprintf("workflow failed: %s\nrun: %s\nerror: %v", workflowName, runID, result.Error)), nil
+		return command.Text(fmt.Sprintf("workflow failed: %s\nrun: %s\nstatus: failed\nerror: %v", workflowName, runID, result.Error)), nil
 	}
 	return command.Text(renderWorkflowStartResult(workflowName, runID, result.Data)), nil
 }
@@ -193,7 +193,8 @@ func (s *Session) workflowStart(ctx context.Context, workflowName string, input 
 func renderWorkflowStartResult(workflowName string, runID workflow.RunID, data any) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "workflow completed: %s\n", workflowName)
-	fmt.Fprintf(&b, "run: %s", runID)
+	fmt.Fprintf(&b, "run: %s\n", runID)
+	b.WriteString("status: succeeded")
 	if wfResult, ok := data.(workflow.Result); ok {
 		data = wfResult.Data
 	}
@@ -233,11 +234,12 @@ func (s *Session) workflowRuns(ctx context.Context) (command.Result, error) {
 
 func renderWorkflowRunSummaries(summaries []workflow.RunSummary) string {
 	var b strings.Builder
-	b.WriteString("Workflow runs:")
+	b.WriteString("Workflow runs:\n")
+	fmt.Fprintf(&b, "%-18s  %-20s  %s", "RUN ID", "WORKFLOW", "STATUS")
 	for _, summary := range summaries {
-		fmt.Fprintf(&b, "\n- %s %s %s", summary.ID, summary.WorkflowName, summary.Status)
+		fmt.Fprintf(&b, "\n%-18s  %-20s  %s", summary.ID, summary.WorkflowName, summary.Status)
 		if summary.Error != "" {
-			fmt.Fprintf(&b, " error=%s", summary.Error)
+			fmt.Fprintf(&b, "  error=%s", summary.Error)
 		}
 	}
 	return b.String()
@@ -284,12 +286,19 @@ func renderWorkflowRunState(state workflow.RunState) string {
 	sort.Strings(ids)
 	for _, id := range ids {
 		step := state.Steps[id]
-		fmt.Fprintf(&b, "\n- %s: %s", step.ID, step.Status)
+		fmt.Fprintf(&b, "\n- %s", step.ID)
 		if step.ActionName != "" && step.ActionName != step.ID {
-			fmt.Fprintf(&b, " (%s)", step.ActionName)
+			fmt.Fprintf(&b, "\n  action: %s", step.ActionName)
+		}
+		fmt.Fprintf(&b, "\n  status: %s", step.Status)
+		if step.Attempt > 0 {
+			fmt.Fprintf(&b, "\n  attempt: %d", step.Attempt)
+		}
+		if !emptyWorkflowValue(step.Output) {
+			fmt.Fprintf(&b, "\n  output: %s", renderWorkflowValue(step.Output))
 		}
 		if step.Error != "" {
-			fmt.Fprintf(&b, " error=%s", step.Error)
+			fmt.Fprintf(&b, "\n  error: %s", step.Error)
 		}
 	}
 	return b.String()

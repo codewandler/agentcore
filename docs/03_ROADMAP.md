@@ -427,6 +427,7 @@ Near-term workflow UX and read-model follow-ups:
 - Add `/workflow runs --status succeeded|failed|running` filtering.
 - Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.
 - Carry started/completed timestamps and duration in `workflow.RunSummary`.
+- Introduce structured command/workflow result payloads plus generic renderers (for example `Display(mode)` or a renderer registry for `terminal`, `llm`, and machine-readable modes) so harness commands return data models instead of formatting terminal strings inline.
 - Include richer workflow definition metadata in `/workflow show <name>` when definitions gain input/output schemas, defaults, policy, and step descriptions.
 
 Medium-term workflow lifecycle follow-ups:

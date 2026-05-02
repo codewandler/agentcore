@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -81,13 +82,22 @@ func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
 	require.Contains(t, cmdResult.Text, "workflow: ask_flow")
 	require.Contains(t, cmdResult.Text, "status: succeeded")
 	require.Contains(t, cmdResult.Text, "output: workflow answer")
-	require.Contains(t, cmdResult.Text, "- ask: succeeded (ask_agent)")
+	require.Contains(t, cmdResult.Text, "- ask")
+	require.Contains(t, cmdResult.Text, "action: ask_agent")
+	require.Contains(t, cmdResult.Text, "status: succeeded")
+	require.Contains(t, cmdResult.Text, "attempt: 1")
+	require.Contains(t, cmdResult.Text, "output: workflow answer")
 
 	runsResult, err := session.Send(ctx, "/workflow runs")
 	require.NoError(t, err)
 	require.Equal(t, command.ResultText, runsResult.Kind)
 	require.Contains(t, runsResult.Text, "Workflow runs:")
-	require.Contains(t, runsResult.Text, "- run_harness ask_flow succeeded")
+	require.Contains(t, runsResult.Text, "RUN ID")
+	require.Contains(t, runsResult.Text, "WORKFLOW")
+	require.Contains(t, runsResult.Text, "STATUS")
+	require.Contains(t, runsResult.Text, "run_harness")
+	require.Contains(t, runsResult.Text, "ask_flow")
+	require.Contains(t, runsResult.Text, "succeeded")
 }
 
 func TestSessionWorkflowRunStateMissingLiveThread(t *testing.T) {
@@ -234,6 +244,7 @@ func TestSessionWorkflowStartCommandExecutesAndRecordsRun(t *testing.T) {
 	require.Equal(t, command.ResultText, result.Kind)
 	require.Contains(t, result.Text, "workflow completed: ask_flow")
 	require.Contains(t, result.Text, "run: run_")
+	require.Contains(t, result.Text, "status: succeeded")
 	require.Contains(t, result.Text, "output: started answer")
 	requireHarnessRequestContainsText(t, client.RequestAt(0), "hello from start")
 
@@ -246,8 +257,17 @@ func TestSessionWorkflowStartCommandExecutesAndRecordsRun(t *testing.T) {
 
 	runsResult, err := session.Send(ctx, "/workflow runs")
 	require.NoError(t, err)
+	require.Contains(t, runsResult.Text, "RUN ID")
 	require.Contains(t, runsResult.Text, string(summaries[0].ID))
-	require.Contains(t, runsResult.Text, "ask_flow succeeded")
+	require.Contains(t, runsResult.Text, "ask_flow")
+	require.Contains(t, runsResult.Text, "succeeded")
+
+	runResult, err := session.Send(ctx, "/workflow run "+string(summaries[0].ID))
+	require.NoError(t, err)
+	require.Contains(t, runResult.Text, "workflow run: "+string(summaries[0].ID))
+	require.Contains(t, runResult.Text, "workflow: ask_flow")
+	require.Contains(t, runResult.Text, "status: succeeded")
+	require.Contains(t, runResult.Text, "output: started answer")
 }
 
 func TestSessionWorkflowStartCommandUsageAndMissingWorkflow(t *testing.T) {
@@ -268,6 +288,56 @@ func TestSessionWorkflowStartCommandUsageAndMissingWorkflow(t *testing.T) {
 	result, err = session.Send(context.Background(), "/workflow start missing")
 	require.NoError(t, err)
 	require.Equal(t, "workflow \"missing\" not found", result.Text)
+}
+
+func TestSessionWorkflowStartCommandFailureIncludesRunStatusAndIsQueryable(t *testing.T) {
+	ctx := context.Background()
+	boom := "boom"
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithActions(action.New(action.Spec{Name: "fail"}, func(action.Ctx, any) action.Result {
+			return action.Result{Error: errors.New(boom)}
+		})),
+		app.WithWorkflows(workflow.Definition{Name: "failflow", Steps: []workflow.Step{{ID: "fail", Action: workflow.ActionRef{Name: "fail"}}}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	result, err := session.Send(ctx, "/workflow start failflow")
+	require.NoError(t, err)
+	require.Equal(t, command.ResultText, result.Kind)
+	require.Contains(t, result.Text, "workflow failed: failflow")
+	require.Contains(t, result.Text, "run: run_")
+	require.Contains(t, result.Text, "status: failed")
+	require.Contains(t, result.Text, "error: workflow \"failflow\" step \"fail\" failed: boom")
+
+	summaries, ok, err := session.WorkflowRuns(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, summaries, 1)
+	require.Equal(t, "failflow", summaries[0].WorkflowName)
+	require.Equal(t, workflow.RunFailed, summaries[0].Status)
+	require.Contains(t, summaries[0].Error, boom)
+
+	runsResult, err := session.Send(ctx, "/workflow runs")
+	require.NoError(t, err)
+	require.Contains(t, runsResult.Text, string(summaries[0].ID))
+	require.Contains(t, runsResult.Text, "failflow")
+	require.Contains(t, runsResult.Text, "failed")
+	require.Contains(t, runsResult.Text, "error=workflow \"failflow\" step \"fail\" failed: boom")
+
+	runResult, err := session.Send(ctx, "/workflow run "+string(summaries[0].ID))
+	require.NoError(t, err)
+	require.Contains(t, runResult.Text, "workflow run: "+string(summaries[0].ID))
+	require.Contains(t, runResult.Text, "workflow: failflow")
+	require.Contains(t, runResult.Text, "status: failed")
+	require.Contains(t, runResult.Text, "error: workflow \"failflow\" step \"fail\" failed: boom")
+	require.Contains(t, runResult.Text, "- fail")
+	require.Contains(t, runResult.Text, "status: failed")
 }
 
 func TestSessionWorkflowListNoWorkflows(t *testing.T) {
