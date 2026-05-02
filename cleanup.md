@@ -9,6 +9,7 @@
     - `agent.Instance` = lifecycle façade, not a growing god object
     - `harness.Session` = session/channel boundary
     - `command.Result` = structured result, rendered at boundaries
+    - output should be structured publications/events first; `io.Writer` plumbing is transitional channel-adapter compatibility
 
 - **Phase 1 — Fix tool ownership drift** ✅
   - Completed in:
@@ -74,9 +75,11 @@
     - context provider lifecycle
     - capability registry/session ownership
     - workflow recording
-  - Revisit payload display design:
+  - Revisit payload display / output publication design:
     - consider renderer registry only if it reduces code
     - do not add a registry if payload `Display(...)` is currently simpler
+    - audit writer-shaped seams such as `harness.SessionLoadConfig.Output`, app/agent output options, debug-message output, risk-log output, and terminal event handlers
+    - replace arbitrary writes with structured events/results/notices that channels can render differently
   - Revisit `terminal/cli.Load`:
     - move shared resource/app/session setup toward harness loading helpers if it deletes duplication
     - keep terminal as the channel boundary
@@ -91,5 +94,6 @@
   - No separate profile system for plugin composition; named composition is still `app.Plugin` plus `app.PluginFactory`.
   - No hidden default tool bundles in `app.New` or `agent.New`.
   - No command output discarded at terminal/channel boundaries.
+  - No new arbitrary writer spills in harness/runtime; prefer structured publications/events with channel renderers.
   - New seams should delete or collapse an old path.
   - Commit only after focused and full verification pass.

@@ -289,15 +289,15 @@ Current packages:
 
 Current strengths:
 
-- `terminal/cli.Load` already resolves resources, applies CLI overrides, creates `app.App`, instantiates the default agent, configures session resume, and wires terminal UI.
+- `terminal/cli.Load` resolves terminal/CLI concerns such as resources, CLI overrides, plugin refs, session resume flags, and terminal UI adapters; reusable app/default-agent/session construction is moving behind harness loading helpers.
 - REPL and UI are functional and dogfooded.
 - Runner events already provide a channel-friendly stream of text/tool/usage/step/error events.
 
 Evolution:
 
 - Treat terminal as the first channel.
-- Extract the shared resource/app/session setup from `terminal/cli.Load` into harness or app-host code.
-- Keep terminal rendering in `terminal/ui`.
+- Extract the shared resource/app/session setup from `terminal/cli.Load` into harness loading helpers while keeping terminal-specific policy in terminal.
+- Keep terminal rendering in `terminal/ui` and at terminal command-result boundaries.
 - Make terminal call harness/session APIs instead of constructing the whole stack directly.
 
 ### Agent package
@@ -659,6 +659,10 @@ harness.Service
 
 The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends, session metadata, session-scoped workflow browsing, and default session projections. It intentionally keeps command namespaces such as `/workflow` and `/session` in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?". Harness command namespaces are now declarative `command.Tree` definitions; `Session.Send`, `Session.CommandDescriptors`, and `Session.ExecuteCommand` all use the same tree-backed command model instead of separate switch-based parsing paths. Terminal one-shot mode renders returned `command.Result` values at the terminal boundary rather than discarding them.
 
+Harness loading is also absorbing reusable terminal setup: selecting and preparing the default agent from resolved resources, applying generic agent-spec overrides, translating session/app configuration into `app.Option` values, instantiating the default agent, creating the service, and opening the default session. Terminal remains responsible for terminal-only policy such as CLI flag interpretation, local CLI fallback composition, terminal event handlers, debug-message output, and risk-log presentation.
+
+Current `harness.SessionLoadConfig` still carries `io.Writer` output because the existing `app`/`agent`/terminal path accepts writers for output and event adapters. Treat that as a transitional compatibility seam, not the target channel model. Long-term harness and runtime components should not spill arbitrary bytes to a writer. They should publish structured events, command results, usage records, notices, and renderable payloads that a channel/frontend can consume and render with its own renderer. Terminal may adapt those structured publications into text; HTTP/SSE, TUI, JSON, and LLM-facing channels should be able to choose different renderers over the same content.
+
 ## Package evolution map
 
 | Current package | Future role |
@@ -693,6 +697,7 @@ Current cleanup work is enforcing these boundaries:
 - Session projections are not plugins; do not introduce `harness.Plugin` beside `app.Plugin`.
 - New commands belong in declarative `command.Tree` definitions, not handwritten switch namespaces.
 - Channel boundaries must render returned `command.Result` values instead of discarding them or formatting inside harness handlers.
+- Harness/runtime code should publish structured content/events rather than writing arbitrary bytes to `io.Writer`; any current writer fields are transitional channel-adapter compatibility seams.
 - Terminal event rendering lives in `terminal/*`; `agent.Instance` records runner events and delegates presentation through event handler factories.
 - New seams should delete or collapse old paths; avoid labeling permanent complexity as "transitional" without paying it down.
 
