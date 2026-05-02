@@ -352,8 +352,8 @@ Current state:
 - `app.App` registers resources/plugins and instantiates agents.
 - `agent.Instance` owns runtime/session setup.
 - `harness.Service` and `harness.Session` wrap the existing app/default-agent stack.
-- Harness exposes session-scoped workflow run lookup/listing over the default agent live thread.
-- Terminal send paths route through `harness.Session`, so harness can own session-aware slash-command behavior.
+- Harness exposes session metadata plus session-scoped workflow run lookup/listing over the default agent live thread.
+- Terminal send paths route through `harness.Session`, so harness can own session-aware slash-command namespaces such as `/session` and `/workflow`.
 
 Tasks:
 
@@ -370,7 +370,7 @@ Tasks:
 
 3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions. In progress
 4. Keep `terminal/cli.Load` as compatibility wrapper initially. ✅
-5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ initial session/workflow read APIs exist
+5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ `Session.Info`, `Session.AgentName`, `Session.ThreadID`, `/session info`, and workflow read APIs exist
 
 Acceptance criteria:
 

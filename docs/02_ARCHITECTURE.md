@@ -615,7 +615,7 @@ harness.Service
   supports multiple channels/triggers
 ```
 
-The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends and session-scoped workflow browsing. It intentionally keeps workflow command handling in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?".
+The first harness implementation already wraps `app.App` and the default `agent.Instance` enough for terminal sends, session metadata, and session-scoped workflow browsing. It intentionally keeps command namespaces such as `/workflow` and `/session` in harness rather than app: app remains the composition/execution registry, while harness owns the channel/session context needed to answer questions such as "which thread-backed workflow runs belong to this session?". Workflow command parsing lives behind a small harness command handler rather than directly on `Session`, keeping the session API focused on capabilities and read models.
 
 ## Package evolution map
 

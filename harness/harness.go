@@ -14,6 +14,7 @@ import (
 	"github.com/codewandler/agentsdk/agent"
 	"github.com/codewandler/agentsdk/app"
 	"github.com/codewandler/agentsdk/command"
+	"github.com/codewandler/agentsdk/thread"
 	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/usage"
 	"github.com/codewandler/agentsdk/workflow"
@@ -48,7 +49,10 @@ func (s *Session) Send(ctx context.Context, input string) (command.Result, error
 		return command.Result{}, fmt.Errorf("harness: app is required")
 	}
 	if isWorkflowCommand(input) {
-		return s.handleWorkflowCommand(ctx, input)
+		return WorkflowCommandHandler{Session: s}.HandleInput(ctx, input)
+	}
+	if isSessionCommand(input) {
+		return SessionCommandHandler{Session: s}.HandleInput(ctx, input)
 	}
 	return s.App.Send(ctx, input)
 }
@@ -96,114 +100,40 @@ func (s *Session) WorkflowRuns(ctx context.Context) ([]workflow.RunSummary, bool
 	return summaries, true, nil
 }
 
-func isWorkflowCommand(input string) bool {
-	input = strings.TrimSpace(input)
-	return input == "/workflow" || strings.HasPrefix(input, "/workflow ")
-}
-
-func (s *Session) handleWorkflowCommand(ctx context.Context, input string) (command.Result, error) {
-	_, params, err := command.Parse(input)
-	if err != nil {
-		return command.Result{}, err
+func (s *Session) Info() SessionInfo {
+	info := SessionInfo{}
+	if s == nil {
+		return info
 	}
-	if len(params.Args) == 0 {
-		return command.Text(workflowCommandUsage()), nil
+	if s.App != nil {
+		info.SessionID = s.App.SessionID()
+		info.ParamsSummary = s.App.ParamsSummary()
 	}
-	switch params.Args[0] {
-	case "list":
-		if len(params.Args) != 1 {
-			return command.Text("usage: /workflow list"), nil
+	if s.Agent != nil {
+		spec := s.Agent.Spec()
+		info.AgentName = spec.Name
+		if info.SessionID == "" {
+			info.SessionID = s.Agent.SessionID()
 		}
-		return s.workflowList(), nil
-	case "show":
-		if len(params.Args) != 2 {
-			return command.Text("usage: /workflow show <name>"), nil
+		if live := s.Agent.LiveThread(); live != nil {
+			info.ThreadID = live.ID()
+			info.BranchID = live.BranchID()
+			info.ThreadBacked = true
 		}
-		return s.workflowShow(params.Args[1]), nil
-	case "start":
-		if len(params.Args) < 2 {
-			return command.Text("usage: /workflow start <name> [input]"), nil
-		}
-		return s.workflowStart(ctx, params.Args[1], strings.Join(params.Args[2:], " "))
-	case "runs":
-		if len(params.Args) != 1 {
-			return command.Text("usage: /workflow runs"), nil
-		}
-		return s.workflowRuns(ctx)
-	case "run":
-		if len(params.Args) != 2 {
-			return command.Text("usage: /workflow run <run-id>"), nil
-		}
-		return s.workflowRun(ctx, workflow.RunID(params.Args[1]))
-	default:
-		return command.Text(workflowCommandUsage()), nil
 	}
+	return info
 }
 
-func workflowCommandUsage() string {
-	return "usage: /workflow <list|show|start|runs|run>\n  /workflow list\n  /workflow show <name>\n  /workflow start <name> [input]\n  /workflow runs\n  /workflow run <run-id>"
+func (s *Session) AgentName() string {
+	return s.Info().AgentName
 }
 
-func (s *Session) workflowList() command.Result {
-	if s == nil || s.App == nil {
-		return command.Display(WorkflowListPayload{})
+func (s *Session) ThreadID() (thread.ID, bool) {
+	info := s.Info()
+	if info.ThreadID == "" {
+		return "", false
 	}
-	return command.Display(WorkflowListPayload{Definitions: s.App.Workflows()})
-}
-
-func (s *Session) workflowShow(name string) command.Result {
-	if s == nil || s.App == nil {
-		return command.Text(fmt.Sprintf("workflow %q not found", name))
-	}
-	def, ok := s.App.Workflow(name)
-	if !ok {
-		return command.Text(fmt.Sprintf("workflow %q not found", name))
-	}
-	return command.Display(WorkflowDefinitionPayload{Definition: def})
-}
-
-func (s *Session) workflowStart(ctx context.Context, workflowName string, input string) (command.Result, error) {
-	if s == nil || s.App == nil {
-		return command.Result{}, fmt.Errorf("harness: app is required")
-	}
-	if _, ok := s.App.Workflow(workflowName); !ok {
-		return command.Text(fmt.Sprintf("workflow %q not found", workflowName)), nil
-	}
-	runID := workflow.NewRunID()
-	result := s.ExecuteWorkflow(ctx, workflowName, input, app.WithWorkflowRunID(runID))
-	if result.Error != nil {
-		return command.Display(WorkflowStartPayload{WorkflowName: workflowName, RunID: runID, Status: workflow.RunFailed, Error: result.Error.Error()}), nil
-	}
-	data := result.Data
-	if wfResult, ok := data.(workflow.Result); ok {
-		data = wfResult.Data
-	}
-	return command.Display(WorkflowStartPayload{WorkflowName: workflowName, RunID: runID, Status: workflow.RunSucceeded, Output: data}), nil
-}
-
-func (s *Session) workflowRun(ctx context.Context, runID workflow.RunID) (command.Result, error) {
-	state, ok, err := s.WorkflowRunState(ctx, runID)
-	if err != nil {
-		return command.Result{}, err
-	}
-	if !ok {
-		if _, hasStore := s.WorkflowRunStore(); !hasStore {
-			return command.Text("workflow runs require a thread-backed session"), nil
-		}
-		return command.Text(fmt.Sprintf("workflow run %q not found", runID)), nil
-	}
-	return command.Display(WorkflowRunPayload{State: state}), nil
-}
-
-func (s *Session) workflowRuns(ctx context.Context) (command.Result, error) {
-	summaries, ok, err := s.WorkflowRuns(ctx)
-	if err != nil {
-		return command.Result{}, err
-	}
-	if !ok {
-		return command.Text("workflow runs require a thread-backed session"), nil
-	}
-	return command.Display(WorkflowRunsPayload{Summaries: summaries}), nil
+	return info.ThreadID, true
 }
 
 func (s *Session) ParamsSummary() string {
@@ -214,10 +144,7 @@ func (s *Session) ParamsSummary() string {
 }
 
 func (s *Session) SessionID() string {
-	if s == nil || s.App == nil {
-		return ""
-	}
-	return s.App.SessionID()
+	return s.Info().SessionID
 }
 
 func (s *Session) Tracker() *usage.Tracker {

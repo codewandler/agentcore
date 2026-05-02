@@ -38,6 +38,41 @@ func TestDefaultSessionSendDelegatesToAppDefaultAgent(t *testing.T) {
 	requireHarnessRequestContainsText(t, client.RequestAt(0), "hello")
 }
 
+func TestSessionInfoCommandReportsHarnessMetadata(t *testing.T) {
+	application, err := app.New(
+		app.WithAgentSpec(agent.Spec{Name: "coder", Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000}}),
+		app.WithOutput(&bytes.Buffer{}),
+	)
+	require.NoError(t, err)
+	_, err = application.InstantiateAgent("coder", agent.WithClient(runnertest.NewClient()), agent.WithWorkspace(t.TempDir()), agent.WithSessionStoreDir(t.TempDir()))
+	require.NoError(t, err)
+	session, err := NewService(application).DefaultSession()
+	require.NoError(t, err)
+
+	info := session.Info()
+	require.NotEmpty(t, info.SessionID)
+	require.Equal(t, "coder", info.AgentName)
+	require.True(t, info.ThreadBacked)
+	require.NotEmpty(t, info.ThreadID)
+	threadID, ok := session.ThreadID()
+	require.True(t, ok)
+	require.Equal(t, info.ThreadID, threadID)
+	require.Equal(t, "coder", session.AgentName())
+
+	result, err := session.Send(context.Background(), "/session info")
+	require.NoError(t, err)
+	text := renderCommandResult(t, result)
+	require.Contains(t, text, "session:")
+	require.Contains(t, text, "id: "+info.SessionID)
+	require.Contains(t, text, "agent: coder")
+	require.Contains(t, text, "thread: "+string(info.ThreadID))
+	require.Contains(t, text, "model: model: test/model")
+
+	result, err = session.Send(context.Background(), "/session nope")
+	require.NoError(t, err)
+	require.Equal(t, "usage: /session [info]", renderCommandResult(t, result))
+}
+
 func TestSessionExecuteWorkflowRecordsThreadBackedRun(t *testing.T) {
 	ctx := context.Background()
 	client := runnertest.NewClient(runnertest.TextStream("workflow answer"))
