@@ -9,7 +9,7 @@
     - `agent.Instance` = lifecycle façade, not a growing god object
     - `harness.Session` = session/channel boundary
     - `command.Result` = structured result, rendered at boundaries
-    - output should be structured publications/events first; `io.Writer` plumbing is transitional channel-adapter compatibility
+    - future user-visible output should be structured displayable events/publications rendered by channels; current `io.Writer` plumbing is a transitional compatibility detail and not an immediate cleanup target
 
 - **Phase 1 — Fix tool ownership drift** ✅
   - Completed in:
@@ -68,6 +68,11 @@
   - Removed hidden standard-tool defaults from `app.New` and `agent.New`.
   - Deleted generic `tools/standard` and `plugins/standard`; local terminal composition now lives in `plugins/localcli`.
   - Added context-aware `app.PluginFactory` so hosts can resolve named plugin refs from `context.Context` plus config without introducing a separate profile system.
+  - Moved reusable terminal session loading into harness:
+    - `harness.LoadSession` owns app/default-agent/service/session construction and applies resume-session paths.
+    - `harness.EnsureFallbackAgent` owns fallback-agent injection mechanics while the local CLI plugin still owns the fallback spec.
+    - `harness.PrepareResolvedAgent` owns generic default-agent selection plus agent-spec overrides.
+    - `terminal/cli.Load` remains the compatibility/channel wrapper for CLI-specific policy.
 
 - **Remaining cleanup candidates**
   - Revisit `agent.Instance` responsibilities and move outward only where the slice deletes or simplifies more than it adds:
@@ -75,14 +80,15 @@
     - context provider lifecycle
     - capability registry/session ownership
     - workflow recording
-  - Revisit payload display / output publication design:
+  - Revisit `terminal/cli.Load`:
+    - continue moving shared resource/app/session setup toward harness loading helpers when it improves ownership boundaries
+    - keep terminal as the channel boundary for CLI flags, terminal fallback policy, terminal UI adapters, debug output, and experiments
+  - Revisit payload display / output publication design later, as a designed channel/displayable model rather than opportunistic cleanup:
+    - model user-visible output as structured displayable events/publications
+    - let channels/frontends render displayables differently for terminal, TUI, HTTP/SSE, JSON, and LLM-facing modes
     - consider renderer registry only if it reduces code
     - do not add a registry if payload `Display(...)` is currently simpler
-    - audit writer-shaped seams such as `harness.SessionLoadConfig.Output`, app/agent output options, debug-message output, risk-log output, and terminal event handlers
-    - replace arbitrary writes with structured events/results/notices that channels can render differently
-  - Revisit `terminal/cli.Load`:
-    - move shared resource/app/session setup toward harness loading helpers if it deletes duplication
-    - keep terminal as the channel boundary
+    - leave risk logging alone for now; it is experimental and needs separate design before migration
   - Revisit `app.App` workflow helper seams:
     - keep app as registry/composition host
     - move lifecycle-heavy workflow/session ownership toward harness when there is a concrete replacement path
@@ -94,6 +100,6 @@
   - No separate profile system for plugin composition; named composition is still `app.Plugin` plus `app.PluginFactory`.
   - No hidden default tool bundles in `app.New` or `agent.New`.
   - No command output discarded at terminal/channel boundaries.
-  - No new arbitrary writer spills in harness/runtime; prefer structured publications/events with channel renderers.
+  - Do not expand writer-shaped output in harness/runtime; long-term output should become structured displayable events/publications, but do not churn existing writer seams without a designed replacement.
   - New seams should delete or collapse an old path.
   - Commit only after focused and full verification pass.

@@ -134,6 +134,7 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 		Verbose:                    cfg.Verbose,
 		ToolTimeout:                cfg.ToolTimeout,
 		SessionStoreDir:            env.SessionsDir,
+		ResumeSession:              env.ResumePath,
 		AppOptions:                 appOpts,
 		AgentOptions:               agentOpts,
 	})
@@ -257,9 +258,6 @@ func agentOptions(cfg Config, env loadEnvironment, modelPolicy agent.ModelPolicy
 	}
 	if applyModelPolicy {
 		instOpts = append(instOpts, agent.WithModelPolicy(modelPolicy))
-	}
-	if env.ResumePath != "" {
-		instOpts = append(instOpts, agent.WithResumeSession(env.ResumePath))
 	}
 	if cfg.DebugMessage {
 		instOpts = append(instOpts, agent.WithRequestObserver(debugMessageObserver(env.Out)))

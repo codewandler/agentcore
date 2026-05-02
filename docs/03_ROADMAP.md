@@ -359,7 +359,7 @@ Current state:
 - Harness commands are backed by declarative `command.Tree` definitions and exposed through `Session.CommandDescriptors` and `Session.ExecuteCommand` for structured, non-stringified command execution.
 - Default harness sessions attach the command projection automatically: the `session_command` tool and agent command catalog context provider are available to agent turns, while `AgentCallable` policy still filters executable commands.
 - Terminal one-shot mode renders returned `command.Result` payloads instead of discarding command output.
-- Current harness load configuration still has writer-based compatibility fields for the existing app/agent terminal path; those should not become the long-term channel output model.
+- Current harness load configuration still has writer-based compatibility fields for the existing app/agent terminal path. These exist only because the current app/agent/terminal stack still accepts writers; they should not become the long-term channel output model.
 
 Tasks:
 
@@ -374,7 +374,7 @@ Tasks:
      emits runner events
    ```
 
-3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions. In progress: `harness.LoadSession` owns app/default-agent/service/session construction, `harness.EnsureFallbackAgent` owns fallback-agent injection mechanics, and `harness.PrepareResolvedAgent` owns generic default-agent selection plus agent-spec overrides.
+3. Move the reusable parts of `terminal/cli.Load` toward harness loading functions. In progress: `harness.LoadSession` owns app/default-agent/service/session construction and applies resume-session paths, `harness.EnsureFallbackAgent` owns fallback-agent injection mechanics, and `harness.PrepareResolvedAgent` owns generic default-agent selection plus agent-spec overrides.
 4. Keep `terminal/cli.Load` as compatibility wrapper initially. ✅
 5. Add session IDs and thread/session store handling through harness APIs where possible. ✅ `Session.Info`, `Session.AgentName`, `Session.ThreadID`, `/session info`, and workflow read APIs exist
 
@@ -411,7 +411,7 @@ Tasks:
 2. Define channel host/session interfaces based on what terminal actually needs.
 3. Adapt terminal REPL/UI to use harness APIs.
 4. Keep terminal rendering in `terminal/ui`.
-5. Replace writer-shaped output seams over time with structured publications/events that terminal, HTTP/SSE, TUI, JSON, and LLM-facing channels can render differently.
+5. Design a structured displayable/publication model before replacing writer-shaped output seams. Future channels should receive typed displayables/events that terminal, HTTP/SSE, TUI, JSON, and LLM-facing frontends can render differently.
 6. Keep CLI flags and UX stable.
 
 Acceptance criteria:
@@ -459,7 +459,7 @@ Near-term workflow UX and read-model follow-ups:
 - Add chronological ordering for `/workflow runs`; current ordering is deterministic by run ID.
 - Carry started/completed timestamps and duration in `workflow.RunSummary`. ✅ basic projected timing exists; richer trigger/source/input metadata remains future work.
 - Continue reducing presentation-specific command formatting by expanding structured payloads/renderers. Generic notice payloads, structured command result payloads, JSON rendering, and `Display(mode)` rendering exist; richer output payload descriptors and a renderer registry remain future work only if they reduce code.
-- Audit writer-shaped output seams such as `harness.SessionLoadConfig.Output`, app/agent output options, debug-message output, risk-log output, and terminal event handlers. Replace arbitrary writes with structured publications/events where doing so improves channel boundaries.
+- Design typed displayable events/publications for user-visible output. Treat `harness.SessionLoadConfig.Output`, app/agent output options, debug-message output, and terminal event handlers as compatibility seams until that design exists. Leave risk logging as a separate experiment that needs its own design before migration.
 - Include richer workflow definition metadata in `/workflow show <name>` when definitions gain input/output schemas, defaults, policy, and step descriptions.
 
 Medium-term workflow lifecycle follow-ups:

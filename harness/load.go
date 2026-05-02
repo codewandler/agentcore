@@ -22,6 +22,7 @@ type SessionLoadConfig struct {
 	DefaultAgent               string
 	Workspace                  string
 	IncludeGlobalUserResources bool
+	ResumeSession              string
 	Verbose                    bool
 	ToolTimeout                time.Duration
 	SessionStoreDir            string
@@ -93,7 +94,7 @@ func LoadSession(cfg SessionLoadConfig) (*LoadedSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	inst, err := application.InstantiateDefaultAgent(cfg.AgentOptions...)
+	inst, err := application.InstantiateDefaultAgent(sessionAgentOptions(cfg)...)
 	if err != nil {
 		return nil, err
 	}
@@ -145,4 +146,12 @@ func hasResourceBundle(bundle resource.ContributionBundle) bool {
 		len(bundle.Workflows) > 0 ||
 		len(bundle.SkillSources) > 0 ||
 		len(bundle.Diagnostics) > 0
+}
+
+func sessionAgentOptions(cfg SessionLoadConfig) []agent.Option {
+	opts := append([]agent.Option(nil), cfg.AgentOptions...)
+	if cfg.ResumeSession != "" {
+		opts = append(opts, agent.WithResumeSession(cfg.ResumeSession))
+	}
+	return opts
 }

@@ -120,3 +120,31 @@ func TestEnsureFallbackAgentSkipsWhenDisabled(t *testing.T) {
 	require.False(t, changed)
 	require.Empty(t, resolved.Bundle.AgentSpecs)
 }
+
+func TestLoadSessionAppliesResumeSession(t *testing.T) {
+	dir := t.TempDir()
+	first, err := LoadSession(SessionLoadConfig{
+		DefaultAgent:    "test",
+		SessionStoreDir: dir,
+		AppOptions: []app.Option{
+			app.WithAgentSpec(agent.Spec{Name: "test", System: "system"}),
+		},
+		AgentOptions: []agent.Option{agent.WithClient(runnertest.NewClient())},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Agent.SessionStorePath())
+
+	resumed, err := LoadSession(SessionLoadConfig{
+		DefaultAgent:    "test",
+		SessionStoreDir: dir,
+		ResumeSession:   first.Agent.SessionStorePath(),
+		AppOptions: []app.Option{
+			app.WithAgentSpec(agent.Spec{Name: "test", System: "system"}),
+		},
+		AgentOptions: []agent.Option{agent.WithClient(runnertest.NewClient())},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, first.Agent.SessionID(), resumed.Agent.SessionID())
+	require.Equal(t, first.Agent.SessionStorePath(), resumed.Agent.SessionStorePath())
+}
