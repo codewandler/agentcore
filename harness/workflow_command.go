@@ -38,9 +38,11 @@ func NewWorkflowCommand(session *Session) (*command.Tree, error) {
 	return command.NewTree("workflow", command.Description("Inspect and run workflows")).
 		Sub("list", command.Typed(h.workflowListCommand),
 			command.Description("List workflows"),
+			command.WithPolicy(command.Policy{UserCallable: true, AgentCallable: true}),
 		).
 		Sub("show", command.Typed(h.workflowShowCommand),
 			command.Description("Show workflow"),
+			command.WithPolicy(command.Policy{UserCallable: true, AgentCallable: true}),
 			command.TypedInput[workflowShowCommandInput](),
 			command.Arg("name").Required(),
 		).
