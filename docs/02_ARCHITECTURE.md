@@ -698,10 +698,10 @@ Current cleanup work is enforcing these boundaries:
 
 Observed top-level dependency issues:
 
-1. `agent` imports many high-level and low-level packages: runtime, runner, terminal UI, tools/standard, thread/jsonlstore, planner, usage, skill, context providers, and llmadapter routing.
-2. `runtime` imports `tools/skills` and `tools/toolmgmt`; this makes low-level runtime aware of concrete tool packages.
-3. `terminal` imports `agent`, `agentdir`, `app`, `runner`, `tool`, and `usage`; it is currently both channel and composition root.
-4. `app` imports `tools/standard`; this makes app composition default-heavy.
+1. `agent` still imports many high-level and low-level packages: runtime, runner, tools/standard, thread/jsonlstore, planner, usage, skill, context providers, and llmadapter routing. It no longer imports terminal UI; terminal rendering is attached through event handler factories.
+2. `runtime` no longer imports concrete model-callable tool packages such as `tools/skills` or `tools/toolmgmt`; tool and skill activation state is injected through neutral state-owner packages.
+3. `terminal` imports `agent`, `agentdir`, `app`, `runner`, `tool`, and `usage`; it remains both channel and CLI composition root for now.
+4. `app` imports `tools/standard`; this makes app composition default-heavy and is the next remaining default-bundle coupling to reduce.
 
 Migration strategy:
 

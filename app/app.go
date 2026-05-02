@@ -18,7 +18,6 @@ import (
 	"github.com/codewandler/agentsdk/resource"
 	"github.com/codewandler/agentsdk/skill"
 	"github.com/codewandler/agentsdk/tool"
-	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/agentsdk/usage"
 	"github.com/codewandler/agentsdk/workflow"
 )
@@ -68,6 +67,8 @@ type config struct {
 	datasources     []datasource.Definition
 	workflows       []workflow.Definition
 	tools           []tool.Tool
+	defaultTools    []tool.Tool
+	catalogTools    []tool.Tool
 	noBuiltins      bool
 	toolMiddlewares []tool.Middleware
 }
@@ -104,9 +105,9 @@ func New(opts ...Option) (*App, error) {
 		datasources:  datasource.NewRegistry(),
 		workflows:    map[string]workflow.Definition{},
 	}
-	defaultTools := standard.DefaultTools()
+	defaultTools := append([]tool.Tool(nil), cfg.defaultTools...)
 	defaultTools = append(defaultTools, cfg.tools...)
-	catalogTools := standard.CatalogTools()
+	catalogTools := append([]tool.Tool(nil), cfg.catalogTools...)
 	catalogTools = append(catalogTools, cfg.tools...)
 	catalog, err := tool.NewCatalog(catalogTools...)
 	if err != nil {
@@ -243,6 +244,17 @@ func WithAgentOutput(out io.Writer) Option {
 
 func WithTools(tools ...tool.Tool) Option {
 	return func(c *config) { c.tools = append(c.tools, tools...) }
+}
+
+// WithDefaultTools adds tools used by agents that do not explicitly select tools.
+func WithDefaultTools(tools ...tool.Tool) Option {
+	return func(c *config) { c.defaultTools = append(c.defaultTools, tools...) }
+}
+
+// WithCatalogTools adds tools that can be selected by agent specs without making
+// them active by default.
+func WithCatalogTools(tools ...tool.Tool) Option {
+	return func(c *config) { c.catalogTools = append(c.catalogTools, tools...) }
 }
 
 func WithActions(actions ...action.Action) Option {

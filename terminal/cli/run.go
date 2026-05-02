@@ -21,6 +21,7 @@ import (
 	"github.com/codewandler/agentsdk/terminal/repl"
 	"github.com/codewandler/agentsdk/terminal/ui"
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/llmadapter/unified"
 	"gopkg.in/yaml.v3"
 )
@@ -169,6 +170,8 @@ func Load(ctx context.Context, cfg Config) (*Loaded, error) {
 		app.WithResourceBundle(resolved.Bundle),
 		app.WithDefaultAgent(name),
 		app.WithDefaultSkillSourceDiscovery(app.SkillSourceDiscovery{WorkspaceDir: workspace, IncludeGlobalUserResources: policy.IncludeGlobalUserResources}),
+		app.WithDefaultTools(standard.DefaultTools()...),
+		app.WithCatalogTools(standard.CatalogTools()...),
 		app.WithAgentWorkspace(workspace),
 		app.WithAgentOutput(out),
 		app.WithAgentVerbose(cfg.Verbose),

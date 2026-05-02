@@ -23,6 +23,7 @@ import (
 	"github.com/codewandler/agentsdk/thread"
 	threadjsonlstore "github.com/codewandler/agentsdk/thread/jsonlstore"
 	"github.com/codewandler/agentsdk/tool"
+	"github.com/codewandler/agentsdk/tools/standard"
 	"github.com/codewandler/agentsdk/workflow"
 	"github.com/codewandler/llmadapter/unified"
 	"github.com/stretchr/testify/require"
@@ -498,12 +499,16 @@ func TestAppInstantiateAndSendRoutesToDefaultAgent(t *testing.T) {
 
 func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
-	app, err := New(WithAgentSpec(agent.Spec{
-		Name:      "coder",
-		System:    "You code.",
-		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
-		Tools:     []string{"git_status", "web_search"},
-	}), WithOutput(&bytes.Buffer{}))
+	app, err := New(
+		WithAgentSpec(agent.Spec{
+			Name:      "coder",
+			System:    "You code.",
+			Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+			Tools:     []string{"git_status", "web_search"},
+		}),
+		WithCatalogTools(standard.CatalogTools()...),
+		WithOutput(&bytes.Buffer{}),
+	)
 	require.NoError(t, err)
 
 	_, err = app.InstantiateAgent("coder",
@@ -513,13 +518,18 @@ func TestAppExplicitSpecCanSelectOptionalStandardTools(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAppDefaultSpecUsesDefaultToolsetNotFullCatalog(t *testing.T) {
+func TestAppDefaultSpecUsesConfiguredDefaultTools(t *testing.T) {
 	client := runnertest.NewClient(runnertest.TextStream("ok"))
-	app, err := New(WithAgentSpec(agent.Spec{
-		Name:      "coder",
-		System:    "You code.",
-		Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
-	}), WithOutput(&bytes.Buffer{}))
+	app, err := New(
+		WithAgentSpec(agent.Spec{
+			Name:      "coder",
+			System:    "You code.",
+			Inference: agent.InferenceOptions{Model: "test/model", MaxTokens: 1000},
+		}),
+		WithDefaultTools(standard.DefaultTools()...),
+		WithCatalogTools(standard.CatalogTools()...),
+		WithOutput(&bytes.Buffer{}),
+	)
 	require.NoError(t, err)
 
 	_, err = app.InstantiateAgent("coder",
